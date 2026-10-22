@@ -36,3 +36,4 @@ foreach ($file in $files) {
 $fullBundle = $bundleParts -join "`r`n`r`n"
 [System.IO.File]::WriteAllText((Join-Path (Get-Location) "js\bundle.js"), $fullBundle, [System.Text.Encoding]::UTF8)
 Write-Host "Bundle regenerado exitosamente: $((Get-Item 'js\bundle.js').Length) bytes"
+
