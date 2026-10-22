@@ -25,7 +25,7 @@ class GameManager {
     try {
       // Comprobar si hay partida guardada con la versión oficial
       const saved = SaveManager.loadGame();
-      if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V4") {
+      if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V5") {
         this.state = saved;
         if (this.state.isSeasonOver) {
           this.currentView = "season_end";
@@ -49,7 +49,7 @@ class GameManager {
     const standings = initStandings(teams);
 
     this.state = {
-      schemaVersion: "LALIGA_REAL_V4",
+      schemaVersion: "LALIGA_REAL_V5",
       userTeamId: selectedTeam.id,
       currentRound: 1,
       schedule,
