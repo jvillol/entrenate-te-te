@@ -1,0 +1,267 @@
+// Vista de la Pizarra Táctica y Alineaciones
+
+import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating } from "../engine/tactics.js";
+
+export function renderTacticsView(container, gameState, onSaveTactics) {
+  const team = gameState.teams.find(t => t.id === gameState.userTeamId);
+  let tactics = gameState.userTactics || {
+    formation: team.defaultFormation || "4-3-3",
+    mentality: "balanced",
+    lineup: team.players.slice(0, 11).map(p => p.id),
+    bench: team.players.slice(11).map(p => p.id)
+  };
+
+  let selectedPlayerId = null;
+
+  function render() {
+    const formationKey = tactics.formation;
+    const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
+
+    // Obtener objetos de jugador
+    const lineupPlayers = tactics.lineup.map(id => team.players.find(p => p.id === id)).filter(Boolean);
+    const benchPlayers = tactics.bench.map(id => team.players.find(p => p.id === id)).filter(Boolean);
+
+    const averages = calculateTeamAverages(lineupPlayers, formationKey);
+
+    container.innerHTML = `
+      <div class="min-h-screen bg-slate-950 text-white flex flex-col pb-20 select-none">
+        <!-- Barra Superior -->
+        <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs" style="background: linear-gradient(135deg, ${team.primaryColor}, ${team.secondaryColor}); color: ${team.textColor};">
+              ${team.shortName}
+            </div>
+            <div>
+              <h2 class="text-sm font-bold leading-tight">Pizarra Táctica</h2>
+              <span class="text-[10px] text-slate-400">Media del 11: <b class="text-amber-400">${averages.overall}</b> (DEL ${averages.attack} | MED ${averages.midfield} | DEF ${averages.defense})</span>
+            </div>
+          </div>
+          <button id="btn-auto-align" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 px-2.5 py-1.5 rounded-lg border border-slate-700 font-semibold active:scale-95 transition">
+            ⚡ Auto 11
+          </button>
+        </header>
+
+        <!-- Selector de Sistema y Mentalidad -->
+        <div class="p-3 bg-slate-900/50 border-b border-slate-800 flex flex-col gap-2">
+          <!-- Formaciones -->
+          <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+            <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Sistema:</span>
+            ${Object.keys(FORMATIONS).map(fKey => `
+              <button class="btn-formation px-3 py-1 rounded-full font-bold transition whitespace-nowrap ${tactics.formation === fKey ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}" data-formation="${fKey}">
+                ${fKey}
+              </button>
+            `).join('')}
+          </div>
+
+          <!-- Mentalidad -->
+          <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+            <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Actitud:</span>
+            ${MENTALITIES.map(m => `
+              <button class="btn-mentality px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${tactics.mentality === m.id ? 'bg-emerald-600 text-white border border-emerald-400' : 'bg-slate-800/80 text-slate-400 hover:text-white'}" data-mentality="${m.id}">
+                ${m.label}
+              </button>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Terreno de Juego Táctico (Campo Vertical) -->
+        <div class="p-3">
+          <div class="relative w-full max-w-sm mx-auto aspect-[3/4] bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+            <!-- Líneas del campo de fútbol -->
+            <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
+            <!-- Área portería rival arriba -->
+            <div class="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-14 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
+            <!-- Círculo central -->
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-24 h-24 border-2 border-white/30 rounded-full pointer-events-none"></div>
+            <!-- Línea de medio campo -->
+            <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
+            <!-- Área portería propia abajo -->
+            <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-32 h-14 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
+
+            <!-- Jugadores en el Campo -->
+            ${formation.slots.map((slot, index) => {
+              const player = lineupPlayers[index];
+              if (!player) return "";
+              const effRating = calculateEffectiveRating(player, slot.pos);
+              const isSelected = selectedPlayerId === player.id;
+
+              return `
+                <div class="slot-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
+                     style="left: ${slot.x}%; top: ${slot.y}%;"
+                     data-player-id="${player.id}">
+                  <!-- Ficha con dorsal y valoración -->
+                  <div class="w-10 h-10 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                    <span class="text-[9px] font-black leading-none">${effRating}</span>
+                    <span class="text-[8px] font-bold text-slate-300 leading-none">${slot.label}</span>
+                    <!-- Barra de energía en miniatura -->
+                    <div class="absolute -bottom-1 w-6 h-1 bg-black/60 rounded-full overflow-hidden">
+                      <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy}%;"></div>
+                    </div>
+                  </div>
+                  <!-- Nombre del futbolista -->
+                  <div class="bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-bold text-white tracking-tight mt-1 truncate max-w-[70px] text-center border border-white/10 shadow">
+                    ${player.name.split(' ').slice(-1)[0]}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- Instrucción de ayuda -->
+        <div class="px-4 text-center">
+          <p class="text-[11px] text-slate-400">
+            ${selectedPlayerId ? '👉 Ahora toca otro jugador del campo o del banquillo para intercambiarlos.' : '💡 Toca a un jugador para cambiar su posición o sustituirlo.'}
+          </p>
+        </div>
+
+        <!-- Banquillo y Reservas -->
+        <div class="px-3 mt-3 flex-1">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+              <span>🪑</span> Banquillo de Suplentes (${benchPlayers.length})
+            </h3>
+          </div>
+          <div class="space-y-1.5">
+            ${benchPlayers.map(p => {
+              const isSelected = selectedPlayerId === p.id;
+              return `
+                <div class="bench-player flex items-center justify-between p-2 rounded-xl border ${isSelected ? 'border-amber-400 bg-amber-500/10' : 'border-slate-800 bg-slate-900/60'} cursor-pointer active:scale-98 transition"
+                     data-player-id="${p.id}">
+                  <div class="flex items-center gap-2">
+                    <span class="w-5 text-center font-mono text-[10px] text-slate-500 font-bold">#${p.number}</span>
+                    <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
+                    <span class="text-xs font-bold text-slate-200">${p.name}</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <div class="w-12 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div class="h-full bg-emerald-400" style="width: ${p.energy}%;"></div>
+                    </div>
+                    <span class="text-xs font-black text-amber-400 px-1.5 py-0.5 bg-slate-800/80 rounded">${p.ovr}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Eventos
+    container.querySelectorAll(".btn-formation").forEach(btn => {
+      btn.onclick = () => {
+        tactics.formation = btn.dataset.formation;
+        onSaveTactics(tactics);
+        render();
+      };
+    });
+
+    container.querySelectorAll(".btn-mentality").forEach(btn => {
+      btn.onclick = () => {
+        tactics.mentality = btn.dataset.mentality;
+        onSaveTactics(tactics);
+        render();
+      };
+    });
+
+    // Auto-alinear (seleccionar automáticamente a los mejores para cada puesto)
+    const btnAuto = container.querySelector("#btn-auto-align");
+    if (btnAuto) {
+      btnAuto.onclick = () => {
+        autoAlignLineup();
+        onSaveTactics(tactics);
+        render();
+      };
+    }
+
+    // Intercambio táctico al tocar jugadores
+    container.querySelectorAll(".slot-player, .bench-player").forEach(el => {
+      el.onclick = () => {
+        const playerId = el.dataset.playerId;
+        handlePlayerTap(playerId);
+      };
+    });
+  }
+
+  function handlePlayerTap(tappedId) {
+    if (!selectedPlayerId) {
+      selectedPlayerId = tappedId;
+      render();
+      return;
+    }
+
+    if (selectedPlayerId === tappedId) {
+      selectedPlayerId = null;
+      render();
+      return;
+    }
+
+    // Intercambiar selectedPlayerId y tappedId
+    const inLineup1 = tactics.lineup.indexOf(selectedPlayerId);
+    const inBench1 = tactics.bench.indexOf(selectedPlayerId);
+
+    const inLineup2 = tactics.lineup.indexOf(tappedId);
+    const inBench2 = tactics.bench.indexOf(tappedId);
+
+    if (inLineup1 !== -1 && inLineup2 !== -1) {
+      // Ambos en el 11: intercambian posiciones
+      const tmp = tactics.lineup[inLineup1];
+      tactics.lineup[inLineup1] = tactics.lineup[inLineup2];
+      tactics.lineup[inLineup2] = tmp;
+    } else if (inLineup1 !== -1 && inBench2 !== -1) {
+      // Uno en el 11 y otro en el banquillo
+      tactics.lineup[inLineup1] = tappedId;
+      tactics.bench[inBench2] = selectedPlayerId;
+    } else if (inBench1 !== -1 && inLineup2 !== -1) {
+      tactics.bench[inBench1] = tappedId;
+      tactics.lineup[inLineup2] = selectedPlayerId;
+    } else if (inBench1 !== -1 && inBench2 !== -1) {
+      // Ambos en banquillo
+      const tmp = tactics.bench[inBench1];
+      tactics.bench[inBench1] = tactics.bench[inBench2];
+      tactics.bench[inBench2] = tmp;
+    }
+
+    selectedPlayerId = null;
+    onSaveTactics(tactics);
+    render();
+  }
+
+  function autoAlignLineup() {
+    const formationKey = tactics.formation;
+    const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
+    const allPlayers = [...team.players].sort((a, b) => b.ovr - a.ovr);
+    const used = new Set();
+    const newLineup = [];
+
+    // Asignar mejor portero primero
+    const gk = allPlayers.find(p => p.pos === "POR");
+    if (gk) {
+      newLineup[0] = gk.id;
+      used.add(gk.id);
+    }
+
+    // Para el resto de posiciones
+    formation.slots.forEach((slot, idx) => {
+      if (idx === 0) return; // Ya asignamos portero
+      // Buscar mejor jugador con posición exacta no usado
+      let best = allPlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
+      // Si no hay exacto, el mejor que quede
+      if (!best) {
+        best = allPlayers.find(p => !used.has(p.id) && p.pos !== "POR");
+      }
+      if (best) {
+        newLineup[idx] = best.id;
+        used.add(best.id);
+      }
+    });
+
+    const newBench = allPlayers.filter(p => !used.has(p.id)).map(p => p.id);
+
+    tactics.lineup = newLineup;
+    tactics.bench = newBench;
+  }
+
+  render();
+}
+
