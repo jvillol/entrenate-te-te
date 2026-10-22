@@ -177,7 +177,7 @@ const TEAMS_DATA = [
       { id: "vil_11", name: "Pape Gueye", number: 18, pos: "MCD", ovr: 80, pac: 74, sho: 68, pas: 77, dri: 77, def: 80, phy: 83, energy: 100 },
       { id: "vil_12", name: "Santi Comesana", number: 14, pos: "MC", ovr: 80, pac: 73, sho: 72, pas: 79, dri: 78, def: 78, phy: 80, energy: 100 },
       { id: "vil_13", name: "Dani Parejo", number: 10, pos: "MC", ovr: 81, pac: 50, sho: 78, pas: 87, dri: 78, def: 68, phy: 66, energy: 100 },
-      { id: "vil_14", name: "Pape Gueye", number: 18, pos: "MCD", ovr: 79, pac: 72, sho: 68, pas: 76, dri: 75, def: 78, phy: 82, energy: 100 },
+      { id: "vil_14", name: "Juan Bernat", number: 12, pos: "LI", ovr: 77, pac: 78, sho: 64, pas: 76, dri: 78, def: 74, phy: 70, energy: 100 },
       { id: "vil_15", name: "Ramon Terrats", number: 20, pos: "MC", ovr: 76, pac: 72, sho: 66, pas: 77, dri: 76, def: 72, phy: 74, energy: 100 },
       { id: "vil_16", name: "Denis Suarez", number: 6, pos: "MCO", ovr: 77, pac: 74, sho: 72, pas: 80, dri: 80, def: 56, phy: 64, energy: 100 },
       { id: "vil_17", name: "Yeremy Pino", number: 21, pos: "ED", ovr: 81, pac: 84, sho: 79, pas: 78, dri: 83, def: 46, phy: 68, energy: 100 },
@@ -419,7 +419,7 @@ const TEAMS_DATA = [
       { id: "osa_4", name: "Flavien Boyomo", number: 22, pos: "DFC", ovr: 78, pac: 78, sho: 36, pas: 66, dri: 64, def: 79, phy: 83, energy: 100 },
       { id: "osa_5", name: "Alejandro Catena", number: 24, pos: "DFC", ovr: 78, pac: 64, sho: 44, pas: 68, dri: 62, def: 80, phy: 82, energy: 100 },
       { id: "osa_6", name: "Jorge Herrando", number: 4, pos: "DFC", ovr: 76, pac: 68, sho: 34, pas: 64, dri: 58, def: 78, phy: 80, energy: 100 },
-      { id: "osa_7", name: "Juan Cruz", number: 3, pos: "LI", ovr: 76, pac: 74, sho: 48, pas: 68, dri: 68, def: 77, phy: 78, energy: 100 },
+      { id: "osa_7", name: "Juan Cruz Alvaro", number: 3, pos: "LI", ovr: 76, pac: 74, sho: 48, pas: 68, dri: 68, def: 77, phy: 78, energy: 100 },
       { id: "osa_8", name: "Abel Bretones", number: 23, pos: "LI", ovr: 77, pac: 82, sho: 60, pas: 72, dri: 75, def: 74, phy: 76, energy: 100 },
       { id: "osa_9", name: "Lucas Torro", number: 6, pos: "MCD", ovr: 78, pac: 62, sho: 62, pas: 75, dri: 72, def: 80, phy: 84, energy: 100 },
       { id: "osa_10", name: "Jon Moncayola", number: 7, pos: "MC", ovr: 78, pac: 77, sho: 71, pas: 77, dri: 77, def: 76, phy: 79, energy: 100 },
@@ -662,7 +662,7 @@ const TEAMS_DATA = [
       { id: "leg_12", name: "Darko Brasanac", number: 14, pos: "MC", ovr: 76, pac: 70, sho: 68, pas: 75, dri: 74, def: 75, phy: 76, energy: 100 },
       { id: "leg_13", name: "Seydouba Cisse", number: 8, pos: "MC", ovr: 76, pac: 78, sho: 70, pas: 74, dri: 77, def: 70, phy: 75, energy: 100 },
       { id: "leg_14", name: "Oscar Rodriguez", number: 7, pos: "MCO", ovr: 79, pac: 73, sho: 81, pas: 82, dri: 80, def: 56, phy: 69, energy: 100 },
-      { id: "leg_15", name: "Juan Cruz", number: 11, pos: "ED", ovr: 80, pac: 86, sho: 79, pas: 77, dri: 84, def: 48, phy: 68, energy: 100 },
+      { id: "leg_15", name: "Juan Cruz Diaz", number: 11, pos: "ED", ovr: 80, pac: 86, sho: 79, pas: 77, dri: 84, def: 48, phy: 68, energy: 100 },
       { id: "leg_16", name: "Dani Raba", number: 10, pos: "EI", ovr: 77, pac: 80, sho: 76, pas: 77, dri: 80, def: 46, phy: 68, energy: 100 },
       { id: "leg_17", name: "Munir El Haddadi", number: 23, pos: "EI", ovr: 76, pac: 78, sho: 76, pas: 75, dri: 78, def: 42, phy: 66, energy: 100 },
       { id: "leg_18", name: "Sebastien Haller", number: 18, pos: "DC", ovr: 79, pac: 64, sho: 80, pas: 71, dri: 73, def: 43, phy: 85, energy: 100 },
@@ -1124,8 +1124,8 @@ function pickScorer(team) {
 
 // Gestor de guardado en LocalStorage para partidas persistentes
 
-const SAVE_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V5";
-const CURRENT_SCHEMA = "LALIGA_REAL_V5";
+const SAVE_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V7";
+const CURRENT_SCHEMA = "LALIGA_REAL_V7";
 class SaveManager {
   static hasSavedGame() {
     try {
@@ -3596,7 +3596,7 @@ class GameManager {
     try {
       // Comprobar si hay partida guardada con la versión oficial
       const saved = SaveManager.loadGame();
-      if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V5") {
+      if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V7") {
         this.state = saved;
         if (this.state.isSeasonOver) {
           this.currentView = "season_end";
@@ -3620,7 +3620,7 @@ class GameManager {
     const standings = initStandings(teams);
 
     this.state = {
-      schemaVersion: "LALIGA_REAL_V5",
+      schemaVersion: "LALIGA_REAL_V7",
       userTeamId: selectedTeam.id,
       currentRound: 1,
       schedule,

@@ -1,7 +1,7 @@
 // Gestor de guardado en LocalStorage para partidas persistentes
 
-const SAVE_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V5";
-const CURRENT_SCHEMA = "LALIGA_REAL_V5";
+const SAVE_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V7";
+const CURRENT_SCHEMA = "LALIGA_REAL_V7";
 
 export class SaveManager {
   static hasSavedGame() {
