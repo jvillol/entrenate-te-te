@@ -44,8 +44,8 @@ export class MatchSimulator {
     this.awayPlayersOnPitch = this.awayTeam.players.slice(0, 11);
     this.awayBench = this.awayTeam.players.slice(11);
 
-    // Inicializar posiciones 2D relativas (0 - 100)
-    this.ball = { x: 50, y: 50, targetX: 50, targetY: 50, possession: "home" };
+    // Inicializar posiciones 3D relativas (x: 0-100, y: 0-100, z: 0-25)
+    this.ball = { x: 50, y: 50, z: 0, targetX: 50, targetY: 50, targetZ: 0, possession: "home" };
     this.init2DPositions();
 
     this.onTick = options.onTick || (() => {});
@@ -54,7 +54,7 @@ export class MatchSimulator {
   }
 
   init2DPositions() {
-    // Configurar posiciones base 2D en campo horizontal (0 = portería local, 100 = portería visitante)
+    // Configurar posiciones base 3D en campo horizontal (0 = portería local, 100 = portería visitante)
     const baseCoords = [
       { x: 5, y: 50 },  // POR
       { x: 22, y: 20 }, // LI
@@ -71,18 +71,30 @@ export class MatchSimulator {
 
     this.home2D = this.homePlayersOnPitch.map((p, idx) => ({
       player: p,
+      number: p.number || (idx + 1),
+      isKeeper: p.pos === "POR" || idx === 0,
       baseX: baseCoords[idx]?.x || 25,
       baseY: baseCoords[idx]?.y || 50,
       curX: baseCoords[idx]?.x || 25,
-      curY: baseCoords[idx]?.y || 50
+      curY: baseCoords[idx]?.y || 50,
+      targetX: baseCoords[idx]?.x || 25,
+      targetY: baseCoords[idx]?.y || 50,
+      animPhase: Math.random() * Math.PI * 2,
+      facingX: 1
     }));
 
     this.away2D = this.awayPlayersOnPitch.map((p, idx) => ({
       player: p,
+      number: p.number || (idx + 1),
+      isKeeper: p.pos === "POR" || idx === 0,
       baseX: 100 - (baseCoords[idx]?.x || 25),
       baseY: 100 - (baseCoords[idx]?.y || 50),
       curX: 100 - (baseCoords[idx]?.x || 25),
-      curY: 100 - (baseCoords[idx]?.y || 50)
+      curY: 100 - (baseCoords[idx]?.y || 50),
+      targetX: 100 - (baseCoords[idx]?.x || 25),
+      targetY: 100 - (baseCoords[idx]?.y || 50),
+      animPhase: Math.random() * Math.PI * 2,
+      facingX: -1
     }));
   }
 
@@ -152,9 +164,9 @@ export class MatchSimulator {
       return;
     }
 
-    // Intervalo de tiempo dinámico según velocidad
-    const baseInterval = 250; // ms por minuto de simulación en 1x
-    const interval = Math.max(25, baseInterval / this.speed);
+    // Intervalo de tiempo dinámico según velocidad (Pausado y visualmente legible)
+    const baseInterval = 850; // ms por minuto en 1x (a 0.5x dura ~2.5 minutos de partido emocionante)
+    const interval = Math.max(80, Math.round(baseInterval / this.speed));
 
     setTimeout(() => this.loop(), interval);
   }
@@ -213,11 +225,16 @@ export class MatchSimulator {
       // Ocasión de ataque local
       const attackScore = (homeAtk / (homeAtk + awayDef)) * 0.28;
       if (chanceRoll < attackScore) {
+        this.ball.targetZ = 10 + Math.random() * 12; // Arco 3D hacia portería
         this.resolveGoalOpportunity("home");
       } else if (chanceRoll < attackScore + 0.05) {
-        // Córner o falta
+        // Córner o falta colgada al área
+        this.ball.targetZ = 18;
         this.stats.corners.home++;
         this.triggerAlert("CÓRNER", `🚩 Córner para ${this.homeTeam.shortName}`, "home");
+      } else {
+        // Pase o centro medio
+        this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
       }
     } else {
       // Balón atacando hacia la izquierda (x: 50 -> 10)
@@ -226,10 +243,14 @@ export class MatchSimulator {
 
       const attackScore = (awayAtk / (awayAtk + homeDef)) * 0.26;
       if (chanceRoll < attackScore) {
+        this.ball.targetZ = 10 + Math.random() * 12;
         this.resolveGoalOpportunity("away");
       } else if (chanceRoll < attackScore + 0.05) {
+        this.ball.targetZ = 18;
         this.stats.corners.away++;
         this.triggerAlert("CÓRNER", `🚩 Córner para ${this.awayTeam.shortName}`, "away");
+      } else {
+        this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
       }
     }
 
@@ -244,7 +265,7 @@ export class MatchSimulator {
       }
     }
 
-    // Actualizar coordenadas 2D de los jugadores hacia el balón para visualización dinámica
+    // Actualizar coordenadas 3D de los jugadores hacia el balón para visualización dinámica
     this.update2DPositions();
   }
 
@@ -336,18 +357,52 @@ export class MatchSimulator {
     this.ball.x += (ballX - this.ball.x) * 0.45;
     this.ball.y += (ballY - this.ball.y) * 0.45;
 
+    // Altura vertical del balón (z)
+    if (this.ball.targetZ !== undefined) {
+      this.ball.z += ((this.ball.targetZ || 0) - (this.ball.z || 0)) * 0.35;
+      if (Math.abs(this.ball.z - (this.ball.targetZ || 0)) < 1) {
+        this.ball.targetZ = 0;
+      }
+    } else {
+      this.ball.z = 0;
+    }
+
     this.home2D.forEach(p => {
       const shiftX = (ballX - 50) * 0.35;
       const shiftY = (ballY - 50) * 0.25;
-      p.curX = Math.max(3, Math.min(95, p.baseX + shiftX + (Math.random() * 4 - 2)));
-      p.curY = Math.max(5, Math.min(95, p.baseY + shiftY + (Math.random() * 4 - 2)));
+      p.targetX = Math.max(3, Math.min(95, p.baseX + shiftX + (Math.random() * 4 - 2)));
+      p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
+
+      const dx = p.targetX - p.curX;
+      const dy = p.targetY - p.curY;
+      const dist = Math.hypot(dx, dy);
+
+      p.curX += dx * 0.25;
+      p.curY += dy * 0.25;
+
+      if (Math.abs(dx) > 0.2) {
+        p.facingX = dx > 0 ? 1 : -1;
+      }
+      p.animPhase += dist * 0.2 + 0.08;
     });
 
     this.away2D.forEach(p => {
       const shiftX = (ballX - 50) * 0.35;
       const shiftY = (ballY - 50) * 0.25;
-      p.curX = Math.max(3, Math.min(95, p.baseX + shiftX + (Math.random() * 4 - 2)));
-      p.curY = Math.max(5, Math.min(95, p.baseY + shiftY + (Math.random() * 4 - 2)));
+      p.targetX = Math.max(5, Math.min(97, p.baseX + shiftX + (Math.random() * 4 - 2)));
+      p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
+
+      const dx = p.targetX - p.curX;
+      const dy = p.targetY - p.curY;
+      const dist = Math.hypot(dx, dy);
+
+      p.curX += dx * 0.25;
+      p.curY += dy * 0.25;
+
+      if (Math.abs(dx) > 0.2) {
+        p.facingX = dx > 0 ? 1 : -1;
+      }
+      p.animPhase += dist * 0.2 + 0.08;
     });
   }
 

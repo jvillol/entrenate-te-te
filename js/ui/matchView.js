@@ -298,7 +298,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
-      speed: 2, // Velocidad fluida por defecto
+      speed: 0.5, // Velocidad pausada y disfrutable por defecto (simulación más lenta)
       homeMentality: isUserHome ? gameState.userTactics.mentality : "balanced",
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       onTick: updateMatchUI,
@@ -416,9 +416,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </button>
 
             <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
-              <button class="btn-speed px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-speed="1">1x</button>
-              <button class="btn-speed px-2.5 py-1 rounded-lg bg-sky-500 text-white shadow" data-speed="2">2x</button>
-              <button class="btn-speed px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-speed="4">4x</button>
+              <button class="btn-speed px-2 py-1 rounded-lg bg-sky-500 text-white shadow font-extrabold" data-speed="0.5">🐢 0.5x</button>
+              <button class="btn-speed px-2 py-1 rounded-lg text-slate-400 hover:text-white" data-speed="1">⚽ 1x</button>
+              <button class="btn-speed px-2 py-1 rounded-lg text-slate-400 hover:text-white" data-speed="2">⚡ 2x</button>
             </div>
 
             <button id="btn-skip-end" class="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 transition">
@@ -506,75 +506,432 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
     resizeCanvas();
 
+    // ==========================================
+    // MOTOR GRÁFICO 3D (ESTADIO Y MONIGOTES)
+    // ==========================================
+    function getKitColors() {
+      const hPrimary = homeTeam.primaryColor || "#ffffff";
+      const hSecondary = homeTeam.secondaryColor || "#1e293b";
+      let aPrimary = awayTeam.primaryColor || "#000000";
+      let aSecondary = awayTeam.secondaryColor || "#ffffff";
+
+      // Si los colores coinciden visualmente, la visita usa su segunda equipación
+      if (hPrimary.toLowerCase() === aPrimary.toLowerCase()) {
+        aPrimary = awayTeam.secondaryColor || "#f59e0b";
+      }
+
+      return {
+        home: {
+          jersey: hPrimary,
+          shorts: hSecondary,
+          keeper: "#10b981", // Verde neón
+          number: homeTeam.textColor || "#ffffff"
+        },
+        away: {
+          jersey: aPrimary,
+          shorts: aSecondary,
+          keeper: "#f59e0b", // Ámbar neón
+          number: awayTeam.textColor || "#ffffff"
+        }
+      };
+    }
+
+    const kits = getKitColors();
+
+    // Proyección de coordenadas 3D a pantalla con perspectiva isométrica
+    function toScreen3D(pitchX, pitchY, pitchZ = 0, w, h) {
+      const nx = Math.max(-5, Math.min(105, pitchX)) / 100;
+      const ny = Math.max(-5, Math.min(105, pitchY)) / 100;
+
+      // Inclinación vertical del terreno
+      const topY = h * 0.17;
+      const botY = h * 0.86;
+      const groundY = topY + ny * (botY - topY);
+
+      // Perspectiva horizontal (trapecio: más estrecho al fondo, más ancho al frente)
+      const topXMin = w * 0.13;
+      const topXMax = w * 0.87;
+      const botXMin = w * 0.04;
+      const botXMax = w * 0.96;
+
+      const leftX = topXMin + ny * (botXMin - topXMin);
+      const rightX = topXMax + ny * (botXMax - topXMax);
+      const groundX = leftX + nx * (rightX - leftX);
+
+      // Escala por profundidad (objetos al fondo son más pequeños)
+      const scale = 0.72 + ny * 0.52;
+
+      // Elevación vertical 3D (eje Z para balones altos)
+      const screenX = groundX;
+      const screenY = groundY - (pitchZ * scale * 2.2);
+
+      return { groundX, groundY, screenX, screenY, scale };
+    }
+
+    function draw3DBox(ctx, x1, y1, x2, y2, w, h) {
+      const p1 = toScreen3D(x1, y1, 0, w, h);
+      const p2 = toScreen3D(x2, y1, 0, w, h);
+      const p3 = toScreen3D(x2, y2, 0, w, h);
+      const p4 = toScreen3D(x1, y2, 0, w, h);
+
+      ctx.beginPath();
+      ctx.moveTo(p1.groundX, p1.groundY);
+      ctx.lineTo(p2.groundX, p2.groundY);
+      ctx.lineTo(p3.groundX, p3.groundY);
+      ctx.lineTo(p4.groundX, p4.groundY);
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    function draw3DGoal(ctx, x, y1, y2, dir, w, h) {
+      const gPost1 = toScreen3D(x, y1, 0, w, h);
+      const gPost2 = toScreen3D(x, y2, 0, w, h);
+      const gTop1 = toScreen3D(x, y1, 11, w, h);
+      const gTop2 = toScreen3D(x, y2, 11, w, h);
+
+      const netBackX = x - dir * 4;
+      const tNet1 = toScreen3D(netBackX, y1, 9, w, h);
+      const tNet2 = toScreen3D(netBackX, y2, 9, w, h);
+
+      // Malla de la red translúcida
+      ctx.beginPath();
+      ctx.moveTo(gTop1.screenX, gTop1.screenY);
+      ctx.lineTo(gTop2.screenX, gTop2.screenY);
+      ctx.lineTo(tNet2.screenX, tNet2.screenY);
+      ctx.lineTo(tNet1.screenX, tNet1.screenY);
+      ctx.closePath();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
+      ctx.fill();
+
+      // Postes y larguero 3D
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.5;
+
+      ctx.beginPath();
+      ctx.moveTo(gPost1.groundX, gPost1.groundY);
+      ctx.lineTo(gTop1.screenX, gTop1.screenY);
+      ctx.lineTo(gTop2.screenX, gTop2.screenY);
+      ctx.lineTo(gPost2.groundX, gPost2.groundY);
+      ctx.stroke();
+    }
+
+    function draw3DPitch(ctx, w, h) {
+      // Grada y noche de fondo
+      ctx.fillStyle = "#080c14";
+      ctx.fillRect(0, 0, w, h);
+
+      // Perímetro exterior del césped
+      const pTL = toScreen3D(-4, -4, 0, w, h);
+      const pTR = toScreen3D(104, -4, 0, w, h);
+      const pBR = toScreen3D(104, 104, 0, w, h);
+      const pBL = toScreen3D(-4, 104, 0, w, h);
+
+      ctx.beginPath();
+      ctx.moveTo(pTL.groundX, pTL.groundY);
+      ctx.lineTo(pTR.groundX, pTR.groundY);
+      ctx.lineTo(pBR.groundX, pBR.groundY);
+      ctx.lineTo(pBL.groundX, pBL.groundY);
+      ctx.closePath();
+      ctx.fillStyle = "#14532d";
+      ctx.fill();
+
+      // Bandas de césped cortado en perspectiva 3D
+      const numStripes = 10;
+      for (let i = 0; i < numStripes; i++) {
+        const x1 = (i / numStripes) * 100;
+        const x2 = ((i + 1) / numStripes) * 100;
+        const sTL = toScreen3D(x1, 0, 0, w, h);
+        const sTR = toScreen3D(x2, 0, 0, w, h);
+        const sBR = toScreen3D(x2, 100, 0, w, h);
+        const sBL = toScreen3D(x1, 100, 0, w, h);
+
+        ctx.beginPath();
+        ctx.moveTo(sTL.groundX, sTL.groundY);
+        ctx.lineTo(sTR.groundX, sTR.groundY);
+        ctx.lineTo(sBR.groundX, sBR.groundY);
+        ctx.lineTo(sBL.groundX, sBL.groundY);
+        ctx.closePath();
+        ctx.fillStyle = i % 2 === 0 ? "#15803d" : "#16a34a";
+        ctx.fill();
+      }
+
+      // Valla publicitaria de fondo
+      const adL = toScreen3D(0, 0, 0, w, h);
+      const adR = toScreen3D(100, 0, 0, w, h);
+      ctx.beginPath();
+      ctx.moveTo(adL.groundX, adL.groundY - 14);
+      ctx.lineTo(adR.groundX, adR.groundY - 14);
+      ctx.lineTo(adR.groundX, adR.groundY);
+      ctx.lineTo(adL.groundX, adL.groundY);
+      ctx.closePath();
+      ctx.fillStyle = "#1e293b";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.45)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Líneas blancas del terreno de juego
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.lineWidth = 1.8;
+
+      // Líneas de banda y fondo
+      const cTL = toScreen3D(0, 0, 0, w, h);
+      const cTR = toScreen3D(100, 0, 0, w, h);
+      const cBR = toScreen3D(100, 100, 0, w, h);
+      const cBL = toScreen3D(0, 100, 0, w, h);
+
+      ctx.beginPath();
+      ctx.moveTo(cTL.groundX, cTL.groundY);
+      ctx.lineTo(cTR.groundX, cTR.groundY);
+      ctx.lineTo(cBR.groundX, cBR.groundY);
+      ctx.lineTo(cBL.groundX, cBL.groundY);
+      ctx.closePath();
+      ctx.stroke();
+
+      // Línea de medio campo
+      const midT = toScreen3D(50, 0, 0, w, h);
+      const midB = toScreen3D(50, 100, 0, w, h);
+      ctx.beginPath();
+      ctx.moveTo(midT.groundX, midT.groundY);
+      ctx.lineTo(midB.groundX, midB.groundY);
+      ctx.stroke();
+
+      // Círculo central 3D elíptico
+      ctx.beginPath();
+      for (let a = 0; a <= Math.PI * 2 + 0.1; a += 0.2) {
+        const cx = 50 + Math.cos(a) * 9.15;
+        const cy = 50 + Math.sin(a) * 9.15;
+        const pt = toScreen3D(cx, cy, 0, w, h);
+        if (a === 0) ctx.moveTo(pt.groundX, pt.groundY);
+        else ctx.lineTo(pt.groundX, pt.groundY);
+      }
+      ctx.stroke();
+
+      // Punto central
+      const centerDot = toScreen3D(50, 50, 0, w, h);
+      ctx.beginPath();
+      ctx.arc(centerDot.groundX, centerDot.groundY, 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+
+      // Áreas Locales
+      draw3DBox(ctx, 0, 18, 16, 82, w, h);
+      draw3DBox(ctx, 0, 36, 6, 64, w, h);
+
+      // Áreas Visitantes
+      draw3DBox(ctx, 84, 18, 100, 82, w, h);
+      draw3DBox(ctx, 94, 36, 100, 64, w, h);
+
+      // Porterías 3D
+      draw3DGoal(ctx, 0, 44, 56, -1, w, h);
+      draw3DGoal(ctx, 100, 44, 56, 1, w, h);
+    }
+
+    // Dibujo del monigote 3D con equipación y animación de carrera
+    function drawMonigote3D(ctx, item) {
+      const { groundX, groundY, scale, facingX, animPhase, side, isKeeper, number } = item;
+      const kit = side === "home" ? kits.home : kits.away;
+      const jerseyColor = isKeeper ? kit.keeper : kit.jersey;
+      const shortsColor = kit.shorts;
+
+      const sc = scale;
+
+      // 1. Sombra ovalada suave bajo los pies
+      ctx.beginPath();
+      ctx.ellipse(groundX, groundY, 7.5 * sc, 3.2 * sc, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+      ctx.fill();
+
+      const hipY = groundY - 11 * sc;
+      const neckY = groundY - 22 * sc;
+      const headY = groundY - 26 * sc;
+
+      // Ciclo de carrera
+      const legStride = Math.sin(animPhase) * 5 * sc * facingX;
+      const armStride = Math.cos(animPhase) * 4 * sc * facingX;
+
+      // 2. Piernas
+      ctx.strokeStyle = shortsColor;
+      ctx.lineWidth = 2.2 * sc;
+      ctx.lineCap = "round";
+
+      // Pierna trasera
+      ctx.beginPath();
+      ctx.moveTo(groundX - 2 * sc, hipY);
+      ctx.lineTo(groundX - 2 * sc - legStride, groundY);
+      ctx.stroke();
+
+      // Bota trasera
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(groundX - 3 * sc - legStride, groundY - 2 * sc, 4 * sc * facingX, 2.5 * sc);
+
+      // Pierna delantera
+      ctx.beginPath();
+      ctx.moveTo(groundX + 2 * sc, hipY);
+      ctx.lineTo(groundX + 2 * sc + legStride, groundY);
+      ctx.stroke();
+
+      // Bota delantera
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(groundX + 1 * sc + legStride, groundY - 2 * sc, 4 * sc * facingX, 2.5 * sc);
+
+      // 3. Brazo trasero
+      ctx.strokeStyle = jerseyColor;
+      ctx.lineWidth = 2 * sc;
+      ctx.beginPath();
+      ctx.moveTo(groundX, neckY + 3 * sc);
+      ctx.lineTo(groundX - armStride, hipY);
+      ctx.stroke();
+
+      // 4. Torso con camiseta oficial
+      const torsoW = 8.5 * sc;
+      const torsoH = 10 * sc;
+      ctx.fillStyle = jerseyColor;
+      ctx.beginPath();
+      ctx.roundRect(groundX - torsoW / 2, neckY, torsoW, torsoH, 2 * sc);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+
+      // Dorsal en la camiseta
+      ctx.fillStyle = kit.number;
+      ctx.font = `bold ${Math.round(6.5 * sc)}px monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`${number}`, groundX, neckY + torsoH / 2);
+
+      // 5. Brazo delantero
+      ctx.strokeStyle = jerseyColor;
+      ctx.lineWidth = 2 * sc;
+      ctx.beginPath();
+      ctx.moveTo(groundX, neckY + 3 * sc);
+      ctx.lineTo(groundX + armStride, hipY);
+      ctx.stroke();
+
+      // Guantes del portero
+      if (isKeeper) {
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(groundX + armStride, hipY, 2.2 * sc, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 6. Cabeza del monigote 3D
+      const headR = 3.8 * sc;
+      ctx.beginPath();
+      ctx.arc(groundX, headY, headR, 0, Math.PI * 2);
+      ctx.fillStyle = "#fcd34d"; // Tono de piel estilizado
+      ctx.fill();
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+
+      // Pelo / silueta superior
+      ctx.beginPath();
+      ctx.arc(groundX, headY - 1 * sc, headR * 0.9, Math.PI, 0);
+      ctx.fillStyle = "#1e293b";
+      ctx.fill();
+    }
+
+    // Dibujo del balón 3D con sombra y altura en el aire
+    function drawBall3D(ctx, item) {
+      const { groundX, groundY, screenX, screenY, scale, z } = item;
+
+      // Sombra en el césped que se achica con la elevación Z
+      const shadowR = Math.max(2, 4.8 * scale - (z || 0) * 0.1);
+      const shadowAlpha = Math.max(0.12, 0.42 - (z || 0) * 0.015);
+      ctx.beginPath();
+      ctx.ellipse(groundX, groundY, shadowR * 1.3, shadowR * 0.7, 0, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
+      ctx.fill();
+
+      // Esfera del balón 3D
+      const ballR = 4.2 * scale;
+      ctx.beginPath();
+      ctx.arc(screenX, screenY, ballR, 0, Math.PI * 2);
+
+      const grad = ctx.createRadialGradient(
+        screenX - ballR * 0.35, screenY - ballR * 0.35, ballR * 0.1,
+        screenX, screenY, ballR
+      );
+      grad.addColorStop(0, "#ffffff");
+      grad.addColorStop(0.7, "#e2e8f0");
+      grad.addColorStop(1, "#64748b");
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Bucle principal de renderizado 3D a 60 FPS
     function drawPitch() {
       if (!ctx || !canvas) return;
       resizeCanvas();
       const w = canvas.width;
       const h = canvas.height;
-      const dpr = window.devicePixelRatio || 1;
 
-      // Césped
-      ctx.fillStyle = "#166534";
-      ctx.fillRect(0, 0, w, h);
-      const stripes = 8;
-      const stripeW = w / stripes;
-      for (let i = 0; i < stripes; i += 2) {
-        ctx.fillStyle = "#15803d";
-        ctx.fillRect(i * stripeW, 0, stripeW, h);
-      }
+      // 1. Dibujar terreno de juego en perspectiva 3D
+      draw3DPitch(ctx, w, h);
 
-      // Líneas
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-      ctx.lineWidth = 2 * dpr;
-      ctx.strokeRect(10, 10, w - 20, h - 20);
-      ctx.beginPath();
-      ctx.moveTo(w / 2, 10);
-      ctx.lineTo(w / 2, h - 10);
-      ctx.stroke();
-
-      ctx.beginPath();
-      ctx.arc(w / 2, h / 2, 35 * dpr, 0, Math.PI * 2);
-      ctx.stroke();
-
-      const boxW = 55 * dpr;
-      const boxH = 90 * dpr;
-      ctx.strokeRect(10, (h - boxH) / 2, boxW, boxH);
-      ctx.strokeRect(w - 10 - boxW, (h - boxH) / 2, boxW, boxH);
-
+      // 2. Recolectar entidades para depth sorting (Z-ordering de atrás a adelante)
       const state = simulator.getState();
+      const entities = [];
+
       state.home2D.forEach(p => {
-        const px = (p.curX / 100) * w;
-        const py = (p.curY / 100) * h;
-        ctx.beginPath();
-        ctx.arc(px, py, 6 * dpr, 0, Math.PI * 2);
-        ctx.fillStyle = homeTeam.primaryColor;
-        ctx.fill();
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+        const pt = toScreen3D(p.curX, p.curY, 0, w, h);
+        entities.push({
+          type: "player",
+          side: "home",
+          number: p.number,
+          isKeeper: p.isKeeper,
+          animPhase: p.animPhase || 0,
+          facingX: p.facingX || 1,
+          groundX: pt.groundX,
+          groundY: pt.groundY,
+          scale: pt.scale
+        });
       });
 
       state.away2D.forEach(p => {
-        const px = (p.curX / 100) * w;
-        const py = (p.curY / 100) * h;
-        ctx.beginPath();
-        ctx.arc(px, py, 6 * dpr, 0, Math.PI * 2);
-        ctx.fillStyle = awayTeam.primaryColor;
-        ctx.fill();
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+        const pt = toScreen3D(p.curX, p.curY, 0, w, h);
+        entities.push({
+          type: "player",
+          side: "away",
+          number: p.number,
+          isKeeper: p.isKeeper,
+          animPhase: p.animPhase || 0,
+          facingX: p.facingX || -1,
+          groundX: pt.groundX,
+          groundY: pt.groundY,
+          scale: pt.scale
+        });
       });
 
-      const bx = (state.ball.x / 100) * w;
-      const by = (state.ball.y / 100) * h;
-      ctx.beginPath();
-      ctx.arc(bx, by, 4.5 * dpr, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-      ctx.strokeStyle = "#000000";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+      const bPos = toScreen3D(state.ball.x, state.ball.y, state.ball.z || 0, w, h);
+      entities.push({
+        type: "ball",
+        groundX: bPos.groundX,
+        groundY: bPos.groundY,
+        screenX: bPos.screenX,
+        screenY: bPos.screenY,
+        scale: bPos.scale,
+        z: state.ball.z || 0
+      });
+
+      // Ordenar por profundidad (los que están más arriba en pantalla se dibujan primero)
+      entities.sort((a, b) => a.groundY - b.groundY);
+
+      // 3. Dibujar cada elemento en orden de profundidad
+      entities.forEach(item => {
+        if (item.type === "player") {
+          drawMonigote3D(ctx, item);
+        } else if (item.type === "ball") {
+          drawBall3D(ctx, item);
+        }
+      });
 
       if (!simulator.isFinished) {
         requestAnimationFrame(drawPitch);
@@ -656,7 +1013,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     container.querySelectorAll(".btn-speed").forEach(b => {
       b.onclick = () => {
-        const spd = parseInt(b.dataset.speed, 10);
+        const spd = parseFloat(b.dataset.speed);
         simulator.setSpeed(spd);
         container.querySelectorAll(".btn-speed").forEach(x => {
           x.classList.remove("bg-sky-500", "text-white", "shadow");
