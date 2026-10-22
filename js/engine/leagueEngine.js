@@ -155,49 +155,112 @@ export function updateStandings(standings, matchResults) {
 }
 
 /**
+ * Calcula la potencia ofensiva, defensiva y global de un equipo a partir de sus jugadores
+ */
+function getTeamStrength(team) {
+  if (!team || !team.players || team.players.length === 0) {
+    const rep = team?.reputation || 78;
+    return { atk: rep, def: rep, mid: rep, ovr: rep };
+  }
+
+  // Tomar los 11 mejores futbolistas por OVR
+  const starters = [...team.players].sort((a, b) => (b.ovr || 70) - (a.ovr || 70)).slice(0, 11);
+  const avgOvr = starters.reduce((acc, p) => acc + (p.ovr || 70), 0) / starters.length;
+
+  // Ataque (DC, EI, ED, MCO)
+  const attackers = starters.filter(p => ["DC", "EI", "ED", "MCO"].includes(p.pos));
+  const atk = attackers.length > 0
+    ? attackers.reduce((acc, p) => acc + ((p.sho || 70) * 0.45 + (p.dri || 70) * 0.3 + (p.pac || 70) * 0.25), 0) / attackers.length
+    : avgOvr;
+
+  // Defensa (DFC, LD, LI, MCD, POR)
+  const defenders = starters.filter(p => ["DFC", "LD", "LI", "MCD", "POR"].includes(p.pos));
+  const def = defenders.length > 0
+    ? defenders.reduce((acc, p) => acc + ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.ovr || 70) * 0.2), 0) / defenders.length
+    : avgOvr;
+
+  // Mediocampo (MC, MCD, MCO)
+  const midfielders = starters.filter(p => ["MC", "MCD", "MCO"].includes(p.pos));
+  const mid = midfielders.length > 0
+    ? midfielders.reduce((acc, p) => acc + ((p.pas || 70) * 0.4 + (p.dri || 70) * 0.35 + (p.def || 70) * 0.25), 0) / midfielders.length
+    : avgOvr;
+
+  return { atk, def, mid, ovr: avgOvr };
+}
+
+/**
  * Simulación estocástica realista para los otros partidos de la jornada
+ * Combina estadísticas de plantilla, factor campo local y azar del fútbol
  */
 export function simulateAIParties(match, teamsMap) {
   const homeTeam = teamsMap[match.homeTeamId];
   const awayTeam = teamsMap[match.awayTeamId];
 
-  if (!homeTeam || !awayTeam) return match;
+  if (!homeTeam || !awayTeam) {
+    match.played = true;
+    match.homeScore = 0;
+    match.awayScore = 0;
+    match.scorers = [];
+    return match;
+  }
 
-  // Medias aproximadas de los mejores 11
-  const homeOvr = homeTeam.reputation || 80;
-  const awayOvr = awayTeam.reputation || 80;
+  const homeStats = getTeamStrength(homeTeam);
+  const awayStats = getTeamStrength(awayTeam);
 
-  // Factor campo local (+2 puntos efectivos)
-  const effectiveHome = homeOvr + 2.5;
-  const effectiveAway = awayOvr;
+  // Factor campo local (+2.8 puntos de poder efectivos en ataque y defensa)
+  const homeAdvantage = 2.8;
 
-  const diff = effectiveHome - effectiveAway;
+  // Diferenciales entre ataque de uno y defensa del otro
+  const homeAtkDiff = (homeStats.atk + homeAdvantage) - awayStats.def;
+  const awayAtkDiff = awayStats.atk - (homeStats.def + homeAdvantage * 0.5);
+  const midDiff = homeStats.mid - awayStats.mid;
 
-  // Cálculo de goles mediante distribución de Poisson aproximada
-  const baseHomeLambda = Math.max(0.4, 1.45 + (diff * 0.08));
-  const baseAwayLambda = Math.max(0.3, 1.15 - (diff * 0.08));
+  // Azar del fútbol (días inspirados, penaltis, errores o paradas milagrosas)
+  const homeLuck = (Math.random() - Math.random()) * 0.45;
+  const awayLuck = (Math.random() - Math.random()) * 0.45;
 
-  const homeScore = samplePoisson(baseHomeLambda);
-  const awayScore = samplePoisson(baseAwayLambda);
+  // Cálculo de goles esperados (Lambda para distribución de Poisson)
+  const baseHomeLambda = 1.35 + (homeAtkDiff * 0.045) + (midDiff * 0.02) + homeLuck;
+  const baseAwayLambda = 1.05 + (awayAtkDiff * 0.045) - (midDiff * 0.02) + awayLuck;
+
+  const lambdaHome = Math.max(0.25, Math.min(4.8, baseHomeLambda));
+  const lambdaAway = Math.max(0.15, Math.min(4.2, baseAwayLambda));
+
+  const homeScore = samplePoisson(lambdaHome);
+  const awayScore = samplePoisson(lambdaAway);
 
   // Asignar goleadores realistas entre los delanteros y medios del equipo
   const scorers = [];
   for (let i = 0; i < homeScore; i++) {
     const scorer = pickScorer(homeTeam);
-    scorers.push({ teamId: homeTeam.id, player: scorer, minute: Math.floor(Math.random() * 88) + 2 });
+    scorer.goals = (scorer.goals || 0) + 1;
+    scorers.push({
+      teamId: homeTeam.id,
+      teamName: homeTeam.shortName,
+      playerName: scorer.name,
+      player: scorer,
+      minute: Math.floor(Math.random() * 88) + 2
+    });
   }
   for (let i = 0; i < awayScore; i++) {
     const scorer = pickScorer(awayTeam);
-    scorers.push({ teamId: awayTeam.id, player: scorer, minute: Math.floor(Math.random() * 88) + 2 });
+    scorer.goals = (scorer.goals || 0) + 1;
+    scorers.push({
+      teamId: awayTeam.id,
+      teamName: awayTeam.shortName,
+      playerName: scorer.name,
+      player: scorer,
+      minute: Math.floor(Math.random() * 88) + 2
+    });
   }
 
-  return {
-    ...match,
-    played: true,
-    homeScore,
-    awayScore,
-    scorers
-  };
+  // Mutar y devolver el objeto match para asegurar persistencia y evitar null-null
+  match.played = true;
+  match.homeScore = homeScore;
+  match.awayScore = awayScore;
+  match.scorers = scorers;
+
+  return match;
 }
 
 function samplePoisson(lambda) {
@@ -208,17 +271,18 @@ function samplePoisson(lambda) {
     k++;
     p *= Math.random();
   } while (p > L);
-  return Math.min(k - 1, 7); // Tope realista de goles en un partido
+  return Math.min(k - 1, 7); // Tope realista de goles en un partido de liga
 }
 
 function pickScorer(team) {
-  if (!team || !team.players || team.players.length === 0) return { name: "Jugador", id: "" };
-  // Mayor probabilidad a DC, EI, ED, MCO
+  if (!team || !team.players || team.players.length === 0) return { name: "Delantero", id: "" };
+  // Ponderar probabilidades según posición y calidad de remate
   const weights = team.players.map(p => {
-    if (p.pos === "DC") return (p.sho || 75) * 3.5;
-    if (p.pos === "EI" || p.pos === "ED") return (p.sho || 75) * 2.5;
-    if (p.pos === "MCO") return (p.sho || 75) * 1.8;
-    if (p.pos === "MC") return (p.sho || 70) * 1.0;
+    const sho = p.sho || 65;
+    if (p.pos === "DC") return sho * 3.5;
+    if (p.pos === "EI" || p.pos === "ED") return sho * 2.8;
+    if (p.pos === "MCO") return sho * 1.8;
+    if (p.pos === "MC") return sho * 1.0;
     if (p.pos === "DFC" || p.pos === "LD" || p.pos === "LI") return 15;
     return 0; // POR
   });
@@ -229,6 +293,6 @@ function pickScorer(team) {
     r -= weights[i];
     if (r <= 0) return team.players[i];
   }
-  return team.players[team.players.length - 1];
+  return team.players[0];
 }
 

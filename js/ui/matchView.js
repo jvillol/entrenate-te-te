@@ -449,9 +449,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </button>
 
             <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
-              <button class="btn-speed px-2 py-1 rounded-lg bg-sky-500 text-white shadow font-extrabold" data-speed="0.5">🐢 0.5x</button>
-              <button class="btn-speed px-2 py-1 rounded-lg text-slate-400 hover:text-white" data-speed="1">⚽ 1x</button>
-              <button class="btn-speed px-2 py-1 rounded-lg text-slate-400 hover:text-white" data-speed="2">⚡ 2x</button>
+              <button class="btn-speed px-2.5 py-1 rounded-lg bg-sky-500 text-white shadow font-extrabold" data-speed="1">⚡ 1x</button>
+              <button class="btn-speed px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-speed="2">🚀 2x</button>
+              <button class="btn-speed px-2.5 py-1 rounded-lg text-slate-400 hover:text-white" data-speed="4">⚡⚡ 4x</button>
             </div>
 
             <button id="btn-skip-end" class="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 transition">
@@ -1371,9 +1371,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const teamsMap = {};
       gameState.teams.forEach(t => { teamsMap[t.id] = t; });
 
+      // Simular con realismo todos los demás partidos de la jornada
       currentRoundData.matches.forEach(m => {
-        if (!m.played) {
-          simulateAIParties(m, teamsMap);
+        if (!m.played || m.homeScore === null || m.awayScore === null) {
+          const sim = simulateAIParties(m, teamsMap);
+          m.played = true;
+          m.homeScore = sim.homeScore;
+          m.awayScore = sim.awayScore;
+          m.scorers = sim.scorers;
         }
       });
 
