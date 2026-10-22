@@ -1,6 +1,7 @@
-// =========================================================
+﻿// =========================================================
 // ARCHIVO: js\data\teams.js
 // =========================================================
+
 // Base de datos oficial de los 20 clubes de LaLiga EA Sports
 // Fuentes oficiales: Transfermarkt (ES1), Flashscore y LaLiga.com (Clubes y Plantillas)
 const TEAMS_DATA = [
@@ -51,24 +52,30 @@ const TEAMS_DATA = [
     reputation: 94,
     defaultFormation: "4-3-3",
     players: [
-      { id: "bar_1", name: "Marc-Andre ter Stegen", number: 1, pos: "POR", ovr: 88, pac: 48, sho: 18, pas: 86, dri: 51, def: 17, phy: 76, energy: 100 },
-      { id: "bar_2", name: "Joan Garcia", number: 13, pos: "POR", ovr: 79, pac: 44, sho: 15, pas: 72, dri: 47, def: 15, phy: 73, energy: 100 },
-      { id: "bar_3", name: "Jules Kounde", number: 23, pos: "LD", ovr: 86, pac: 84, sho: 48, pas: 74, dri: 76, def: 87, phy: 80, energy: 100 },
-      { id: "bar_4", name: "Pau Cubarsi", number: 2, pos: "DFC", ovr: 81, pac: 72, sho: 40, pas: 81, dri: 74, def: 82, phy: 76, energy: 100 },
-      { id: "bar_5", name: "Ronald Araujo", number: 4, pos: "DFC", ovr: 86, pac: 82, sho: 51, pas: 65, dri: 65, def: 87, phy: 84, energy: 100 },
-      { id: "bar_6", name: "Andreas Christensen", number: 15, pos: "DFC", ovr: 82, pac: 67, sho: 32, pas: 72, dri: 70, def: 84, phy: 74, energy: 100 },
-      { id: "bar_7", name: "Alejandro Balde", number: 3, pos: "LI", ovr: 82, pac: 91, sho: 51, pas: 74, dri: 79, def: 76, phy: 67, energy: 100 },
-      { id: "bar_8", name: "Marc Casado", number: 17, pos: "MCD", ovr: 79, pac: 74, sho: 63, pas: 78, dri: 78, def: 78, phy: 76, energy: 100 },
-      { id: "bar_9", name: "Frenkie de Jong", number: 21, pos: "MC", ovr: 87, pac: 81, sho: 70, pas: 86, dri: 87, def: 78, phy: 78, energy: 100 },
-      { id: "bar_10", name: "Pedri", number: 8, pos: "MC", ovr: 88, pac: 78, sho: 76, pas: 88, dri: 89, def: 71, phy: 73, energy: 100 },
-      { id: "bar_11", name: "Gavi", number: 6, pos: "MC", ovr: 84, pac: 77, sho: 68, pas: 80, dri: 83, def: 74, phy: 80, energy: 100 },
-      { id: "bar_12", name: "Fermin Lopez", number: 16, pos: "MCO", ovr: 81, pac: 79, sho: 80, pas: 76, dri: 80, def: 67, phy: 72, energy: 100 },
-      { id: "bar_13", name: "Dani Olmo", number: 20, pos: "MCO", ovr: 85, pac: 76, sho: 81, pas: 83, dri: 87, def: 51, phy: 64, energy: 100 },
-      { id: "bar_14", name: "Lamine Yamal", number: 19, pos: "ED", ovr: 86, pac: 87, sho: 79, pas: 83, dri: 88, def: 32, phy: 56, energy: 100 },
-      { id: "bar_15", name: "Raphinha", number: 11, pos: "EI", ovr: 86, pac: 89, sho: 82, pas: 81, dri: 86, def: 54, phy: 73, energy: 100 },
-      { id: "bar_16", name: "Ferran Torres", number: 7, pos: "EI", ovr: 81, pac: 82, sho: 80, pas: 78, dri: 81, def: 35, phy: 68, energy: 100 },
-      { id: "bar_17", name: "Robert Lewandowski", number: 9, pos: "DC", ovr: 88, pac: 73, sho: 88, pas: 80, dri: 85, def: 44, phy: 80, energy: 100 },
-      { id: "bar_18", name: "Pau Victor", number: 18, pos: "DC", ovr: 75, pac: 78, sho: 74, pas: 68, dri: 74, def: 31, phy: 69, energy: 100 }
+      { id: "bar_1", name: "Rodri", number: 14, pos: "MCD", ovr: 90, pot: 91, pac: 66, sho: 74, pas: 86, dri: 81, def: 87, phy: 85, energy: 100 },
+      { id: "bar_2", name: "Pedri", number: 8, pos: "MC", ovr: 90, pot: 93, pac: 80, sho: 78, pas: 91, dri: 92, def: 72, phy: 75, energy: 100 },
+      { id: "bar_3", name: "Lamine Yamal", number: 19, pos: "ED", ovr: 90, pot: 95, pac: 92, sho: 84, pas: 87, dri: 93, def: 36, phy: 66, energy: 100 },
+      { id: "bar_4", name: "Raphinha", number: 11, pos: "DC", ovr: 88, pot: 90, pac: 91, sho: 85, pas: 84, dri: 88, def: 55, phy: 76, energy: 100 },
+      { id: "bar_5", name: "Joan Garcia", number: 13, pos: "POR", ovr: 86, pot: 89, pac: 50, sho: 16, pas: 82, dri: 52, def: 16, phy: 78, energy: 100 },
+      { id: "bar_6", name: "Pau Cubarsi", number: 2, pos: "DFC", ovr: 86, pot: 91, pac: 76, sho: 45, pas: 85, dri: 78, def: 87, phy: 81, energy: 100 },
+      { id: "bar_7", name: "Eric Garcia", number: 24, pos: "LD", ovr: 85, pot: 86, pac: 75, sho: 56, pas: 80, dri: 78, def: 86, phy: 79, energy: 100 },
+      { id: "bar_8", name: "Fermin Lopez", number: 16, pos: "MCO", ovr: 85, pot: 88, pac: 83, sho: 84, pas: 81, dri: 85, def: 69, phy: 76, energy: 100 },
+      { id: "bar_9", name: "Joao Cancelo", number: 20, pos: "LI", ovr: 83, pot: 88, pac: 81, sho: 72, pas: 84, dri: 85, def: 77, phy: 71, energy: 100 },
+      { id: "bar_10", name: "Anthony Gordon", number: 17, pos: "EI", ovr: 82, pot: 85, pac: 91, sho: 78, pas: 76, dri: 83, def: 54, phy: 73, energy: 100 },
+      { id: "bar_11", name: "Gerard Martin", number: 35, pos: "DFC", ovr: 79, pot: 84, pac: 74, sho: 42, pas: 71, dri: 72, def: 80, phy: 77, energy: 100 },
+      { id: "bar_12", name: "Jules Kounde", number: 23, pos: "LD", ovr: 85, pot: 87, pac: 83, sho: 48, pas: 74, dri: 76, def: 87, phy: 80, energy: 100 },
+      { id: "bar_13", name: "Frenkie de Jong", number: 21, pos: "MC", ovr: 86, pot: 87, pac: 80, sho: 70, pas: 86, dri: 87, def: 78, phy: 77, energy: 100 },
+      { id: "bar_14", name: "Dani Olmo", number: 10, pos: "MCO", ovr: 84, pot: 85, pac: 76, sho: 81, pas: 83, dri: 86, def: 50, phy: 63, energy: 100 },
+      { id: "bar_15", name: "Gavi", number: 6, pos: "MC", ovr: 83, pot: 86, pac: 77, sho: 68, pas: 80, dri: 83, def: 74, phy: 80, energy: 100 },
+      { id: "bar_16", name: "Karim Adeyemi", number: 22, pos: "ED", ovr: 82, pot: 85, pac: 96, sho: 76, pas: 70, dri: 82, def: 35, phy: 69, energy: 100 },
+      { id: "bar_17", name: "Alejandro Balde", number: 3, pos: "LI", ovr: 82, pot: 85, pac: 91, sho: 51, pas: 74, dri: 79, def: 76, phy: 67, energy: 100 },
+      { id: "bar_18", name: "Andreas Christensen", number: 15, pos: "DFC", ovr: 79, pot: 83, pac: 64, sho: 32, pas: 72, dri: 69, def: 82, phy: 72, energy: 100 },
+      { id: "bar_19", name: "Gabriel Jesus", number: 9, pos: "DC", ovr: 79, pot: 84, pac: 80, sho: 79, pas: 73, dri: 84, def: 40, phy: 72, energy: 100 },
+      { id: "bar_20", name: "Marc Bernal", number: 28, pos: "MCD", ovr: 78, pot: 88, pac: 72, sho: 68, pas: 79, dri: 78, def: 77, phy: 77, energy: 100 },
+      { id: "bar_21", name: "Dominik Livakovic", number: 25, pos: "POR", ovr: 78, pot: 82, pac: 45, sho: 15, pas: 70, dri: 47, def: 16, phy: 73, energy: 100 },
+      { id: "bar_22", name: "Wojciech Szczesny", number: 1, pos: "POR", ovr: 81, pot: 87, pac: 44, sho: 16, pas: 74, dri: 45, def: 16, phy: 72, energy: 100 },
+      { id: "bar_23", name: "Roony Bardghji", number: 27, pos: "ED", ovr: 74, pot: 85, pac: 79, sho: 72, pas: 71, dri: 78, def: 32, phy: 63, energy: 100 },
+      { id: "bar_24", name: "Xavi Espart", number: 32, pos: "LD", ovr: 71, pot: 85, pac: 78, sho: 50, pas: 68, dri: 70, def: 70, phy: 68, energy: 100 }
     ]
   },
   {
@@ -84,27 +91,28 @@ const TEAMS_DATA = [
     reputation: 91,
     defaultFormation: "5-3-2",
     players: [
-      { id: "atm_1", name: "Jan Oblak", number: 13, pos: "POR", ovr: 87, pac: 46, sho: 18, pas: 68, dri: 44, def: 20, phy: 84, energy: 100 },
-      { id: "atm_2", name: "Juan Musso", number: 1, pos: "POR", ovr: 80, pac: 44, sho: 16, pas: 66, dri: 40, def: 20, phy: 77, energy: 100 },
-      { id: "atm_3", name: "Nahuel Molina", number: 16, pos: "LD", ovr: 81, pac: 84, sho: 66, pas: 77, dri: 78, def: 77, phy: 75, energy: 100 },
-      { id: "atm_4", name: "Robin Le Normand", number: 24, pos: "DFC", ovr: 84, pac: 72, sho: 42, pas: 73, dri: 67, def: 85, phy: 83, energy: 100 },
-      { id: "atm_5", name: "Jose Maria Gimenez", number: 2, pos: "DFC", ovr: 83, pac: 70, sho: 44, pas: 65, dri: 61, def: 84, phy: 85, energy: 100 },
-      { id: "atm_6", name: "Clement Lenglet", number: 15, pos: "DFC", ovr: 80, pac: 66, sho: 45, pas: 73, dri: 68, def: 80, phy: 78, energy: 100 },
-      { id: "atm_7", name: "Cesar Azpilicueta", number: 3, pos: "DFC", ovr: 79, pac: 64, sho: 52, pas: 74, dri: 71, def: 81, phy: 76, energy: 100 },
-      { id: "atm_8", name: "Reinildo Mandava", number: 23, pos: "LI", ovr: 80, pac: 80, sho: 48, pas: 69, dri: 73, def: 82, phy: 82, energy: 100 },
-      { id: "atm_9", name: "Javi Galan", number: 21, pos: "LI", ovr: 79, pac: 82, sho: 55, pas: 74, dri: 78, def: 76, phy: 74, energy: 100 },
-      { id: "atm_10", name: "Pablo Barrios", number: 8, pos: "MC", ovr: 81, pac: 78, sho: 70, pas: 82, dri: 82, def: 76, phy: 77, energy: 100 },
-      { id: "atm_11", name: "Marcos Llorente", number: 14, pos: "MC", ovr: 84, pac: 88, sho: 78, pas: 79, dri: 81, def: 79, phy: 83, energy: 100 },
-      { id: "atm_12", name: "Koke", number: 6, pos: "MC", ovr: 82, pac: 62, sho: 71, pas: 85, dri: 80, def: 78, phy: 77, energy: 100 },
-      { id: "atm_13", name: "Conor Gallagher", number: 4, pos: "MC", ovr: 83, pac: 79, sho: 77, pas: 79, dri: 80, def: 79, phy: 85, energy: 100 },
-      { id: "atm_14", name: "Rodrigo De Paul", number: 5, pos: "MC", ovr: 84, pac: 75, sho: 78, pas: 85, dri: 83, def: 76, phy: 82, energy: 100 },
-      { id: "atm_15", name: "Antoine Griezmann", number: 7, pos: "MCO", ovr: 87, pac: 78, sho: 87, pas: 88, dri: 87, def: 68, phy: 73, energy: 100 },
-      { id: "atm_16", name: "Samuel Lino", number: 12, pos: "EI", ovr: 82, pac: 86, sho: 77, pas: 78, dri: 84, def: 66, phy: 74, energy: 100 },
-      { id: "atm_17", name: "Rodrigo Riquelme", number: 17, pos: "ED", ovr: 80, pac: 84, sho: 75, pas: 78, dri: 82, def: 52, phy: 66, energy: 100 },
-      { id: "atm_18", name: "Giuliano Simeone", number: 22, pos: "ED", ovr: 77, pac: 84, sho: 73, pas: 70, dri: 77, def: 55, phy: 79, energy: 100 },
-      { id: "atm_19", name: "Julian Alvarez", number: 19, pos: "DC", ovr: 87, pac: 86, sho: 87, pas: 82, dri: 86, def: 58, phy: 80, energy: 100 },
-      { id: "atm_20", name: "Alexander Sorloth", number: 9, pos: "DC", ovr: 83, pac: 81, sho: 83, pas: 71, dri: 77, def: 40, phy: 87, energy: 100 },
-      { id: "atm_21", name: "Angel Correa", number: 10, pos: "DC", ovr: 81, pac: 83, sho: 80, pas: 77, dri: 85, def: 45, phy: 73, energy: 100 }
+      { id: "atm_1", name: "Jan Oblak", number: 13, pos: "POR", ovr: 88, pot: 91, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
+      { id: "atm_2", name: "Julian Alvarez", number: 19, pos: "DC", ovr: 86, pot: 89, pac: 85, sho: 85, pas: 80, dri: 85, def: 55, phy: 79, energy: 100 },
+      { id: "atm_3", name: "Alejandro Grimaldo", number: 3, pos: "LI", ovr: 85, pot: 86, pac: 82, sho: 79, pas: 86, dri: 84, def: 77, phy: 69, energy: 100 },
+      { id: "atm_4", name: "Marcos Llorente", number: 14, pos: "LD", ovr: 85, pot: 86, pac: 90, sho: 80, pas: 81, dri: 82, def: 79, phy: 82, energy: 100 },
+      { id: "atm_5", name: "Ademola Lookman", number: 11, pos: "EI", ovr: 83, pot: 84, pac: 88, sho: 81, pas: 77, dri: 86, def: 38, phy: 66, energy: 100 },
+      { id: "atm_6", name: "Morten Hjulmand", number: 5, pos: "MCD", ovr: 83, pot: 86, pac: 73, sho: 67, pas: 79, dri: 77, def: 83, phy: 84, energy: 100 },
+      { id: "atm_7", name: "David Hancko", number: 15, pos: "DFC", ovr: 83, pot: 83, pac: 78, sho: 65, pas: 76, dri: 75, def: 84, phy: 82, energy: 100 },
+      { id: "atm_8", name: "Alex Baena", number: 10, pos: "MCO", ovr: 83, pot: 85, pac: 76, sho: 78, pas: 84, dri: 83, def: 64, phy: 72, energy: 100 },
+      { id: "atm_9", name: "Pablo Barrios", number: 8, pos: "MC", ovr: 83, pot: 87, pac: 78, sho: 72, pas: 82, dri: 83, def: 77, phy: 78, energy: 100 },
+      { id: "atm_10", name: "Cristian Romero", number: 17, pos: "DFC", ovr: 82, pot: 84, pac: 74, sho: 46, pas: 65, dri: 68, def: 84, phy: 84, energy: 100 },
+      { id: "atm_11", name: "Marc Pubill", number: 16, pos: "DFC", ovr: 81, pot: 88, pac: 82, sho: 55, pas: 72, dri: 76, def: 80, phy: 81, energy: 100 },
+      { id: "atm_12", name: "Alexander Sorloth", number: 9, pos: "DC", ovr: 83, pot: 84, pac: 82, sho: 84, pas: 72, dri: 77, def: 38, phy: 87, energy: 100 },
+      { id: "atm_13", name: "Juan Musso", number: 1, pos: "POR", ovr: 82, pot: 82, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 74, energy: 100 },
+      { id: "atm_14", name: "Giuliano Simeone", number: 22, pos: "ED", ovr: 82, pot: 85, pac: 87, sho: 78, pas: 74, dri: 82, def: 60, phy: 78, energy: 100 },
+      { id: "atm_15", name: "Koke", number: 6, pos: "MC", ovr: 81, pot: 86, pac: 60, sho: 71, pas: 83, dri: 77, def: 77, phy: 76, energy: 100 },
+      { id: "atm_16", name: "Robin Le Normand", number: 24, pos: "DFC", ovr: 81, pot: 83, pac: 69, sho: 37, pas: 64, dri: 63, def: 82, phy: 80, energy: 100 },
+      { id: "atm_17", name: "Jonathan David", number: 7, pos: "DC", ovr: 80, pot: 83, pac: 83, sho: 81, pas: 72, dri: 80, def: 34, phy: 76, energy: 100 },
+      { id: "atm_18", name: "Lee Kang In", number: 18, pos: "ED", ovr: 80, pot: 83, pac: 76, sho: 76, pas: 82, dri: 84, def: 48, phy: 62, energy: 100 },
+      { id: "atm_19", name: "Johnny Cardoso", number: 4, pos: "MCD", ovr: 80, pot: 84, pac: 73, sho: 65, pas: 75, dri: 76, def: 79, phy: 81, energy: 100 },
+      { id: "atm_20", name: "Obed Vargas", number: 21, pos: "MCD", ovr: 72, pot: 83, pac: 70, sho: 58, pas: 71, dri: 72, def: 71, phy: 72, energy: 100 },
+      { id: "atm_21", name: "Rodri Mendoza", number: 26, pos: "MC", ovr: 72, pot: 82, pac: 71, sho: 64, pas: 73, dri: 75, def: 64, phy: 66, energy: 100 },
+      { id: "atm_22", name: "Arnau Ortiz", number: 27, pos: "EI", ovr: 71, pot: 79, pac: 81, sho: 66, pas: 68, dri: 74, def: 42, phy: 63, energy: 100 }
     ]
   },
   {
@@ -169,7 +177,7 @@ const TEAMS_DATA = [
       { id: "vil_11", name: "Pape Gueye", number: 18, pos: "MCD", ovr: 80, pac: 74, sho: 68, pas: 77, dri: 77, def: 80, phy: 83, energy: 100 },
       { id: "vil_12", name: "Santi Comesana", number: 14, pos: "MC", ovr: 80, pac: 73, sho: 72, pas: 79, dri: 78, def: 78, phy: 80, energy: 100 },
       { id: "vil_13", name: "Dani Parejo", number: 10, pos: "MC", ovr: 81, pac: 50, sho: 78, pas: 87, dri: 78, def: 68, phy: 66, energy: 100 },
-      { id: "vil_14", name: "Alex Baena", number: 16, pos: "MC", ovr: 86, pac: 80, sho: 82, pas: 88, dri: 86, def: 68, phy: 76, energy: 100 },
+      { id: "vil_14", name: "Pape Gueye", number: 18, pos: "MCD", ovr: 79, pac: 72, sho: 68, pas: 76, dri: 75, def: 78, phy: 82, energy: 100 },
       { id: "vil_15", name: "Ramon Terrats", number: 20, pos: "MC", ovr: 76, pac: 72, sho: 66, pas: 77, dri: 76, def: 72, phy: 74, energy: 100 },
       { id: "vil_16", name: "Denis Suarez", number: 6, pos: "MCO", ovr: 77, pac: 74, sho: 72, pas: 80, dri: 80, def: 56, phy: 64, energy: 100 },
       { id: "vil_17", name: "Yeremy Pino", number: 21, pos: "ED", ovr: 81, pac: 84, sho: 79, pas: 78, dri: 83, def: 46, phy: 68, energy: 100 },
@@ -239,7 +247,7 @@ const TEAMS_DATA = [
       { id: "bet_7", name: "Natan", number: 6, pos: "DFC", ovr: 78, pac: 72, sho: 38, pas: 66, dri: 62, def: 79, phy: 82, energy: 100 },
       { id: "bet_8", name: "Romain Perraud", number: 15, pos: "LI", ovr: 77, pac: 80, sho: 66, pas: 73, dri: 75, def: 74, phy: 77, energy: 100 },
       { id: "bet_9", name: "Ricardo Rodriguez", number: 12, pos: "LI", ovr: 77, pac: 66, sho: 68, pas: 79, dri: 74, def: 77, phy: 75, energy: 100 },
-      { id: "bet_10", name: "Johnny Cardoso", number: 4, pos: "MCD", ovr: 80, pac: 73, sho: 65, pas: 77, dri: 76, def: 80, phy: 82, energy: 100 },
+      { id: "bet_10", name: "Mateo Flores", number: 28, pos: "MC", ovr: 74, pac: 72, sho: 64, pas: 75, dri: 74, def: 72, phy: 73, energy: 100 },
       { id: "bet_11", name: "Sergi Altimira", number: 16, pos: "MC", ovr: 77, pac: 72, sho: 64, pas: 78, dri: 77, def: 75, phy: 76, energy: 100 },
       { id: "bet_12", name: "Marc Roca", number: 21, pos: "MC", ovr: 78, pac: 66, sho: 70, pas: 80, dri: 75, def: 77, phy: 77, energy: 100 },
       { id: "bet_13", name: "William Carvalho", number: 14, pos: "MC", ovr: 78, pac: 52, sho: 70, pas: 82, dri: 79, def: 75, phy: 79, energy: 100 },
@@ -607,7 +615,7 @@ const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-4-2",
     players: [
-      { id: "esp_1", name: "Joan Garcia", number: 1, pos: "POR", ovr: 81, pac: 46, sho: 18, pas: 72, dri: 44, def: 20, phy: 80, energy: 100 },
+      { id: "esp_1", name: "Angel Fortuno", number: 1, pos: "POR", ovr: 74, pac: 44, sho: 16, pas: 68, dri: 42, def: 18, phy: 74, energy: 100 },
       { id: "esp_2", name: "Fernando Pacheco", number: 13, pos: "POR", ovr: 76, pac: 42, sho: 16, pas: 68, dri: 40, def: 20, phy: 75, energy: 100 },
       { id: "esp_3", name: "Alvaro Tejero", number: 12, pos: "LD", ovr: 77, pac: 79, sho: 60, pas: 74, dri: 74, def: 75, phy: 73, energy: 100 },
       { id: "esp_4", name: "Omar El Hilali", number: 23, pos: "LD", ovr: 76, pac: 80, sho: 50, pas: 69, dri: 72, def: 76, phy: 76, energy: 100 },
@@ -699,10 +707,10 @@ const TEAMS_DATA = [
   }
 ];
 
-
 // =========================================================
 // ARCHIVO: js\engine\tactics.js
 // =========================================================
+
 // Formaciones y lógica táctica del simulador
 const FORMATIONS = {
   "4-3-3": {
@@ -872,11 +880,10 @@ function calculateTeamAverages(lineupPlayers, formationKey) {
   };
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\engine\leagueEngine.js
 // =========================================================
+
 // Motor del calendario de LaLiga, clasificación y simulación de partidos paralelos
 
 /**
@@ -1111,11 +1118,10 @@ function pickScorer(team) {
   return team.players[team.players.length - 1];
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\engine\saveManager.js
 // =========================================================
+
 // Gestor de guardado en LocalStorage para partidas persistentes
 
 const SAVE_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V5";
@@ -1181,10 +1187,10 @@ class SaveManager {
   }
 }
 
-
 // =========================================================
 // ARCHIVO: js\engine\matchEngine.js
 // =========================================================
+
 // Motor de simulación de partido 2D interactivo con cambios en vivo (sin comentarios de texto)
 class MatchSimulator {
   constructor(homeTeam, awayTeam, options = {}) {
@@ -1591,11 +1597,10 @@ class MatchSimulator {
   }
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\ui\teamSelectView.js
 // =========================================================
+
 // Vista de Selección de Equipo de LaLiga
 function renderTeamSelect(container, teams, onSelectTeam) {
   let selectedIndex = 0;
@@ -1752,11 +1757,10 @@ function renderTeamSelect(container, teams, onSelectTeam) {
   update();
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\ui\tacticsView.js
 // =========================================================
+
 // Vista de la Pizarra Táctica y Alineaciones
 function renderTacticsView(container, gameState, onSaveTactics) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);
@@ -2021,11 +2025,10 @@ function renderTacticsView(container, gameState, onSaveTactics) {
   render();
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\ui\squadView.js
 // =========================================================
+
 // Vista de la Plantilla Completa y Ficha Detallada de Futbolistas
 function renderSquadView(container, gameState) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);
@@ -2205,11 +2208,10 @@ function renderSquadView(container, gameState) {
   render();
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\ui\standingsView.js
 // =========================================================
+
 // Vista de la Clasificación Completa de LaLiga y Tabla del Pichichi
 function renderStandingsView(container, gameState) {
   let activeTab = "TABLE"; // "TABLE" o "PICHICHI"
@@ -2373,11 +2375,10 @@ function renderStandingsView(container, gameState) {
   render();
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\ui\seasonEndView.js
 // =========================================================
+
 // Vista de Final de Temporada (Jornada 38 completada)
 function renderSeasonEndView(container, gameState, onRestartSeason, onNewGame) {
   const standings = gameState.standings;
@@ -2471,11 +2472,10 @@ function renderSeasonEndView(container, gameState, onRestartSeason, onNewGame) {
   };
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\ui\matchView.js
 // =========================================================
+
 // Vista del Día de Partido: Alineación Previa al Encuentro, Radar 2D y Cambios en Vivo
 function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   const currentRoundData = gameState.schedule[gameState.currentRound - 1];
@@ -3331,10 +3331,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   renderPreMatch();
 }
 
-
 // =========================================================
 // ARCHIVO: js\ui\hubView.js
 // =========================================================
+
 // Vista del Hub Principal del Manager
 function renderHubView(container, gameState, callbacks) {
   const userTeam = gameState.teams.find(t => t.id === gameState.userTeamId);
@@ -3569,11 +3569,10 @@ function renderHubView(container, gameState, callbacks) {
   };
 }
 
-
-
 // =========================================================
 // ARCHIVO: js\app.js
 // =========================================================
+
 // Controlador Principal del Juego (State Manager & Router)
 
 
