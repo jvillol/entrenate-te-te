@@ -298,11 +298,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
-      speed: 0.5, // Velocidad pausada y disfrutable por defecto (simulación más lenta)
+      speed: 1, // Ritmo fluido Football Manager por defecto
       homeMentality: isUserHome ? gameState.userTactics.mentality : "balanced",
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
+      onGoal: (goalData) => handleGoalSequence(goalData),
       onFinish: handleLiveMatchEnd
     });
 
@@ -349,7 +350,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           </div>
         </header>
 
-        <!-- Radar 2D del Terreno de Juego -->
+        <!-- Estadio 3D del Terreno de Juego -->
         <div class="relative p-3 flex-1 flex flex-col justify-center items-center">
           <div id="match-alert-box" class="absolute top-6 left-4 right-4 z-30 transition-all duration-300 opacity-0 pointer-events-none transform -translate-y-2">
             <div id="match-alert-content" class="bg-slate-900/95 border-2 border-amber-400/80 shadow-2xl text-white px-4 py-2.5 rounded-2xl text-center text-xs font-extrabold flex items-center justify-center gap-2">
@@ -357,15 +358,47 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           </div>
 
           <div class="relative w-full aspect-[16/10] bg-slate-900 rounded-2xl border-2 border-slate-800 shadow-2xl overflow-hidden">
-            <canvas id="match-canvas" class="w-full h-full block"></canvas>
-            
-            <div class="absolute bottom-2 left-2 right-2 flex justify-between items-center px-2 py-1 bg-black/60 backdrop-blur-sm rounded-lg text-[9px] text-slate-300">
+            <!-- Canvas 3D -->
+            <canvas id="match-canvas" class="w-full h-full block cursor-pointer"></canvas>
+
+            <!-- Banner de Replay (Repetición) -->
+            <div id="replay-badge" class="absolute top-2 left-2 flex items-center gap-1.5 px-2.5 py-1 bg-red-600/90 text-white font-mono font-black text-[10px] rounded-lg shadow-lg uppercase tracking-wider hidden animate-pulse z-20">
+              <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
+              <span>📹 REPETICIÓN</span>
+            </div>
+
+            <!-- Banner de Saque de Centro -->
+            <div id="kickoff-badge" class="absolute top-2 right-2 flex items-center gap-1.5 px-2.5 py-1 bg-sky-600/90 text-white font-mono font-bold text-[10px] rounded-lg shadow-lg hidden z-20">
+              <span>⏱️ Saque de Centro</span>
+            </div>
+
+            <!-- Overlay Cinematográfico de Golazo -->
+            <div id="goal-cinematic" class="absolute inset-0 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 text-center z-30 transition-all duration-300 opacity-0 pointer-events-none transform scale-95">
+              <div class="inline-block px-3 py-1 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] tracking-widest uppercase mb-2 shadow-lg animate-bounce">
+                ¡GOOOOOOOOL!
+              </div>
+              <h2 id="goal-scorer-name" class="text-xl font-black text-white uppercase tracking-tight drop-shadow-md">
+                JUGADOR
+              </h2>
+              <div id="goal-score-display" class="text-3xl font-black font-mono text-amber-400 my-1 drop-shadow-lg">
+                1 - 0
+              </div>
+              <p id="goal-minute-display" class="text-xs text-slate-300 font-semibold mb-3">Minuto 34'</p>
+              <div class="flex items-center gap-2">
+                <span class="text-[10px] text-slate-400 bg-slate-800/80 px-2 py-1 rounded-lg border border-slate-700">
+                  Repetición en directo...
+                </span>
+              </div>
+            </div>
+
+            <!-- Indicadores inferiores de equipación -->
+            <div class="absolute bottom-2 left-2 right-2 flex justify-between items-center px-2 py-1 bg-black/60 backdrop-blur-sm rounded-lg text-[9px] text-slate-300 z-10">
               <div class="flex items-center gap-1.5">
                 <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${homeTeam.primaryColor};"></span>
                 <span>${homeTeam.shortName}</span>
               </div>
               <div class="flex items-center gap-1 text-amber-400 font-bold">
-                <span>⚽ Balón</span>
+                <span>⚽ Balón 3D</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${awayTeam.primaryColor};"></span>
@@ -866,6 +899,98 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       ctx.stroke();
     }
 
+    // ==========================================
+    // ESTADO DE REPETICIONES Y SAQUE DE CENTRO
+    // ==========================================
+    const replayBuffer = [];
+    let isReplaying = false;
+    let replayFrames = [];
+    let replayFrameIndex = 0;
+    let isKickoffInProgress = false;
+
+    function handleGoalSequence(goalData) {
+      // 1. Pausar la simulación para que el reloj no avance durante celebración y repetición
+      simulator.pause();
+
+      const elGoalOverlay = container.querySelector("#goal-cinematic");
+      const elScorer = container.querySelector("#goal-scorer-name");
+      const elScore = container.querySelector("#goal-score-display");
+      const elMinute = container.querySelector("#goal-minute-display");
+      const replayBadge = container.querySelector("#replay-badge");
+
+      if (elScorer) elScorer.textContent = `${goalData.shooter.name}`;
+      if (elScore) elScore.textContent = goalData.score;
+      if (elMinute) elMinute.textContent = `Minuto ${goalData.minute}' · ${goalData.atkTeam.name}`;
+
+      // Mostrar cartel cinematográfico de GOL
+      if (elGoalOverlay) {
+        elGoalOverlay.classList.remove("opacity-0", "pointer-events-none", "scale-95");
+        elGoalOverlay.classList.add("opacity-100", "scale-100");
+      }
+
+      // Guardar el clip previo al gol (últimos ~140 frames grabados)
+      const recordedClip = replayBuffer.slice(-140);
+
+      setTimeout(() => {
+        // Desvanecer overlay cinematográfico
+        if (elGoalOverlay) {
+          elGoalOverlay.classList.remove("opacity-100", "scale-100");
+          elGoalOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+        }
+
+        // Si tenemos suficientes frames, reproducir la repetición en cámara lenta
+        if (recordedClip.length > 25) {
+          isReplaying = true;
+          replayFrames = recordedClip;
+          replayFrameIndex = 0;
+          if (replayBadge) replayBadge.classList.remove("hidden");
+
+          const pollReplay = setInterval(() => {
+            if (!isReplaying) {
+              clearInterval(pollReplay);
+              if (replayBadge) replayBadge.classList.add("hidden");
+              startKickoffSequence(goalData.concedingSide);
+            }
+          }, 80);
+        } else {
+          startKickoffSequence(goalData.concedingSide);
+        }
+      }, 2000);
+    }
+
+    function startKickoffSequence(concedingSide) {
+      isKickoffInProgress = true;
+      const kickoffBadge = container.querySelector("#kickoff-badge");
+      if (kickoffBadge) kickoffBadge.classList.remove("hidden");
+
+      // Colocar jugadores y balón en posición de saque de centro
+      simulator.resetKickoff(concedingSide);
+
+      // Tiempo para ver a los equipos situados en sus campos
+      setTimeout(() => {
+        // Pase hacia atrás para iniciar la jugada
+        if (concedingSide === "home") {
+          simulator.ball.targetX = 40;
+          simulator.ball.targetY = 48;
+        } else {
+          simulator.ball.targetX = 60;
+          simulator.ball.targetY = 52;
+        }
+
+        setTimeout(() => {
+          if (kickoffBadge) kickoffBadge.classList.add("hidden");
+          isKickoffInProgress = false;
+          if (!simulator.isFinished) {
+            simulator.start();
+            const iconPP = container.querySelector("#play-pause-icon");
+            const textPP = container.querySelector("#play-pause-text");
+            if (iconPP) iconPP.textContent = "⏸";
+            if (textPP) textPP.textContent = "Pausar";
+          }
+        }, 1100);
+      }, 1500);
+    }
+
     // Bucle principal de renderizado 3D a 60 FPS
     function drawPitch() {
       if (!ctx || !canvas) return;
@@ -876,50 +1001,161 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       // 1. Dibujar terreno de juego en perspectiva 3D
       draw3DPitch(ctx, w, h);
 
-      // 2. Recolectar entidades para depth sorting (Z-ordering de atrás a adelante)
-      const state = simulator.getState();
       const entities = [];
 
-      state.home2D.forEach(p => {
-        const pt = toScreen3D(p.curX, p.curY, 0, w, h);
-        entities.push({
-          type: "player",
-          side: "home",
-          number: p.number,
-          isKeeper: p.isKeeper,
-          animPhase: p.animPhase || 0,
-          facingX: p.facingX || 1,
-          groundX: pt.groundX,
-          groundY: pt.groundY,
-          scale: pt.scale
-        });
-      });
+      if (isReplaying && replayFrames.length > 0) {
+        // MODO REPETICIÓN A CÁMARA LENTA (0.65x)
+        const frame = replayFrames[Math.floor(replayFrameIndex)];
+        if (frame) {
+          frame.home.forEach(p => {
+            const pt = toScreen3D(p.curX, p.curY, 0, w, h);
+            entities.push({
+              type: "player",
+              side: "home",
+              number: p.number,
+              isKeeper: p.isKeeper,
+              animPhase: p.animPhase || 0,
+              facingX: p.facingX || 1,
+              groundX: pt.groundX,
+              groundY: pt.groundY,
+              scale: pt.scale
+            });
+          });
 
-      state.away2D.forEach(p => {
-        const pt = toScreen3D(p.curX, p.curY, 0, w, h);
-        entities.push({
-          type: "player",
-          side: "away",
-          number: p.number,
-          isKeeper: p.isKeeper,
-          animPhase: p.animPhase || 0,
-          facingX: p.facingX || -1,
-          groundX: pt.groundX,
-          groundY: pt.groundY,
-          scale: pt.scale
-        });
-      });
+          frame.away.forEach(p => {
+            const pt = toScreen3D(p.curX, p.curY, 0, w, h);
+            entities.push({
+              type: "player",
+              side: "away",
+              number: p.number,
+              isKeeper: p.isKeeper,
+              animPhase: p.animPhase || 0,
+              facingX: p.facingX || -1,
+              groundX: pt.groundX,
+              groundY: pt.groundY,
+              scale: pt.scale
+            });
+          });
 
-      const bPos = toScreen3D(state.ball.x, state.ball.y, state.ball.z || 0, w, h);
-      entities.push({
-        type: "ball",
-        groundX: bPos.groundX,
-        groundY: bPos.groundY,
-        screenX: bPos.screenX,
-        screenY: bPos.screenY,
-        scale: bPos.scale,
-        z: state.ball.z || 0
-      });
+          const bPos = toScreen3D(frame.ball.x, frame.ball.y, frame.ball.z || 0, w, h);
+          entities.push({
+            type: "ball",
+            groundX: bPos.groundX,
+            groundY: bPos.groundY,
+            screenX: bPos.screenX,
+            screenY: bPos.screenY,
+            scale: bPos.scale,
+            z: frame.ball.z || 0
+          });
+        }
+
+        replayFrameIndex += 0.65;
+        if (replayFrameIndex >= replayFrames.length) {
+          isReplaying = false;
+        }
+      } else {
+        // MODO NORMAL EN DIRECTO (60 FPS FLUIDO ESTILO FOOTBALL MANAGER)
+        // Interpolación continua y suave del balón
+        simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
+        simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.16;
+        if (simulator.ball.targetZ !== undefined) {
+          simulator.ball.z += ((simulator.ball.targetZ || 0) - (simulator.ball.z || 0)) * 0.18;
+          if (Math.abs((simulator.ball.z || 0) - (simulator.ball.targetZ || 0)) < 0.2) {
+            simulator.ball.targetZ = 0;
+          }
+        } else {
+          simulator.ball.z = 0;
+        }
+
+        // Interpolación y animación de carrera suave para jugadores locales
+        simulator.home2D.forEach(p => {
+          const dx = p.targetX - p.curX;
+          const dy = p.targetY - p.curY;
+          const dist = Math.hypot(dx, dy);
+          p.curX += dx * 0.14;
+          p.curY += dy * 0.14;
+          if (Math.abs(dx) > 0.08) {
+            p.facingX = dx > 0 ? 1 : -1;
+          }
+          p.animPhase = (p.animPhase || 0) + (dist > 0.12 ? 0.22 : 0.04);
+
+          const pt = toScreen3D(p.curX, p.curY, 0, w, h);
+          entities.push({
+            type: "player",
+            side: "home",
+            number: p.number,
+            isKeeper: p.isKeeper,
+            animPhase: p.animPhase,
+            facingX: p.facingX,
+            groundX: pt.groundX,
+            groundY: pt.groundY,
+            scale: pt.scale
+          });
+        });
+
+        // Interpolación y animación de carrera suave para jugadores visitantes
+        simulator.away2D.forEach(p => {
+          const dx = p.targetX - p.curX;
+          const dy = p.targetY - p.curY;
+          const dist = Math.hypot(dx, dy);
+          p.curX += dx * 0.14;
+          p.curY += dy * 0.14;
+          if (Math.abs(dx) > 0.08) {
+            p.facingX = dx > 0 ? 1 : -1;
+          }
+          p.animPhase = (p.animPhase || 0) + (dist > 0.12 ? 0.22 : 0.04);
+
+          const pt = toScreen3D(p.curX, p.curY, 0, w, h);
+          entities.push({
+            type: "player",
+            side: "away",
+            number: p.number,
+            isKeeper: p.isKeeper,
+            animPhase: p.animPhase,
+            facingX: p.facingX,
+            groundX: pt.groundX,
+            groundY: pt.groundY,
+            scale: pt.scale
+          });
+        });
+
+        const bPos = toScreen3D(simulator.ball.x, simulator.ball.y, simulator.ball.z || 0, w, h);
+        entities.push({
+          type: "ball",
+          groundX: bPos.groundX,
+          groundY: bPos.groundY,
+          screenX: bPos.screenX,
+          screenY: bPos.screenY,
+          scale: bPos.scale,
+          z: simulator.ball.z || 0
+        });
+
+        // Grabar snapshot para repeticiones mientras el juego esté activo y no en saque
+        if (simulator.isRunning && !isKickoffInProgress) {
+          replayBuffer.push({
+            home: simulator.home2D.map(p => ({
+              curX: p.curX,
+              curY: p.curY,
+              animPhase: p.animPhase,
+              facingX: p.facingX,
+              number: p.number,
+              isKeeper: p.isKeeper
+            })),
+            away: simulator.away2D.map(p => ({
+              curX: p.curX,
+              curY: p.curY,
+              animPhase: p.animPhase,
+              facingX: p.facingX,
+              number: p.number,
+              isKeeper: p.isKeeper
+            })),
+            ball: { x: simulator.ball.x, y: simulator.ball.y, z: simulator.ball.z || 0 }
+          });
+          if (replayBuffer.length > 180) {
+            replayBuffer.shift();
+          }
+        }
+      }
 
       // Ordenar por profundidad (los que están más arriba en pantalla se dibujan primero)
       entities.sort((a, b) => a.groundY - b.groundY);

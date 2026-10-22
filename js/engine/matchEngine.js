@@ -51,6 +51,7 @@ export class MatchSimulator {
     this.onTick = options.onTick || (() => {});
     this.onFinish = options.onFinish || (() => {});
     this.onAlert = options.onAlert || (() => {});
+    this.onGoal = options.onGoal || (() => {});
   }
 
   init2DPositions() {
@@ -164,9 +165,9 @@ export class MatchSimulator {
       return;
     }
 
-    // Intervalo de tiempo dinámico según velocidad (Pausado y visualmente legible)
-    const baseInterval = 850; // ms por minuto en 1x (a 0.5x dura ~2.5 minutos de partido emocionante)
-    const interval = Math.max(80, Math.round(baseInterval / this.speed));
+    // Intervalo de tiempo dinámico según velocidad (Fluido y ágil estilo Football Manager)
+    const baseInterval = 460; // ms por minuto en 1x (ritmo televisivo dinámico)
+    const interval = Math.max(50, Math.round(baseInterval / this.speed));
 
     setTimeout(() => this.loop(), interval);
   }
@@ -301,8 +302,17 @@ export class MatchSimulator {
     // ¿Es Gol o Paradón?
     if (shotQuality > gkSavePower + 8) {
       // ¡GOL!
-      if (isHome) this.homeScore++;
-      else this.awayScore++;
+      if (isHome) {
+        this.homeScore++;
+        this.ball.targetX = 99;
+        this.ball.targetY = 48 + Math.random() * 4;
+        this.ball.targetZ = 6 + Math.random() * 6;
+      } else {
+        this.awayScore++;
+        this.ball.targetX = 1;
+        this.ball.targetY = 48 + Math.random() * 4;
+        this.ball.targetZ = 6 + Math.random() * 6;
+      }
 
       shooter.goals = (shooter.goals || 0) + 1;
 
@@ -317,11 +327,67 @@ export class MatchSimulator {
       };
       this.events.push(event);
 
-      this.triggerAlert("GOL", `⚽ ¡GOOOOOOL DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 3500);
+      this.triggerAlert("GOL", `⚽ ¡GOOOOOOL DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
+
+      // Notificar al visor de partido para activar aviso cinematográfico, repetición y saque de centro
+      this.onGoal({
+        shooter,
+        attackingSide,
+        concedingSide: isHome ? "away" : "home",
+        atkTeam,
+        defTeam,
+        minute: this.minute,
+        score: `${this.homeScore} - ${this.awayScore}`
+      });
     } else {
       // Paradón del portero rival
       this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name} ante ${shooter.name}!`, attackingSide === "home" ? "away" : "home");
     }
+  }
+
+  // Colocar a los equipos y balón para sacar del centro del campo tras un gol
+  resetKickoff(concedingSide = "away") {
+    this.ball.x = 50;
+    this.ball.y = 50;
+    this.ball.z = 0;
+    this.ball.targetX = 50;
+    this.ball.targetY = 50;
+    this.ball.targetZ = 0;
+    this.ball.possession = concedingSide;
+
+    const baseCoords = [
+      { x: 5, y: 50 },  // POR
+      { x: 20, y: 20 }, // LI
+      { x: 18, y: 40 }, // DFC
+      { x: 18, y: 60 }, // DFC
+      { x: 20, y: 80 }, // LD
+      { x: 34, y: 50 }, // MCD
+      { x: 44, y: 35 }, // MC
+      { x: 44, y: 65 }, // MC/MCO
+      { x: 42, y: 22 }, // EI
+      { x: concedingSide === "home" ? 50 : 44, y: 50 }, // DC
+      { x: 42, y: 78 }  // ED
+    ];
+
+    this.home2D.forEach((p, idx) => {
+      p.targetX = baseCoords[idx]?.x || 25;
+      p.targetY = baseCoords[idx]?.y || 50;
+      p.curX = p.targetX;
+      p.curY = p.targetY;
+      p.facingX = 1;
+    });
+
+    this.away2D.forEach((p, idx) => {
+      let tx = 100 - (baseCoords[idx]?.x || 25);
+      if (concedingSide === "away" && idx === 9) {
+        tx = 50; // Delantero visitante en el centro para el saque
+      }
+      p.targetX = tx;
+      p.targetY = 100 - (baseCoords[idx]?.y || 50);
+      p.curX = p.targetX;
+      p.curY = p.targetY;
+      p.facingX = -1;
+    });
   }
 
   pickPlayerForAction(players, preferredPositions) {
@@ -349,41 +415,15 @@ export class MatchSimulator {
   }
 
   update2DPositions() {
-    // Los jugadores se desplazan suavemente siguiendo la fase de juego
+    // Los jugadores fijan sus coordenadas objetivo siguiendo dinámicamente la jugada y el balón
     const ballX = this.ball.targetX;
     const ballY = this.ball.targetY;
-
-    // Suavizado del balón
-    this.ball.x += (ballX - this.ball.x) * 0.45;
-    this.ball.y += (ballY - this.ball.y) * 0.45;
-
-    // Altura vertical del balón (z)
-    if (this.ball.targetZ !== undefined) {
-      this.ball.z += ((this.ball.targetZ || 0) - (this.ball.z || 0)) * 0.35;
-      if (Math.abs(this.ball.z - (this.ball.targetZ || 0)) < 1) {
-        this.ball.targetZ = 0;
-      }
-    } else {
-      this.ball.z = 0;
-    }
 
     this.home2D.forEach(p => {
       const shiftX = (ballX - 50) * 0.35;
       const shiftY = (ballY - 50) * 0.25;
       p.targetX = Math.max(3, Math.min(95, p.baseX + shiftX + (Math.random() * 4 - 2)));
       p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
-
-      const dx = p.targetX - p.curX;
-      const dy = p.targetY - p.curY;
-      const dist = Math.hypot(dx, dy);
-
-      p.curX += dx * 0.25;
-      p.curY += dy * 0.25;
-
-      if (Math.abs(dx) > 0.2) {
-        p.facingX = dx > 0 ? 1 : -1;
-      }
-      p.animPhase += dist * 0.2 + 0.08;
     });
 
     this.away2D.forEach(p => {
@@ -391,18 +431,6 @@ export class MatchSimulator {
       const shiftY = (ballY - 50) * 0.25;
       p.targetX = Math.max(5, Math.min(97, p.baseX + shiftX + (Math.random() * 4 - 2)));
       p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
-
-      const dx = p.targetX - p.curX;
-      const dy = p.targetY - p.curY;
-      const dist = Math.hypot(dx, dy);
-
-      p.curX += dx * 0.25;
-      p.curY += dy * 0.25;
-
-      if (Math.abs(dx) > 0.2) {
-        p.facingX = dx > 0 ? 1 : -1;
-      }
-      p.animPhase += dist * 0.2 + 0.08;
     });
   }
 
