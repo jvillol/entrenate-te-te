@@ -1251,8 +1251,8 @@ function pickScorer(team) {
 
 // Gestor de guardado en LocalStorage para partidas persistentes
 
-const SAVE_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V7";
-const CURRENT_SCHEMA = "LALIGA_REAL_V7";
+const SAVE_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V8";
+const CURRENT_SCHEMA = "LALIGA_REAL_V8";
 class SaveManager {
   static hasSavedGame() {
     try {
@@ -8070,7 +8070,7 @@ class GameManager {
     try {
       // Comprobar si hay partida guardada con la versión oficial
       const saved = SaveManager.loadGame();
-      if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V7") {
+      if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V8") {
         this.state = saved;
         if (this.state.isSeasonOver) {
           this.currentView = "season_end";
@@ -8094,7 +8094,7 @@ class GameManager {
     const standings = initStandings(teams);
 
     this.state = {
-      schemaVersion: "LALIGA_REAL_V7",
+      schemaVersion: "LALIGA_REAL_V8",
       userTeamId: selectedTeam.id,
       currentRound: 1,
       schedule,
