@@ -714,7 +714,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         <!-- Modal de Descanso (Pausa en el min 45 para cambios y táctica) -->
         <div id="modal-halftime" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex flex-col justify-center p-4">
           <div class="bg-slate-900 border-2 border-sky-500/50 rounded-3xl p-5 max-w-sm mx-auto w-full shadow-2xl text-center">
-            <div class="inline-block px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 font-extrabold text-[11px] tracking-wider uppercase mb-2 border border-sky-400/40">
+            <div id="ht-modal-badge" class="inline-block px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 font-extrabold text-[11px] tracking-wider uppercase mb-2 border border-sky-400/40">
               ⏸️ DESCANSO (45')
             </div>
             
@@ -1719,6 +1719,21 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         setTimeout(() => {
           if (kickoffBadge) kickoffBadge.classList.add("hidden");
           isKickoffInProgress = false;
+
+          // Si tras el gol ya se había cumplido el tiempo reglamentario del primer tiempo con su descuento
+          if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered) {
+            simulator.halfTimeTriggered = true;
+            simulator.isHalfTime = true;
+            simulator.pause();
+            simulator.onHalfTime(simulator.getState());
+            return;
+          }
+
+          if (simulator.minute >= simulator.maxMinutes) {
+            simulator.finish();
+            return;
+          }
+
           if (!simulator.isFinished) {
             simulator.start();
             const iconPP = container.querySelector("#play-pause-icon");
@@ -2063,8 +2078,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (elTimer) {
         if (state.isHalfTime) {
           elTimer.textContent = "45' (Descanso)";
+          elTimer.className = "px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold";
         } else {
-          elTimer.textContent = `${state.minute}'`;
+          elTimer.textContent = state.formattedMinute || `${state.minute}'`;
+          const isAdded = (!simulator.halfTimeTriggered && state.minute > 45) || (state.minute > 90);
+          elTimer.className = isAdded
+            ? "px-2.5 py-0.5 rounded-full bg-amber-500/30 text-amber-300 font-mono font-extrabold animate-pulse"
+            : "px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-mono font-bold animate-pulse";
         }
       }
       if (elHScore) elHScore.textContent = state.homeScore;
@@ -2103,6 +2123,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     function handleHalfTimeSequence(htState) {
       const modalHT = container.querySelector("#modal-halftime");
+      const htBadge = container.querySelector("#ht-modal-badge");
       const htHScore = container.querySelector("#ht-home-score");
       const htAScore = container.querySelector("#ht-away-score");
       const htPossH = container.querySelector("#ht-stat-poss-h");
@@ -2115,6 +2136,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const htTargetA = container.querySelector("#ht-ontarget-a");
       const htSubsBadge = container.querySelector("#ht-subs-badge");
 
+      if (htBadge) {
+        htBadge.textContent = `⏸️ DESCANSO (45+${simulator.firstHalfExtra}')`;
+      }
       if (htHScore) htHScore.textContent = htState.homeScore;
       if (htAScore) htAScore.textContent = htState.awayScore;
       if (htPossH) htPossH.textContent = htState.stats.possession.home;
@@ -2130,7 +2154,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest.`;
 
       const elTimer = container.querySelector("#match-timer");
-      if (elTimer) elTimer.textContent = "45' (Descanso)";
+      if (elTimer) {
+        elTimer.textContent = "45' (Descanso)";
+        elTimer.className = "px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold";
+      }
       if (iconPP) iconPP.textContent = "▶";
       if (textPP) textPP.textContent = "Reanudar";
 
