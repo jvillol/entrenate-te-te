@@ -52,6 +52,10 @@ export class MatchSimulator {
     this.onFinish = options.onFinish || (() => {});
     this.onAlert = options.onAlert || (() => {});
     this.onGoal = options.onGoal || (() => {});
+    this.onHalfTime = options.onHalfTime || (() => {});
+
+    this.isHalfTime = false;
+    this.halfTimeTriggered = false;
   }
 
   init2DPositions() {
@@ -159,6 +163,15 @@ export class MatchSimulator {
 
     this.stepMinute();
     this.onTick(this.getState());
+
+    // Pausa oficial en el descanso (minuto 45) para cambios y ajustes tácticos
+    if (this.minute === 45 && !this.halfTimeTriggered) {
+      this.halfTimeTriggered = true;
+      this.isHalfTime = true;
+      this.pause();
+      this.onHalfTime(this.getState());
+      return;
+    }
 
     if (this.minute >= this.maxMinutes) {
       this.finish();
@@ -434,8 +447,22 @@ export class MatchSimulator {
     });
   }
 
+  // Reanudar el partido tras la pausa del descanso
+  resumeSecondHalf() {
+    this.isHalfTime = false;
+    // Ligera recuperación energética por los 15 minutos de descanso
+    this.homePlayersOnPitch.forEach(p => { p.energy = Math.min(100, (p.energy || 100) + 5); });
+    this.awayPlayersOnPitch.forEach(p => { p.energy = Math.min(100, (p.energy || 100) + 5); });
+
+    // Saque de centro para la 2ª mitad
+    this.resetKickoff("away");
+    this.start();
+  }
+
   // Saltar instantáneamente al final del partido
   skipToEnd() {
+    this.halfTimeTriggered = true;
+    this.isHalfTime = false;
     while (this.minute < this.maxMinutes) {
       this.stepMinute();
     }
@@ -471,6 +498,7 @@ export class MatchSimulator {
       homeMentality: this.homeMentality,
       awayMentality: this.awayMentality,
       isRunning: this.isRunning,
+      isHalfTime: this.isHalfTime,
       isFinished: this.isFinished
     };
   }

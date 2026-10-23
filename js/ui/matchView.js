@@ -27,7 +27,40 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     };
   }
 
+  let preMatchTab = "USER"; // "USER" o "OPPONENT"
   let selectedPreMatchPlayerId = null;
+
+  function getOpponentLineup(oppTeam) {
+    const formationKey = oppTeam.defaultFormation || "4-3-3";
+    const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
+    const allPlayers = [...oppTeam.players].sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+    const used = new Set();
+    const lineup = [];
+
+    const gk = allPlayers.find(p => p.pos === "POR") || allPlayers[0];
+    if (gk) {
+      lineup[0] = gk;
+      used.add(gk.id);
+    }
+
+    formation.slots.forEach((slot, idx) => {
+      if (idx === 0) return;
+      let best = allPlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
+      if (!best) {
+        best = allPlayers.find(p => !used.has(p.id) && p.pos !== "POR");
+      }
+      if (!best) {
+        best = allPlayers.find(p => !used.has(p.id));
+      }
+      if (best) {
+        lineup[idx] = best;
+        used.add(best.id);
+      }
+    });
+
+    const bench = allPlayers.filter(p => !used.has(p.id));
+    return { formationKey, formation, lineup, bench };
+  }
 
   // ==========================================
   // FASE 1: PREVIA Y ELECCIÓN DE ALINEACIÓN
@@ -41,6 +74,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const benchPlayers = tactics.bench.map(id => userTeam.players.find(p => p.id === id)).filter(Boolean);
     const averages = calculateTeamAverages(lineupPlayers, formationKey);
 
+    const oppData = getOpponentLineup(opponentTeam);
+    const oppAverages = calculateTeamAverages(oppData.lineup, oppData.formationKey);
+
     container.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-6 select-none max-w-md mx-auto">
         <!-- Barra Superior Pre-Partido -->
@@ -51,17 +87,21 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </button>
             <div class="text-center">
               <span class="text-[10px] uppercase font-bold text-sky-400">Jornada ${gameState.currentRound} de 38</span>
-              <h2 class="text-sm font-extrabold text-white leading-tight">Alineación Oficial</h2>
+              <h2 class="text-sm font-extrabold text-white leading-tight">${preMatchTab === 'USER' ? 'Mi Alineación Oficial' : 'Alineación del Rival'}</h2>
             </div>
-            <button id="btn-pre-auto" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 px-2 py-1 rounded-lg border border-slate-700 font-bold active:scale-95 transition">
-              ⚡ Auto 11
-            </button>
+            ${preMatchTab === 'USER' ? `
+              <button id="btn-pre-auto" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 px-2 py-1 rounded-lg border border-slate-700 font-bold active:scale-95 transition">
+                ⚡ Auto 11
+              </button>
+            ` : `
+              <div class="w-12"></div>
+            `}
           </div>
         </header>
 
-        <!-- Tarjeta de Enfrentamiento -->
+        <!-- Tarjeta de Enfrentamiento (Clickeable para alternar pestañas) -->
         <div class="p-3 bg-slate-900/60 border-b border-slate-800 flex items-center justify-between text-xs">
-          <div class="flex items-center gap-2">
+          <div id="btn-matchup-user" class="flex items-center gap-2 cursor-pointer p-1 rounded-xl transition ${preMatchTab === 'USER' ? 'ring-2 ring-sky-500/80 bg-sky-500/10' : 'hover:bg-slate-800/50'}">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shadow" style="background: linear-gradient(135deg, ${userTeam.primaryColor}, ${userTeam.secondaryColor}); color: ${userTeam.textColor};">
               ${userTeam.shortName}
             </div>
@@ -71,10 +111,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
           </div>
           <span class="font-mono font-bold text-slate-500 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">VS</span>
-          <div class="flex items-center gap-2 text-right">
+          <div id="btn-matchup-rival" class="flex items-center gap-2 text-right cursor-pointer p-1 rounded-xl transition ${preMatchTab === 'OPPONENT' ? 'ring-2 ring-amber-500/80 bg-amber-500/10' : 'hover:bg-slate-800/50'}">
             <div>
               <div class="font-black text-white text-xs">${opponentTeam.name}</div>
-              <div class="text-[10px] text-slate-400">Rival · Media <b class="text-slate-300">${opponentTeam.reputation}</b></div>
+              <div class="text-[10px] text-slate-400">Rival · Media <b class="text-amber-400">${oppAverages.overall}</b></div>
             </div>
             <div class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shadow" style="background: linear-gradient(135deg, ${opponentTeam.primaryColor}, ${opponentTeam.secondaryColor}); color: ${opponentTeam.textColor};">
               ${opponentTeam.shortName}
@@ -82,115 +122,245 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           </div>
         </div>
 
-        <!-- Selectores Tácticos (Sistema y Mentalidad) -->
-        <div class="p-3 bg-slate-900/40 border-b border-slate-800 space-y-2">
-          <!-- Formaciones -->
-          <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
-            <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Sistema:</span>
-            ${Object.keys(FORMATIONS).map(fKey => `
-              <button class="btn-pre-formation px-3 py-1 rounded-full font-bold transition whitespace-nowrap ${tactics.formation === fKey ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}" data-formation="${fKey}">
-                ${fKey}
-              </button>
-            `).join('')}
-          </div>
-
-          <!-- Mentalidad -->
-          <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
-            <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Mentalidad:</span>
-            ${MENTALITIES.map(m => `
-              <button class="btn-pre-mentality px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${tactics.mentality === m.id ? 'bg-emerald-600 text-white border border-emerald-400' : 'bg-slate-800/80 text-slate-400 hover:text-white'}" data-mentality="${m.id}">
-                ${m.label}
-              </button>
-            `).join('')}
-          </div>
+        <!-- Selector de Pestañas: Mi Equipo vs Rival -->
+        <div class="px-3 pt-2.5 pb-1 flex gap-2 bg-slate-900/40 border-b border-slate-800">
+          <button id="tab-pre-user" class="flex-1 py-2 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 ${preMatchTab === 'USER' ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/25 border border-sky-400' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}">
+            <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${userTeam.primaryColor};"></span>
+            <span>👕 Mi 11 (${userTeam.shortName})</span>
+          </button>
+          <button id="tab-pre-rival" class="flex-1 py-2 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 ${preMatchTab === 'OPPONENT' ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/25 border border-amber-400' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}">
+            <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${opponentTeam.primaryColor};"></span>
+            <span>🛡️ Ver Rival (${opponentTeam.shortName})</span>
+          </button>
         </div>
 
-        <!-- Terreno de Juego Táctico Interactivo -->
-        <div class="p-3 flex-1 flex flex-col justify-center">
-          <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
-            <!-- Líneas del campo -->
-            <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
-            <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
-            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
-            <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
-            <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-12 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
+        ${preMatchTab === 'USER' ? `
+          <!-- SELECTORES TÁCTICOS USUARIO -->
+          <div class="p-3 bg-slate-900/40 border-b border-slate-800 space-y-2">
+            <!-- Formaciones -->
+            <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+              <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Sistema:</span>
+              ${Object.keys(FORMATIONS).map(fKey => `
+                <button class="btn-pre-formation px-3 py-1 rounded-full font-bold transition whitespace-nowrap ${tactics.formation === fKey ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}" data-formation="${fKey}">
+                  ${fKey}
+                </button>
+              `).join('')}
+            </div>
 
-            <!-- Fichas de los 11 titulares -->
-            ${formation.slots.map((slot, index) => {
-              const player = lineupPlayers[index];
-              if (!player) return "";
-              const effRating = calculateEffectiveRating(player, slot.pos);
-              const isSelected = selectedPreMatchPlayerId === player.id;
+            <!-- Mentalidad -->
+            <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+              <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Mentalidad:</span>
+              ${MENTALITIES.map(m => `
+                <button class="btn-pre-mentality px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${tactics.mentality === m.id ? 'bg-emerald-600 text-white border border-emerald-400' : 'bg-slate-800/80 text-slate-400 hover:text-white'}" data-mentality="${m.id}">
+                  ${m.label}
+                </button>
+              `).join('')}
+            </div>
+          </div>
 
-              return `
-                <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
-                     style="left: ${slot.x}%; top: ${slot.y}%;"
-                     data-player-id="${player.id}">
-                  <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
-                    <span class="text-[9px] font-black leading-none">${effRating}</span>
-                    <span class="text-[7px] font-bold text-slate-300 leading-none">${slot.label}</span>
-                    <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
-                      <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy}%;"></div>
+          <!-- Terreno de Juego Táctico Interactivo Usuario -->
+          <div class="p-3 flex-1 flex flex-col justify-center">
+            <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+              <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
+              <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
+              <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
+              <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
+              <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-12 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
+
+              <!-- Fichas de los 11 titulares usuario -->
+              ${formation.slots.map((slot, index) => {
+                const player = lineupPlayers[index];
+                if (!player) return "";
+                const effRating = calculateEffectiveRating(player, slot.pos);
+                const isSelected = selectedPreMatchPlayerId === player.id;
+
+                return `
+                  <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
+                       style="left: ${slot.x}%; top: ${slot.y}%;"
+                       data-player-id="${player.id}">
+                    <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                      <span class="text-[9px] font-black leading-none">${effRating}</span>
+                      <span class="text-[7px] font-bold text-slate-300 leading-none">${slot.label}</span>
+                      <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
+                        <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy}%;"></div>
+                      </div>
+                    </div>
+                    <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
+                      ${player.name.split(' ').slice(-1)[0]}
                     </div>
                   </div>
-                  <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
-                    ${player.name.split(' ').slice(-1)[0]}
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Instrucción de intercambio -->
+          <div class="px-4 text-center my-1">
+            <p class="text-[11px] text-slate-400">
+              ${selectedPreMatchPlayerId ? '👉 Ahora toca otro titular o un suplente del banquillo para intercambiarlo.' : '💡 Toca un futbolista para modificar su puesto o sustituirlo.'}
+            </p>
+          </div>
+
+          <!-- Lista del Banquillo (Suplentes) -->
+          <div class="px-3 mb-3">
+            <div class="text-[10px] uppercase font-bold text-slate-400 mb-1.5 flex items-center justify-between">
+              <span>🪑 Suplentes disponibles (${benchPlayers.length})</span>
+              <span class="text-slate-500 font-normal">Toca para poner de titular</span>
+            </div>
+            <div class="flex gap-1.5 overflow-x-auto pb-2 no-scrollbar">
+              ${benchPlayers.map(p => {
+                const isSelected = selectedPreMatchPlayerId === p.id;
+                return `
+                  <div class="bench-pre-card flex-shrink-0 bg-slate-900 border ${isSelected ? 'border-amber-400 bg-amber-500/20' : 'border-slate-800'} p-2 rounded-xl text-center cursor-pointer active:scale-95 transition min-w-[76px]" data-player-id="${p.id}">
+                    <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
+                    <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
+                    <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
+                    <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
+                      <div class="h-full bg-emerald-400" style="width: ${p.energy}%;"></div>
+                    </div>
                   </div>
-                </div>
-              `;
-            }).join('')}
+                `;
+              }).join('')}
+            </div>
           </div>
-        </div>
 
-        <!-- Instrucción de intercambio -->
-        <div class="px-4 text-center my-1">
-          <p class="text-[11px] text-slate-400">
-            ${selectedPreMatchPlayerId ? '👉 Ahora toca otro titular o un suplente del banquillo para intercambiarlo.' : '💡 Toca un futbolista para modificar su puesto o sustituirlo.'}
-          </p>
-        </div>
-
-        <!-- Lista del Banquillo (Suplentes) -->
-        <div class="px-3 mb-3">
-          <div class="text-[10px] uppercase font-bold text-slate-400 mb-1.5 flex items-center justify-between">
-            <span>🪑 Suplentes disponibles (${benchPlayers.length})</span>
-            <span class="text-slate-500 font-normal">Toca para poner de titular</span>
+          <!-- Botón de Confirmación y Saltar al Campo -->
+          <footer class="px-3">
+            <button id="btn-start-match-confirmed" class="w-full py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-sm rounded-2xl shadow-xl shadow-emerald-500/25 transition-all flex items-center justify-center gap-2">
+              <span>⚽ ¡CONFIRMAR 11 Y SALTAR AL CAMPO!</span>
+              <span>➔</span>
+            </button>
+          </footer>
+        ` : `
+          <!-- VISTA DE ALINEACIÓN DEL RIVAL -->
+          <div class="p-3 bg-slate-900/40 border-b border-slate-800 flex items-center justify-between text-xs">
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded-lg bg-slate-800 border border-slate-700 text-amber-400 font-extrabold text-[11px] font-mono">
+                ${oppData.formationKey}
+              </span>
+              <span class="text-xs font-bold text-white">${opponentTeam.name}</span>
+            </div>
+            <div class="text-[11px] text-slate-400">
+              Media titular: <b class="text-amber-400">${oppAverages.overall}</b>
+            </div>
           </div>
-          <div class="flex gap-1.5 overflow-x-auto pb-2 no-scrollbar">
-            ${benchPlayers.map(p => {
-              const isSelected = selectedPreMatchPlayerId === p.id;
-              return `
-                <div class="bench-pre-card flex-shrink-0 bg-slate-900 border ${isSelected ? 'border-amber-400 bg-amber-500/20' : 'border-slate-800'} p-2 rounded-xl text-center cursor-pointer active:scale-95 transition min-w-[76px]" data-player-id="${p.id}">
+
+          <!-- Terreno de Juego Táctico Rival -->
+          <div class="p-3 flex-1 flex flex-col justify-center">
+            <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-900 via-emerald-800 to-emerald-950 rounded-2xl border-2 border-amber-500/40 shadow-inner overflow-hidden p-2">
+              <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
+              <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
+              <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
+              <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
+              <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-12 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
+
+              <!-- Fichas de los 11 titulares del rival -->
+              ${oppData.formation.slots.map((slot, index) => {
+                const player = oppData.lineup[index];
+                if (!player) return "";
+                const effRating = calculateEffectiveRating(player, slot.pos);
+
+                return `
+                  <div class="slot-pre-opp-player absolute -translate-x-1/2 -translate-y-1/2 flex flex-col items-center pointer-events-none z-10"
+                       style="left: ${slot.x}%; top: ${slot.y}%;">
+                    <div class="w-9 h-9 rounded-full border-2 border-white/80 flex flex-col items-center justify-center relative shadow-md"
+                         style="background: linear-gradient(135deg, ${opponentTeam.primaryColor}, ${opponentTeam.secondaryColor}); color: ${opponentTeam.textColor};">
+                      <span class="text-[9px] font-black leading-none">${effRating}</span>
+                      <span class="text-[7px] font-bold leading-none opacity-90">${slot.label}</span>
+                      <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
+                        <div class="h-full bg-emerald-400" style="width: ${player.energy || 100}%;"></div>
+                      </div>
+                    </div>
+                    <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
+                      ${player.name.split(' ').slice(-1)[0]}
+                    </div>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <div class="px-4 text-center my-1">
+            <p class="text-[11px] text-amber-400 font-semibold">
+              🔍 Esta es la alineación confirmada del rival para el encuentro.
+            </p>
+          </div>
+
+          <!-- Banquillo del Rival -->
+          <div class="px-3 mb-3">
+            <div class="text-[10px] uppercase font-bold text-slate-400 mb-1.5 flex items-center justify-between">
+              <span>🪑 Suplentes del Rival (${oppData.bench.length})</span>
+              <span class="text-slate-500 font-normal">Convocatoria rival</span>
+            </div>
+            <div class="flex gap-1.5 overflow-x-auto pb-2 no-scrollbar">
+              ${oppData.bench.map(p => `
+                <div class="flex-shrink-0 bg-slate-900 border border-slate-800 p-2 rounded-xl text-center min-w-[76px]">
                   <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                   <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
                   <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
                   <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
-                    <div class="h-full bg-emerald-400" style="width: ${p.energy}%;"></div>
+                    <div class="h-full bg-emerald-400" style="width: ${p.energy || 100}%;"></div>
                   </div>
                 </div>
-              `;
-            }).join('')}
+              `).join('')}
+            </div>
           </div>
-        </div>
 
-        <!-- Botón de Confirmación y Saltar al Campo -->
-        <footer class="px-3">
-          <button id="btn-start-match-confirmed" class="w-full py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-sm rounded-2xl shadow-xl shadow-emerald-500/25 transition-all flex items-center justify-center gap-2">
-            <span>⚽ ¡CONFIRMAR 11 Y SALTAR AL CAMPO!</span>
-            <span>➔</span>
-          </button>
-        </footer>
+          <!-- Botones desde la vista del rival -->
+          <footer class="px-3 flex gap-2">
+            <button id="btn-pre-to-user" class="flex-1 py-4 bg-slate-800 hover:bg-slate-700 active:scale-98 text-white font-bold text-xs rounded-2xl border border-slate-700 transition flex items-center justify-center gap-1.5">
+              <span>👕 Modificar mi 11</span>
+            </button>
+            <button id="btn-start-match-from-rival" class="flex-1 py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-xs rounded-2xl shadow-xl shadow-emerald-500/25 transition flex items-center justify-center gap-1.5">
+              <span>⚽ ¡SALTAR AL CAMPO!</span>
+              <span>➔</span>
+            </button>
+          </footer>
+        `}
       </div>
     `;
 
     // Eventos Pre-Partido
-    container.querySelector("#btn-pre-back").onclick = () => {
+    container.querySelector("#btn-pre-back")?.addEventListener("click", () => {
       if (onBackToHub) onBackToHub();
-    };
+    });
 
-    container.querySelector("#btn-pre-auto").onclick = () => {
-      autoAlignLineup();
+    container.querySelector("#tab-pre-user")?.addEventListener("click", () => {
+      preMatchTab = "USER";
       renderPreMatch();
-    };
+    });
+
+    container.querySelector("#tab-pre-rival")?.addEventListener("click", () => {
+      preMatchTab = "OPPONENT";
+      renderPreMatch();
+    });
+
+    container.querySelector("#btn-matchup-user")?.addEventListener("click", () => {
+      preMatchTab = "USER";
+      renderPreMatch();
+    });
+
+    container.querySelector("#btn-matchup-rival")?.addEventListener("click", () => {
+      preMatchTab = "OPPONENT";
+      renderPreMatch();
+    });
+
+    container.querySelector("#btn-pre-to-user")?.addEventListener("click", () => {
+      preMatchTab = "USER";
+      renderPreMatch();
+    });
+
+    container.querySelector("#btn-start-match-from-rival")?.addEventListener("click", () => {
+      startLiveSimulation();
+    });
+
+    const btnAuto = container.querySelector("#btn-pre-auto");
+    if (btnAuto) {
+      btnAuto.onclick = () => {
+        autoAlignLineup();
+        renderPreMatch();
+      };
+    }
 
     container.querySelectorAll(".btn-pre-formation").forEach(b => {
       b.onclick = () => {
@@ -212,9 +382,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     });
 
-    container.querySelector("#btn-start-match-confirmed").onclick = () => {
-      startLiveSimulation();
-    };
+    const btnConfirm = container.querySelector("#btn-start-match-confirmed");
+    if (btnConfirm) {
+      btnConfirm.onclick = () => {
+        startLiveSimulation();
+      };
+    }
   }
 
   function handlePrePlayerTap(tappedId) {
@@ -290,11 +463,20 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   // FASE 2: SIMULACIÓN EN VIVO (PARTIDO)
   // ==========================================
   function startLiveSimulation() {
-    // Aplicar alineación final elegida
+    // Aplicar alineaciones oficiales de ambos equipos
+    const oppLineupData = getOpponentLineup(opponentTeam);
     if (isUserHome) {
       sortTeamByTactics(homeTeam, gameState.userTactics);
+      sortTeamByTactics(awayTeam, {
+        lineup: oppLineupData.lineup.map(p => p.id),
+        bench: oppLineupData.bench.map(p => p.id)
+      });
     } else {
       sortTeamByTactics(awayTeam, gameState.userTactics);
+      sortTeamByTactics(homeTeam, {
+        lineup: oppLineupData.lineup.map(p => p.id),
+        bench: oppLineupData.bench.map(p => p.id)
+      });
     }
 
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
@@ -304,6 +486,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
       onGoal: (goalData) => handleGoalSequence(goalData),
+      onHalfTime: (htState) => handleHalfTimeSequence(htState),
       onFinish: handleLiveMatchEnd
     });
 
@@ -490,6 +673,65 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <div class="text-[10px] uppercase font-bold text-slate-400 mb-1.5">En el Banquillo (Toca para que ingrese):</div>
                 <div class="space-y-1" id="sub-bench-list"></div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Modal de Descanso (Pausa en el min 45 para cambios y táctica) -->
+        <div id="modal-halftime" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex flex-col justify-center p-4">
+          <div class="bg-slate-900 border-2 border-sky-500/50 rounded-3xl p-5 max-w-sm mx-auto w-full shadow-2xl text-center">
+            <div class="inline-block px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 font-extrabold text-[11px] tracking-wider uppercase mb-2 border border-sky-400/40">
+              ⏸️ DESCANSO (45')
+            </div>
+            
+            <div class="flex items-center justify-between my-3 px-2">
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700" style="background: linear-gradient(135deg, ${homeTeam.primaryColor}, ${homeTeam.secondaryColor}); color: ${homeTeam.textColor};">
+                ${homeTeam.shortName}
+              </div>
+              <div class="text-3xl font-black font-mono tracking-widest text-white">
+                <span id="ht-home-score">0</span>
+                <span class="text-slate-600 text-xl">-</span>
+                <span id="ht-away-score">0</span>
+              </div>
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700" style="background: linear-gradient(135deg, ${awayTeam.primaryColor}, ${awayTeam.secondaryColor}); color: ${awayTeam.textColor};">
+                ${awayTeam.shortName}
+              </div>
+            </div>
+
+            <!-- Resumen Estadístico del 1er Tiempo -->
+            <div class="bg-slate-950/70 rounded-2xl p-3 border border-slate-800 text-xs my-3 space-y-2">
+              <div>
+                <div class="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
+                  <span><span id="ht-stat-poss-h">50</span>% Posesión</span>
+                  <span><span id="ht-stat-poss-a">50</span>%</span>
+                </div>
+                <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden flex">
+                  <div id="ht-bar-poss-h" class="h-full" style="width: 50%; background-color: ${homeTeam.primaryColor};"></div>
+                  <div id="ht-bar-poss-a" class="h-full" style="width: 50%; background-color: ${awayTeam.primaryColor};"></div>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-center text-[11px] pt-1">
+                <div class="p-1 rounded-lg bg-slate-900 border border-slate-800">
+                  <span class="text-slate-400 text-[9px] block uppercase">Tiros</span>
+                  <b class="text-white"><span id="ht-shots-h">0</span> - <span id="ht-shots-a">0</span></b>
+                </div>
+                <div class="p-1 rounded-lg bg-slate-900 border border-slate-800">
+                  <span class="text-slate-400 text-[9px] block uppercase">A Puerta</span>
+                  <b class="text-emerald-400"><span id="ht-ontarget-h">0</span> - <span id="ht-ontarget-a">0</span></b>
+                </div>
+              </div>
+            </div>
+
+            <div class="space-y-2 mt-4">
+              <button id="btn-ht-subs" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg active:scale-98 transition flex items-center justify-center gap-2">
+                <span>🔄 HACER CAMBIOS O AJUSTES</span>
+                <span id="ht-subs-badge" class="px-2 py-0.5 rounded-full bg-black/40 text-[10px] font-mono">5 rest.</span>
+              </button>
+
+              <button id="btn-ht-continue" class="w-full py-3.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 text-white font-extrabold text-xs rounded-xl shadow-lg active:scale-98 transition flex items-center justify-center gap-1.5">
+                <span>▶ REANUDAR 2ª PARTE</span>
+                <span>➔</span>
+              </button>
             </div>
           </div>
         </div>
@@ -1180,7 +1422,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const elTimer = container.querySelector("#match-timer");
       const elHScore = container.querySelector("#home-score");
       const elAScore = container.querySelector("#away-score");
-      if (elTimer) elTimer.textContent = `${state.minute}'`;
+      if (elTimer) {
+        if (state.isHalfTime) {
+          elTimer.textContent = "45' (Descanso)";
+        } else {
+          elTimer.textContent = `${state.minute}'`;
+        }
+      }
       if (elHScore) elHScore.textContent = state.homeScore;
       if (elAScore) elAScore.textContent = state.awayScore;
 
@@ -1215,6 +1463,42 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (subsBadge) subsBadge.textContent = `${remaining} rest.`;
     }
 
+    function handleHalfTimeSequence(htState) {
+      const modalHT = container.querySelector("#modal-halftime");
+      const htHScore = container.querySelector("#ht-home-score");
+      const htAScore = container.querySelector("#ht-away-score");
+      const htPossH = container.querySelector("#ht-stat-poss-h");
+      const htPossA = container.querySelector("#ht-stat-poss-a");
+      const htBarPossH = container.querySelector("#ht-bar-poss-h");
+      const htBarPossA = container.querySelector("#ht-bar-poss-a");
+      const htShotsH = container.querySelector("#ht-shots-h");
+      const htShotsA = container.querySelector("#ht-shots-a");
+      const htTargetH = container.querySelector("#ht-ontarget-h");
+      const htTargetA = container.querySelector("#ht-ontarget-a");
+      const htSubsBadge = container.querySelector("#ht-subs-badge");
+
+      if (htHScore) htHScore.textContent = htState.homeScore;
+      if (htAScore) htAScore.textContent = htState.awayScore;
+      if (htPossH) htPossH.textContent = htState.stats.possession.home;
+      if (htPossA) htPossA.textContent = htState.stats.possession.away;
+      if (htBarPossH) htBarPossH.style.width = `${htState.stats.possession.home}%`;
+      if (htBarPossA) htBarPossA.style.width = `${htState.stats.possession.away}%`;
+      if (htShotsH) htShotsH.textContent = htState.stats.shots.home;
+      if (htShotsA) htShotsA.textContent = htState.stats.shots.away;
+      if (htTargetH) htTargetH.textContent = htState.stats.shotsOnTarget.home;
+      if (htTargetA) htTargetA.textContent = htState.stats.shotsOnTarget.away;
+
+      const remainingSubs = isUserHome ? htState.homeSubsRemaining : htState.awaySubsRemaining;
+      if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest.`;
+
+      const elTimer = container.querySelector("#match-timer");
+      if (elTimer) elTimer.textContent = "45' (Descanso)";
+      if (iconPP) iconPP.textContent = "▶";
+      if (textPP) textPP.textContent = "Reanudar";
+
+      if (modalHT) modalHT.classList.remove("hidden");
+    }
+
     function showMatchAlert(alert) {
       const box = container.querySelector("#match-alert-box");
       const content = container.querySelector("#match-alert-content");
@@ -1236,6 +1520,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const textPP = container.querySelector("#play-pause-text");
 
     btnPlayPause.onclick = () => {
+      if (simulator.isHalfTime) {
+        container.querySelector("#modal-halftime")?.classList.add("hidden");
+        simulator.resumeSecondHalf();
+        iconPP.textContent = "⏸";
+        textPP.textContent = "Pausar";
+        showMatchAlert({ text: "📣 ¡Comienza la 2ª Parte!" });
+        return;
+      }
       if (simulator.isRunning) {
         simulator.pause();
         iconPP.textContent = "▶";
@@ -1285,10 +1577,32 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       showMatchAlert({ text: `🎯 Táctica ajustada: ${m.label}` });
     };
 
-    // Modal de Cambios en Vivo
+    // Modal de Cambios en Vivo y Descanso
     const modalSubs = container.querySelector("#modal-live-subs");
     const btnSubs = container.querySelector("#btn-subs");
     const btnCloseSubs = container.querySelector("#btn-close-subs");
+
+    const modalHT = container.querySelector("#modal-halftime");
+    const btnHtSubs = container.querySelector("#btn-ht-subs");
+    const btnHtContinue = container.querySelector("#btn-ht-continue");
+
+    if (btnHtSubs) {
+      btnHtSubs.onclick = () => {
+        renderMatchSubsModal();
+        if (modalHT) modalHT.classList.add("hidden");
+        modalSubs.classList.remove("hidden");
+      };
+    }
+
+    if (btnHtContinue) {
+      btnHtContinue.onclick = () => {
+        if (modalHT) modalHT.classList.add("hidden");
+        simulator.resumeSecondHalf();
+        iconPP.textContent = "⏸";
+        textPP.textContent = "Pausar";
+        showMatchAlert({ text: "📣 ¡Comienza la 2ª Parte!" });
+      };
+    }
 
     btnSubs.onclick = () => {
       simulator.pause();
@@ -1300,9 +1614,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     btnCloseSubs.onclick = () => {
       modalSubs.classList.add("hidden");
-      simulator.start();
-      iconPP.textContent = "⏸";
-      textPP.textContent = "Pausar";
+      if (simulator.isHalfTime) {
+        // En el descanso se vuelve a mostrar el modal de descanso tras hacer cambios
+        if (modalHT) {
+          const htSubsBadge = container.querySelector("#ht-subs-badge");
+          const remainingSubs = isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining;
+          if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest.`;
+          modalHT.classList.remove("hidden");
+        }
+      } else {
+        simulator.start();
+        iconPP.textContent = "⏸";
+        textPP.textContent = "Pausar";
+      }
     };
 
     function renderMatchSubsModal() {
