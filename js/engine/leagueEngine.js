@@ -276,6 +276,30 @@ export function simulateAIParties(match, teamsMap) {
         victim.injury = generateRandomInjury(cause);
       }
     }
+
+    // Tarjetas y disciplina para partidos de la IA
+    const outfieldStarters = (team.players || []).slice(0, 11).filter(p => p.pos !== "POR");
+    if (outfieldStarters.length > 0) {
+      // 1 o 2 tarjetas amarillas por partido en promedio para el equipo
+      const numYellows = Math.random() < 0.60 ? 1 : (Math.random() < 0.28 ? 2 : 0);
+      for (let y = 0; y < numYellows; y++) {
+        const p = outfieldStarters[Math.floor(Math.random() * outfieldStarters.length)];
+        if (p) {
+          p.seasonYellows = (p.seasonYellows || 0) + 1;
+          if (p.seasonYellows % 5 === 0 && !p.suspension) {
+            p.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas" };
+          }
+        }
+      }
+      // Roja ocasional (1.4% de probabilidad por equipo)
+      if (Math.random() < 0.014) {
+        const p = outfieldStarters[Math.floor(Math.random() * outfieldStarters.length)];
+        if (p) {
+          p.seasonReds = (p.seasonReds || 0) + 1;
+          p.suspension = { roundsLeft: 1, reason: "Tarjeta Roja" };
+        }
+      }
+    }
   });
 
   // Mutar y devolver el objeto match para asegurar persistencia y evitar null-null
@@ -319,4 +343,22 @@ function pickScorer(team) {
   }
   return team.players[0];
 }
+
+/**
+ * Reduce las jornadas de sanción de los futbolistas tras disputarse la jornada.
+ */
+export function processSuspensionRecovery(teams) {
+  if (!teams) return;
+  teams.forEach(team => {
+    (team.players || []).forEach(player => {
+      if (player.suspension) {
+        player.suspension.roundsLeft -= 1;
+        if (player.suspension.roundsLeft <= 0) {
+          delete player.suspension;
+        }
+      }
+    });
+  });
+}
+
 

@@ -123,6 +123,14 @@ class GameManager {
           }
         }
 
+        // 2. Evolución de sanciones disciplinarias (cumplir jornadas de sanción)
+        if (p.suspension) {
+          p.suspension.roundsLeft -= 1;
+          if (p.suspension.roundsLeft <= 0) {
+            p.suspension = null; // ¡Sanción cumplida!
+          }
+        }
+
         const curEnergy = p.energy !== undefined ? p.energy : 100;
 
         // Si continúa lesionado, su energía no recupera al 100% hasta tener el alta médica

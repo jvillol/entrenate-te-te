@@ -108,10 +108,14 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                   <div class="bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-bold text-white tracking-tight mt-1 truncate max-w-[70px] text-center border border-white/10 shadow">
                     ${player.name.split(' ').slice(-1)[0]}
                   </div>
-                  <!-- Función / Rol asignado o Lesión -->
+                  <!-- Función / Rol asignado o Lesión / Sanción -->
                   ${isInjured ? `
                     <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7.5px] font-bold text-rose-200 truncate max-w-[76px] text-center shadow-sm">
                       🚑 ${player.injury.roundsLeft}j
+                    </div>
+                  ` : player.suspension ? `
+                    <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500/70 text-[7.5px] font-bold text-amber-300 truncate max-w-[76px] text-center shadow-sm">
+                      🛑 ${player.suspension.roundsLeft}j
                     </div>
                   ` : `
                     <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7.5px] font-bold text-sky-300 truncate max-w-[76px] text-center shadow-sm">
@@ -226,21 +230,23 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
             ${benchPlayers.map(p => {
               const isSelected = selectedPlayerId === p.id;
               const isInjured = Boolean(p.injury);
+              const isSuspended = Boolean(p.suspension);
               return `
-                <div class="bench-player flex items-center justify-between p-2 rounded-xl border ${isSelected ? 'border-amber-400 bg-amber-500/10' : isInjured ? 'border-rose-900/80 bg-rose-950/20' : 'border-slate-800 bg-slate-900/60'} cursor-pointer active:scale-98 transition"
+                <div class="bench-player flex items-center justify-between p-2 rounded-xl border ${isSelected ? 'border-amber-400 bg-amber-500/10' : isInjured ? 'border-rose-900/80 bg-rose-950/20' : isSuspended ? 'border-amber-900/80 bg-amber-950/20' : 'border-slate-800 bg-slate-900/60'} cursor-pointer active:scale-98 transition"
                      data-player-id="${p.id}">
                   <div class="flex items-center gap-2">
                     <span class="w-5 text-center font-mono text-[10px] text-slate-500 font-bold">#${p.number}</span>
                     <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                     <span class="text-xs font-bold text-slate-200">${p.name}</span>
                     ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900/90 border border-rose-500/60 text-[8.5px] font-bold text-rose-300">🚑 ${p.injury.roundsLeft}j</span>` : ''}
+                    ${isSuspended ? `<span class="px-1.5 py-0.5 rounded bg-amber-900/90 border border-amber-500/60 text-[8.5px] font-bold text-amber-300">🛑 ${p.suspension.roundsLeft}j</span>` : ''}
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-[10px] font-mono ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} font-bold">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
                     <div class="w-10 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                       <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy !== undefined ? p.energy : 100}%;"></div>
                     </div>
-                    <span class="text-xs font-black ${isInjured ? 'text-slate-500' : 'text-amber-400'} px-1.5 py-0.5 bg-slate-800/80 rounded">${p.ovr}</span>
+                    <span class="text-xs font-black ${isInjured || isSuspended ? 'text-slate-500' : 'text-amber-400'} px-1.5 py-0.5 bg-slate-800/80 rounded">${p.ovr}</span>
                   </div>
                 </div>
               `;
@@ -377,9 +383,9 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
   function autoAlignLineup() {
     const formationKey = tactics.formation;
     const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    // Considerar tanto la media del jugador como su estado físico actual y descartar lesionados
+    // Considerar tanto la media del jugador como su estado físico actual y descartar lesionados y sancionados
     const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
-    const availablePlayers = [...team.players].filter(p => !p.injury).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
+    const availablePlayers = [...team.players].filter(p => !p.injury && !p.suspension).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const newLineup = [];
 

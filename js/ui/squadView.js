@@ -55,14 +55,17 @@ export function renderSquadView(container, gameState) {
                   <span class="text-[10px] font-extrabold ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                 </div>
 
-                <!-- Nombre y Goles -->
+                <!-- Nombre y Goles / Disciplina -->
                 <div>
                   <div class="flex items-center gap-1.5 flex-wrap">
                     <h4 class="text-xs font-bold text-white leading-tight">${p.name}</h4>
                     ${p.injury ? `<span class="px-1.5 py-0.2 rounded bg-rose-950/90 border border-rose-500/60 text-[8px] font-bold text-rose-300">🚑 ${p.injury.type} (${p.injury.roundsLeft}j)</span>` : ''}
+                    ${p.suspension ? `<span class="px-1.5 py-0.2 rounded bg-amber-950/90 border border-amber-500/60 text-[8px] font-bold text-amber-300">🛑 Sancionado (${p.suspension.roundsLeft}j)</span>` : ''}
                   </div>
                   <div class="flex items-center gap-2 mt-1">
                     <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0}</span>
+                    <span class="text-[10px] text-amber-400">🟨 ${p.seasonYellows || 0}</span>
+                    ${(p.seasonReds || 0) > 0 ? `<span class="text-[10px] text-red-400">🟥 ${p.seasonReds}</span>` : ''}
                     <span class="text-[10px] font-mono ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400 font-bold'}">⚡ ${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
                     <span class="text-[9px] text-slate-500 font-mono">FIS ${p.phy || 70}</span>
                   </div>
@@ -147,6 +150,20 @@ export function renderSquadView(container, gameState) {
               <div class="flex justify-between items-center text-[11px] text-rose-200 mt-1.5 pt-1.5 border-t border-rose-500/20">
                 <span>Gravedad: <b class="text-amber-400 capitalize">${p.injury.severity === 'severe' ? 'Grave' : p.injury.severity === 'moderate' ? 'Moderada' : 'Leve'}</b></span>
                 <span class="bg-rose-950/90 px-2 py-0.5 rounded border border-rose-500/50 font-mono font-bold text-rose-300">⏱️ ${p.injury.roundsLeft} jornada(s) de baja</span>
+              </div>
+            </div>
+          ` : ''}
+
+          ${p.suspension ? `
+            <div class="p-3 mb-3 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-xs">
+              <div class="flex items-center gap-1.5 mb-1 text-amber-300 font-extrabold text-[10px] uppercase tracking-wider">
+                <span>🛑</span>
+                <span>Sanción Disciplinaria</span>
+              </div>
+              <div class="text-white font-black text-xs">${p.suspension.reason}</div>
+              <div class="flex justify-between items-center text-[11px] text-amber-200 mt-1.5 pt-1.5 border-t border-amber-500/20">
+                <span>Tarjetas acumuladas: <b class="text-amber-400">🟨 ${p.seasonYellows || 0} | 🟥 ${p.seasonReds || 0}</b></span>
+                <span class="bg-amber-950/90 px-2 py-0.5 rounded border border-amber-500/50 font-mono font-bold text-amber-300">🛑 ${p.suspension.roundsLeft} jornada de baja</span>
               </div>
             </div>
           ` : ''}

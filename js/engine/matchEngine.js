@@ -82,6 +82,8 @@ export class MatchSimulator {
     this.isSetPieceRunning = false;
 
     this.onInjury = options.onInjury || (() => {});
+    this.onCard = options.onCard || (() => {});
+    this.matchCards = { yellows: {}, reds: {} };
 
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
@@ -200,7 +202,7 @@ export class MatchSimulator {
   }
 
   // Aplicar ajustes tácticos completos (formación, mentalidad, cambios de puesto y sustituciones)
-  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false) {
+  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false, newPlayerRoles = null) {
     const isHome = teamSide === "home";
     const currentPitch = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const currentPitchIds = currentPitch.map(p => p.id);
@@ -250,6 +252,13 @@ export class MatchSimulator {
     }
 
     // Actualizar estado del simulador
+    if (newPlayerRoles) {
+      if (isHome) {
+        this.homePlayerRoles = { ...this.homePlayerRoles, ...newPlayerRoles };
+      } else {
+        this.awayPlayerRoles = { ...this.awayPlayerRoles, ...newPlayerRoles };
+      }
+    }
     if (isHome) {
       this.homeSubsRemaining -= subsInIds.length;
       if (!isHalfTime && subsInIds.length > 0) {
@@ -648,12 +657,74 @@ export class MatchSimulator {
       const foulTeam = Math.random() > 0.5 ? "home" : "away";
       this.stats.fouls[foulTeam]++;
       const victimTeam = foulTeam === "home" ? "away" : "home";
-      const isYellow = Math.random() < 0.22;
+      const foulTeamObj = foulTeam === "home" ? this.homeTeam : this.awayTeam;
+      const foulPitch = foulTeam === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+      const foulCandidates = foulPitch.filter(p => p.pos !== "POR");
+      const committingPlayer = foulCandidates.length > 0
+        ? foulCandidates[Math.floor(Math.random() * foulCandidates.length)]
+        : foulPitch[0];
 
-      if (isYellow) {
-        this.stats.yellowCards[foulTeam]++;
-        const teamName = foulTeam === "home" ? this.homeTeam.shortName : this.awayTeam.shortName;
-        this.triggerAlert("TARJETA", `🟨 Tarjeta amarilla para ${teamName}`, foulTeam);
+      const isDirectRed = Math.random() < 0.015;
+      const isYellow = !isDirectRed && Math.random() < 0.22;
+
+      if (isDirectRed && committingPlayer) {
+        this.stats.redCards[foulTeam]++;
+        this.matchCards.reds[committingPlayer.id] = { player: committingPlayer, reason: "Roja directa", minute: this.minute, team: foulTeam };
+        if (foulTeam === "home") {
+          this.homePlayersOnPitch = this.homePlayersOnPitch.filter(p => p.id !== committingPlayer.id);
+        } else {
+          this.awayPlayersOnPitch = this.awayPlayersOnPitch.filter(p => p.id !== committingPlayer.id);
+        }
+        this.update2DPositions();
+        this.triggerAlert("ROJA DIRECTA", `🟥 ¡ROJA DIRECTA para ${committingPlayer.name} (${foulTeamObj.shortName})!`, foulTeam, 4000);
+        this.events.push({
+          minute: this.minute,
+          type: "RED_CARD",
+          team: foulTeam,
+          teamName: foulTeamObj.shortName,
+          player: committingPlayer.name,
+          playerId: committingPlayer.id,
+          reason: "Roja directa"
+        });
+        this.onCard({ type: "RED", player: committingPlayer, teamSide: foulTeam, minute: this.minute });
+      } else if (isYellow && committingPlayer) {
+        if (this.matchCards.yellows[committingPlayer.id]) {
+          // Segunda amarilla y expulsión
+          this.stats.yellowCards[foulTeam]++;
+          this.stats.redCards[foulTeam]++;
+          this.matchCards.reds[committingPlayer.id] = { player: committingPlayer, reason: "Segunda amarilla", minute: this.minute, team: foulTeam };
+          if (foulTeam === "home") {
+            this.homePlayersOnPitch = this.homePlayersOnPitch.filter(p => p.id !== committingPlayer.id);
+          } else {
+            this.awayPlayersOnPitch = this.awayPlayersOnPitch.filter(p => p.id !== committingPlayer.id);
+          }
+          this.update2DPositions();
+          this.triggerAlert("EXPULSIÓN", `🟥 ¡Segunda amarilla y EXPULSIÓN para ${committingPlayer.name} (${foulTeamObj.shortName})!`, foulTeam, 4000);
+          this.events.push({
+            minute: this.minute,
+            type: "RED_CARD",
+            team: foulTeam,
+            teamName: foulTeamObj.shortName,
+            player: committingPlayer.name,
+            playerId: committingPlayer.id,
+            reason: "Segunda amarilla"
+          });
+          this.onCard({ type: "SECOND_YELLOW", player: committingPlayer, teamSide: foulTeam, minute: this.minute });
+        } else {
+          // Primera amarilla
+          this.stats.yellowCards[foulTeam]++;
+          this.matchCards.yellows[committingPlayer.id] = { player: committingPlayer, minute: this.minute, team: foulTeam };
+          this.triggerAlert("TARJETA", `🟨 Tarjeta amarilla para ${committingPlayer.name} (${foulTeamObj.shortName})`, foulTeam, 2800);
+          this.events.push({
+            minute: this.minute,
+            type: "YELLOW_CARD",
+            team: foulTeam,
+            teamName: foulTeamObj.shortName,
+            player: committingPlayer.name,
+            playerId: committingPlayer.id
+          });
+          this.onCard({ type: "YELLOW", player: committingPlayer, teamSide: foulTeam, minute: this.minute });
+        }
       }
 
       // Riesgo de lesión por agresividad o entrada dura del rival
@@ -1482,6 +1553,7 @@ export class MatchSimulator {
       awayScore: this.awayScore,
       stats: this.stats,
       events: this.events,
+      cards: this.matchCards,
       scorers: this.events.filter(e => e.type === "GOAL"),
       homePlayers: [...this.homePlayersOnPitch, ...this.homeBench],
       awayPlayers: [...this.awayPlayersOnPitch, ...this.awayBench]

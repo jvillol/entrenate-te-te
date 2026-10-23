@@ -41,9 +41,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   function getOpponentLineup(oppTeam) {
     const formationKey = oppTeam.defaultFormation || "4-3-3";
     const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    // El rival también gestiona la energía y descarta futbolistas que estén en el parte médico
+    // El rival también gestiona la energía y descarta futbolistas que estén en el parte médico o sancionados
     const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
-    const allPlayers = [...oppTeam.players].filter(p => !p.injury).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
+    const allPlayers = [...oppTeam.players].filter(p => !p.injury && !p.suspension).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const lineup = [];
 
@@ -188,6 +188,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             `;
           })()}
 
+          <!-- Banner Alerta de Sanciones en Titulares -->
+          ${(() => {
+            const suspendedStarters = lineupPlayers.filter(p => p.suspension && p.suspension.roundsLeft > 0);
+            if (suspendedStarters.length === 0) return "";
+            return `
+              <div class="mx-3 mt-2 p-2.5 rounded-xl bg-amber-500/20 border border-amber-500/60 flex items-center justify-between text-xs text-amber-200 shadow-md">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl flex-shrink-0">🛑</span>
+                  <div>
+                    <span class="font-extrabold text-white">¡Bajas por sanción en el 11 titular!</span>
+                    <p class="text-[10px] text-amber-300">${suspendedStarters.map(p => `${p.name.split(' ').slice(-1)[0]} (${p.suspension.reason})`).join(', ')} no pueden jugar.</p>
+                  </div>
+                </div>
+                <button id="btn-pre-replace-suspended" class="text-[10px] bg-amber-600 hover:bg-amber-500 text-white font-bold px-2.5 py-1.5 rounded-lg active:scale-95 transition shadow whitespace-nowrap">
+                  ⚡ Sustituir
+                </button>
+              </div>
+            `;
+          })()}
+
           <!-- Banner Alerta de Fatiga si hay titulares cansados -->
           ${(() => {
             const tiredCount = lineupPlayers.filter(p => (p.energy !== undefined ? p.energy : 100) < 78).length;
@@ -246,10 +266,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
-                    <!-- Rol / Función del jugador o badge de lesión -->
+                    <!-- Rol / Función del jugador, Lesión o Sanción -->
                     ${isInjured ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7px] font-bold text-rose-200 truncate max-w-[70px] text-center shadow-sm">
                         🚑 ${player.injury.roundsLeft}j
+                      </div>
+                    ` : player.suspension ? `
+                      <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500 text-[7px] font-bold text-amber-200 truncate max-w-[70px] text-center shadow-sm">
+                        🛑 ${player.suspension.roundsLeft}j
                       </div>
                     ` : `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center shadow-sm">
@@ -363,14 +387,16 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               ${benchPlayers.map(p => {
                 const isSelected = selectedPreMatchPlayerId === p.id;
                 const isInjured = Boolean(p.injury);
+                const isSuspended = Boolean(p.suspension && p.suspension.roundsLeft > 0);
                 return `
-                  <div class="bench-pre-card flex-shrink-0 bg-slate-900 border ${isSelected ? 'border-amber-400 bg-amber-500/20' : isInjured ? 'border-rose-900/80 bg-rose-950/20' : 'border-slate-800'} p-2 rounded-xl text-center cursor-pointer active:scale-95 transition min-w-[76px]" data-player-id="${p.id}">
+                  <div class="bench-pre-card flex-shrink-0 bg-slate-900 border ${isSelected ? 'border-amber-400 bg-amber-500/20' : isInjured ? 'border-rose-900/80 bg-rose-950/20' : isSuspended ? 'border-amber-900/80 bg-amber-950/20' : 'border-slate-800'} p-2 rounded-xl text-center cursor-pointer active:scale-95 transition min-w-[76px]" data-player-id="${p.id}">
                     <div class="flex items-center justify-center gap-1">
                       <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                       ${isInjured ? `<span class="text-[8px] px-1 py-0.2 rounded bg-rose-900/90 text-rose-200 font-bold border border-rose-500/50">🚑 ${p.injury.roundsLeft}j</span>` : ''}
+                      ${isSuspended ? `<span class="text-[8px] px-1 py-0.2 rounded bg-amber-900/90 text-amber-200 font-bold border border-amber-500/50">🛑 ${p.suspension.roundsLeft}j</span>` : ''}
                     </div>
                     <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
-                    <div class="text-xs font-black ${isInjured ? 'text-slate-500' : 'text-amber-400'} mt-0.5">${p.ovr}</div>
+                    <div class="text-xs font-black ${isInjured || isSuspended ? 'text-slate-500' : 'text-amber-400'} mt-0.5">${p.ovr}</div>
                     <div class="text-[9px] font-mono font-bold ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} mt-0.5">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
                     <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-0.5 overflow-hidden">
                       <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy || 100}%;"></div>
@@ -531,10 +557,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     }
 
+    const btnReplaceSuspended = container.querySelector("#btn-pre-replace-suspended");
+    if (btnReplaceSuspended) {
+      btnReplaceSuspended.onclick = () => {
+        replaceInjuredStarters();
+        renderPreMatch();
+      };
+    }
+
     const btnAuto = container.querySelector("#btn-pre-auto");
     if (btnAuto) {
       btnAuto.onclick = () => {
         autoAlignLineup();
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
         preMatchSaveFeedback = `¡Alineación automática generada y guardada para los siguientes partidos!`;
         renderPreMatch();
@@ -544,6 +579,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     container.querySelectorAll(".btn-pre-formation").forEach(b => {
       b.onclick = () => {
         tactics.formation = b.dataset.formation;
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
         renderPreMatch();
       };
@@ -552,6 +588,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     container.querySelectorAll(".btn-pre-mentality").forEach(b => {
       b.onclick = () => {
         tactics.mentality = b.dataset.mentality;
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
         renderPreMatch();
       };
@@ -570,6 +607,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         const rId = btn.dataset.roleId;
         if (!tactics.playerRoles) tactics.playerRoles = {};
         tactics.playerRoles[pId] = rId;
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
         renderPreMatch();
       };
@@ -598,6 +636,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         const rId = e.target.value;
         if (!tactics.playerRoles) tactics.playerRoles = {};
         tactics.playerRoles[pId] = rId;
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
         renderPreMatch();
       };
@@ -606,8 +645,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const btnSaveTactics = container.querySelector("#btn-pre-save-tactics");
     if (btnSaveTactics) {
       btnSaveTactics.onclick = () => {
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
-        preMatchSaveFeedback = `¡Formación (${tactics.formation}) y alineación guardadas para futuros partidos!`;
+        preMatchSaveFeedback = `¡Plantilla (${tactics.formation}), alineación y funciones guardadas para futuros partidos!`;
         renderPreMatch();
       };
     }
@@ -620,6 +660,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           alert(`⚠️ No puedes comenzar el partido con jugadores lesionados en el once titular (${curInjured.map(p => p.name).join(', ')}).\n\nSustitúyelos por futbolistas disponibles del banquillo o pulsa '⚡ Sustituir'.`);
           return;
         }
+        const curSuspended = lineupPlayers.filter(p => p.suspension && p.suspension.roundsLeft > 0);
+        if (curSuspended.length > 0) {
+          alert(`⚠️ No puedes comenzar el partido con jugadores sancionados en el once titular (${curSuspended.map(p => `${p.name} - ${p.suspension.reason}`).join(', ')}).\n\nSustitúyelos por futbolistas disponibles del banquillo o pulsa '⚡ Sustituir'.`);
+          return;
+        }
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
         startLiveSimulation();
       };
@@ -682,13 +728,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const formation = FORMATIONS[tactics.formation] || FORMATIONS["4-3-3"];
     const healthyBench = tactics.bench
       .map(id => userTeam.players.find(p => p.id === id))
-      .filter(p => p && !p.injury)
+      .filter(p => p && !p.injury && !p.suspension)
       .sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
 
     let replacedCount = 0;
     tactics.lineup.forEach((id, idx) => {
       const p = userTeam.players.find(x => x.id === id);
-      if (p && p.injury) {
+      if (p && (p.injury || (p.suspension && p.suspension.roundsLeft > 0))) {
         const slot = formation.slots[idx];
         let subIndex = healthyBench.findIndex(b => b.pos === slot.pos);
         if (subIndex === -1 && slot.pos !== "POR") {
@@ -710,16 +756,16 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     if (replacedCount > 0) {
       SaveManager.saveGame(gameState);
-      preMatchSaveFeedback = `¡Se han sustituido ${replacedCount} jugador(es) lesionados por suplentes disponibles!`;
+      preMatchSaveFeedback = `¡Se han sustituido ${replacedCount} jugador(es) no disponibles por suplentes!`;
     }
   }
 
   function autoAlignLineup() {
     const tactics = gameState.userTactics;
     const formation = FORMATIONS[tactics.formation] || FORMATIONS["4-3-3"];
-    // Ponderar media con condición física y descartar futbolistas de baja médica
+    // Ponderar media con condición física y descartar futbolistas de baja médica o sancionados
     const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
-    const availablePlayers = [...userTeam.players].filter(p => !p.injury).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
+    const availablePlayers = [...userTeam.players].filter(p => !p.injury && !p.suspension).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const newLineup = [];
 
@@ -1162,7 +1208,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
             <!-- Botones de Acción -->
             <footer class="px-3 flex gap-2">
-              <button id="btn-setpiece-confirm" class="w-full py-3.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-xs rounded-xl shadow-xl shadow-emerald-500/25 transition flex items-center justify-center gap-2">
+              <button id="btn-setpiece-save-layout" class="py-3 px-3.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-sky-400 font-bold text-xs rounded-xl border border-sky-500/40 flex items-center justify-center gap-1.5 transition whitespace-nowrap shadow">
+                <span>💾</span>
+                <span>Guardar</span>
+              </button>
+              <button id="btn-setpiece-confirm" class="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-xs rounded-xl shadow-xl shadow-emerald-500/25 transition flex items-center justify-center gap-2">
                 <span>⚽ EJECUTAR JUGADA ENSAYADA</span>
                 <span>➔</span>
               </button>
@@ -1213,12 +1263,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <!-- Indicación de Intercambio -->
             <div class="px-4 text-center my-1">
               <p id="ht-instruction-text" class="text-[11px] text-slate-400">
-                💡 Toca un futbolista para modificar su puesto o sustituirlo por un suplente.
+                💡 Toca un futbolista para modificar su función táctica, puesto o sustituirlo por un suplente.
               </p>
               <div id="ht-pending-subs-text" class="text-[10px] text-emerald-400 font-bold mt-0.5 hidden">
                 🔄 0 cambios seleccionados
               </div>
             </div>
+
+            <!-- Panel de Asignación de Función del Futbolista Seleccionado -->
+            <div id="ht-role-assignment-panel" class="px-3"></div>
+
+            <!-- Botón para ver y ajustar todas las funciones del 11 -->
+            <div class="px-4 text-center my-1.5 flex items-center justify-center gap-2">
+              <button id="btn-ht-toggle-roles" type="button" class="text-xs bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 hover:border-sky-500/40 px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+                <span>⚙️</span>
+                <span id="ht-toggle-roles-text">Ver funciones de los 11</span>
+              </button>
+            </div>
+
+            <!-- Lista Desplegable de Todas las Funciones del 11 -->
+            <div id="ht-all-roles-container" class="px-3 mb-2 hidden"></div>
 
             <!-- Lista del Banquillo (Suplentes) -->
             <div class="px-3 mb-3">
@@ -2954,6 +3018,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       let htLineupIds = [...initialPitchIds];
       let htBenchIds = currentBench.map(p => p.id);
       let htSelectedPlayerId = null;
+      let htPlayerRoles = { ...(gameState.userTactics.playerRoles || {}) };
+      let showHTAllRoles = false;
 
       const startRemaining = isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining;
       const startWindows = isUserHome ? simulator.homeWindowsRemaining : simulator.awayWindowsRemaining;
@@ -3032,9 +3098,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         if (elInstr) {
           if (htSelectedPlayerId) {
             const selPlayer = getPlayer(htSelectedPlayerId);
-            elInstr.innerHTML = `<span class="text-amber-400 font-bold">👉 Seleccionado: ${selPlayer?.name}</span>. Toca otro futbolista para intercambiar puesto o sustituirlo.`;
+            elInstr.innerHTML = `<span class="text-amber-400 font-bold">👉 Seleccionado: ${selPlayer?.name}</span>. Modifica su función abajo o toca otro futbolista para sustituirlo.`;
           } else {
-            elInstr.textContent = "💡 Toca un futbolista para modificar su puesto o sustituirlo por un suplente.";
+            elInstr.textContent = "💡 Toca un futbolista para modificar su función táctica, intercambiar puesto o sustituirlo por un suplente.";
           }
         }
 
@@ -3048,6 +3114,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const effRating = calculateEffectiveRating(player, slot.pos);
             const isSelected = htSelectedPlayerId === player.id;
             const isNewSub = !initialPitchIds.includes(player.id);
+            const curRoleId = (htPlayerRoles && htPlayerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
+            const r = getRoleDetails(slot.pos, curRoleId);
 
             return `
               <div class="slot-ht-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
@@ -3063,11 +3131,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                   ${isNewSub ? '🔺 ' : ''}${player.name.split(' ').slice(-1)[0]}
                 </div>
-                ${(() => {
-                  const rId = (gameState.userTactics.playerRoles && gameState.userTactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
-                  const r = getRoleDetails(slot.pos, rId);
-                  return `<div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/80 border border-sky-500/30 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center">${r.icon} ${r.tag}</div>`;
-                })()}
+                <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/80 border border-sky-500/30 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center">
+                  ${r.icon} ${r.tag}
+                </div>
               </div>
             `;
           }).join('');
@@ -3077,6 +3143,136 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               handleHTPlayerTap(el.dataset.playerId);
             };
           });
+        }
+
+        // Panel de asignación de función táctica individual si hay titular seleccionado
+        const rolePanel = modalHTTactics.querySelector("#ht-role-assignment-panel");
+        if (rolePanel) {
+          const selSlotIndex = htLineupIds.indexOf(htSelectedPlayerId);
+          if (selSlotIndex !== -1) {
+            const selSlot = formation.slots[selSlotIndex];
+            const selPlayer = getPlayer(htSelectedPlayerId);
+            if (selPlayer && selSlot) {
+              const curRoleId = (htPlayerRoles && htPlayerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
+              const curRole = getRoleDetails(selSlot.pos, curRoleId);
+              const availRoles = getAvailableRolesForPosition(selSlot.pos);
+
+              rolePanel.innerHTML = `
+                <div class="my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
+                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">${curRole.icon}</span>
+                      <div>
+                        <span class="text-[9px] uppercase font-bold text-sky-400">Función en vivo · ${selPlayer.name} (${selSlot.label})</span>
+                        <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+                      </div>
+                    </div>
+                    <button id="btn-ht-close-role-panel" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                  </div>
+                  <div class="text-[10px] text-slate-400 mb-2 font-medium">Modificar instrucción de juego para el partido:</div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    ${availRoles.map(r => `
+                      <button class="btn-ht-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                        <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                        <div class="min-w-0">
+                          <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                          <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                        </div>
+                      </button>
+                    `).join('')}
+                  </div>
+                </div>
+              `;
+
+              const btnClose = rolePanel.querySelector("#btn-ht-close-role-panel");
+              if (btnClose) {
+                btnClose.onclick = (e) => {
+                  e.stopPropagation();
+                  htSelectedPlayerId = null;
+                  renderHTTactics();
+                };
+              }
+
+              rolePanel.querySelectorAll(".btn-ht-assign-role").forEach(btn => {
+                btn.onclick = (e) => {
+                  e.stopPropagation();
+                  const pId = btn.dataset.playerId;
+                  const rId = btn.dataset.roleId;
+                  htPlayerRoles[pId] = rId;
+                  renderHTTactics();
+                };
+              });
+            } else {
+              rolePanel.innerHTML = "";
+            }
+          } else {
+            rolePanel.innerHTML = "";
+          }
+        }
+
+        // Botón y panel de desplegable de todas las funciones del 11
+        const btnToggleRoles = modalHTTactics.querySelector("#btn-ht-toggle-roles");
+        const allRolesContainer = modalHTTactics.querySelector("#ht-all-roles-container");
+        const toggleRolesText = modalHTTactics.querySelector("#ht-toggle-roles-text");
+
+        if (btnToggleRoles && allRolesContainer) {
+          if (toggleRolesText) {
+            toggleRolesText.textContent = showHTAllRoles ? "Ocultar funciones del 11" : "Ver funciones de los 11";
+          }
+          if (showHTAllRoles) {
+            allRolesContainer.classList.remove("hidden");
+            allRolesContainer.innerHTML = `
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2 shadow-lg">
+                <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                  <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                    <span>⚙️</span> Funciones e Instrucciones de los 11 en Campo
+                  </span>
+                  <span class="text-[10px] text-slate-400">Personaliza cada rol</span>
+                </div>
+                <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1 no-scrollbar">
+                  ${formation.slots.map((slot, idx) => {
+                    const pId = htLineupIds[idx];
+                    const p = getPlayer(pId);
+                    if (!p) return "";
+                    const curRoleId = (htPlayerRoles && htPlayerRoles[p.id]) || getDefaultRoleForPosition(slot.pos);
+                    const availRoles = getAvailableRolesForPosition(slot.pos);
+                    return `
+                      <div class="flex items-center justify-between p-2 rounded-xl bg-slate-950 border border-slate-800/80 text-xs">
+                        <div class="flex items-center gap-2 min-w-0">
+                          <span class="w-8 text-center font-extrabold text-[10px] px-1 py-0.5 rounded bg-slate-800 text-sky-400 flex-shrink-0">${slot.label}</span>
+                          <span class="font-bold text-white truncate text-xs">${p.name.split(' ').slice(-1)[0]}</span>
+                        </div>
+                        <select class="select-ht-player-role bg-slate-900 border border-slate-700 text-sky-300 text-[11px] font-bold rounded-lg px-2 py-1 outline-none focus:border-sky-400 max-w-[185px]" data-player-id="${p.id}" data-pos="${slot.pos}">
+                          ${availRoles.map(r => `
+                            <option value="${r.id}" ${r.id === curRoleId ? 'selected' : ''}>
+                              ${r.icon} ${r.name} (${r.tag})
+                            </option>
+                          `).join('')}
+                        </select>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            `;
+
+            allRolesContainer.querySelectorAll(".select-ht-player-role").forEach(sel => {
+              sel.onchange = (e) => {
+                const pId = sel.dataset.playerId;
+                htPlayerRoles[pId] = e.target.value;
+                renderHTTactics();
+              };
+            });
+          } else {
+            allRolesContainer.classList.add("hidden");
+            allRolesContainer.innerHTML = "";
+          }
+
+          btnToggleRoles.onclick = (e) => {
+            e.stopPropagation();
+            showHTAllRoles = !showHTAllRoles;
+            renderHTTactics();
+          };
         }
 
         // Banquillo de suplentes
@@ -3211,7 +3407,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           htMentality,
           htLineupIds,
           htBenchIds,
-          !isLive
+          !isLive,
+          htPlayerRoles
         );
 
         if (!res.success) {
@@ -3223,6 +3420,22 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         gameState.userTactics.mentality = htMentality;
         gameState.userTactics.lineup = [...htLineupIds];
         gameState.userTactics.bench = [...htBenchIds];
+        gameState.userTactics.playerRoles = { ...htPlayerRoles };
+
+        if (teamSide === "home") {
+          simulator.homePlayerRoles = { ...simulator.homePlayerRoles, ...htPlayerRoles };
+        } else {
+          simulator.awayPlayerRoles = { ...simulator.awayPlayerRoles, ...htPlayerRoles };
+        }
+
+        if (masterTacticsForNextMatches) {
+          masterTacticsForNextMatches.formation = htFormationKey;
+          masterTacticsForNextMatches.mentality = htMentality;
+          masterTacticsForNextMatches.lineup = [...htLineupIds];
+          masterTacticsForNextMatches.bench = [...htBenchIds];
+          masterTacticsForNextMatches.playerRoles = { ...htPlayerRoles };
+        }
+        SaveManager.saveGame(gameState);
 
         if (mentLabel) {
           mentLabel.textContent = mentalities.find(m => m.id === htMentality)?.label || "Equilibrada";
@@ -3349,7 +3562,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         return scoreB - scoreA;
       });
 
+      const spTypeKey = isCorner ? "CORNER" : "FREE_KICK";
+      const savedSP = gameState.userTactics?.savedSetPieces?.[spTypeKey];
+
       let selectedTakerId = sortedTakers[0]?.id || outfield[0]?.id;
+      if (savedSP && savedSP.takerId && outfield.some(p => p.id === savedSP.takerId)) {
+        selectedTakerId = savedSP.takerId;
+      }
 
       if (takerSelect) {
         takerSelect.innerHTML = outfield.map(p => {
@@ -3372,6 +3591,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       ];
 
       let currentStrategy = isCorner ? "PENALTY_SPOT" : "DIRECT_SHOT";
+      if (savedSP && savedSP.strategy && strategies.some(s => s.id === savedSP.strategy)) {
+        currentStrategy = savedSP.strategy;
+      }
 
       const zoneDefs = [
         { id: "NEAR_POST", name: "1er Palo", x: 26, y: 24, desc: "Anticipación", color: "text-amber-300" },
@@ -3413,7 +3635,33 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         const pBack = rem5.sort((a, b) => (b.def || 70) - (a.def || 70))[0];
         if (pBack) placements["STAY_BACK"] = pBack.id;
       }
-      autoAssignPlacements();
+
+      function loadSavedOrAutoPlacements() {
+        if (savedSP && savedSP.placements && Object.keys(savedSP.placements).length > 0) {
+          placements = {};
+          const availablePool = outfield.filter(p => p.id !== selectedTakerId);
+          const usedPIds = new Set();
+          // Primero colocamos los futbolistas guardados que siguen en el campo
+          Object.keys(savedSP.placements).forEach(zId => {
+            const pId = savedSP.placements[zId];
+            if (pId && pId !== selectedTakerId && availablePool.some(p => p.id === pId) && !usedPIds.has(pId)) {
+              placements[zId] = pId;
+              usedPIds.add(pId);
+            }
+          });
+          // Si quedan zonas vacías, rellenar con los restantes
+          const remainingPool = availablePool.filter(p => !usedPIds.has(p.id));
+          zoneDefs.forEach(z => {
+            if (!placements[z.id] && remainingPool.length > 0) {
+              const nextP = remainingPool.shift();
+              placements[z.id] = nextP.id;
+            }
+          });
+        } else {
+          autoAssignPlacements();
+        }
+      }
+      loadSavedOrAutoPlacements();
 
       function renderSetPieceBoard() {
         // 1. Renderizar opciones / chips de estrategia
@@ -3577,6 +3825,31 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         };
       }
 
+      const btnSaveLayout = modalSP.querySelector("#btn-setpiece-save-layout");
+      if (btnSaveLayout) {
+        btnSaveLayout.onclick = () => {
+          if (!gameState.userTactics.savedSetPieces) gameState.userTactics.savedSetPieces = {};
+          gameState.userTactics.savedSetPieces[spTypeKey] = {
+            strategy: currentStrategy,
+            takerId: selectedTakerId,
+            placements: { ...placements }
+          };
+          if (masterTacticsForNextMatches) {
+            if (!masterTacticsForNextMatches.savedSetPieces) masterTacticsForNextMatches.savedSetPieces = {};
+            masterTacticsForNextMatches.savedSetPieces[spTypeKey] = {
+              strategy: currentStrategy,
+              takerId: selectedTakerId,
+              placements: { ...placements }
+            };
+          }
+          SaveManager.saveGame(gameState);
+          if (hintText) {
+            hintText.innerHTML = `💾 <b class="text-emerald-400">¡Disposición de ${isCorner ? 'córner' : 'falta'} guardada con éxito para futuros partidos!</b>`;
+          }
+          showMatchAlert({ text: `💾 Disposición de jugada ensayada guardada` });
+        };
+      }
+
       if (btnConfirm) {
         btnConfirm.onclick = () => {
           const currentTaker = outfield.find(p => p.id === selectedTakerId) || outfield[0];
@@ -3586,6 +3859,23 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const pObj = outfield.find(p => p.id === pId);
             if (pObj) resolvedPlacements[zId] = pObj;
           });
+
+          // Auto-guardar la disposición táctica elegida para futuras ocasiones
+          if (!gameState.userTactics.savedSetPieces) gameState.userTactics.savedSetPieces = {};
+          gameState.userTactics.savedSetPieces[spTypeKey] = {
+            strategy: currentStrategy,
+            takerId: selectedTakerId,
+            placements: { ...placements }
+          };
+          if (masterTacticsForNextMatches) {
+            if (!masterTacticsForNextMatches.savedSetPieces) masterTacticsForNextMatches.savedSetPieces = {};
+            masterTacticsForNextMatches.savedSetPieces[spTypeKey] = {
+              strategy: currentStrategy,
+              takerId: selectedTakerId,
+              placements: { ...placements }
+            };
+          }
+          SaveManager.saveGame(gameState);
 
           modalSP.classList.add("hidden");
 
@@ -3830,6 +4120,33 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           }
         });
       }
+
+      // Sincronizar tarjetas y sanciones disciplinarias de ambos equipos
+      if (result.cards) {
+        const allMatchPlayers = [...homeTeam.players, ...awayTeam.players];
+        if (result.cards.yellows) {
+          Object.keys(result.cards.yellows).forEach(pId => {
+            const pReal = allMatchPlayers.find(p => p.id === pId);
+            if (pReal) {
+              pReal.seasonYellows = (pReal.seasonYellows || 0) + 1;
+              if (pReal.seasonYellows % 5 === 0 && !pReal.suspension) {
+                pReal.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas" };
+              }
+            }
+          });
+        }
+        if (result.cards.reds) {
+          Object.keys(result.cards.reds).forEach(pId => {
+            const rCard = result.cards.reds[pId];
+            const pReal = allMatchPlayers.find(p => p.id === pId);
+            if (pReal) {
+              pReal.seasonReds = (pReal.seasonReds || 0) + 1;
+              pReal.suspension = { roundsLeft: 1, reason: rCard?.reason || "Tarjeta Roja" };
+            }
+          });
+        }
+      }
+
       userMatch.played = true;
       userMatch.homeScore = result.homeScore;
       userMatch.awayScore = result.awayScore;
@@ -3871,16 +4188,43 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (fAScore) fAScore.textContent = result.awayScore;
 
       if (fScorers) {
+        let itemsHtml = "";
         if (result.scorers.length > 0) {
-          fScorers.innerHTML = result.scorers.map(s => `
+          itemsHtml += result.scorers.map(s => `
             <div class="flex items-center justify-between text-slate-300 py-0.5">
               <span>⚽ <b>${s.playerName}</b> (${s.teamName})</span>
               <span class="font-mono text-slate-500 font-bold">${s.minute}'</span>
             </div>
           `).join('');
-        } else {
-          fScorers.innerHTML = `<span class="text-slate-500 italic">Sin goles en el encuentro</span>`;
         }
+        if (result.cards) {
+          if (result.cards.yellows) {
+            Object.values(result.cards.yellows).forEach(c => {
+              const teamObj = c.team === "home" ? homeTeam : awayTeam;
+              itemsHtml += `
+                <div class="flex items-center justify-between text-amber-300/90 py-0.5 text-[11px]">
+                  <span>🟨 <b>${c.player?.name}</b> (${teamObj?.shortName})</span>
+                  <span class="font-mono text-amber-500 font-bold">${c.minute}'</span>
+                </div>
+              `;
+            });
+          }
+          if (result.cards.reds) {
+            Object.values(result.cards.reds).forEach(c => {
+              const teamObj = c.team === "home" ? homeTeam : awayTeam;
+              itemsHtml += `
+                <div class="flex items-center justify-between text-rose-400 py-0.5 text-[11px]">
+                  <span>🟥 <b>${c.player?.name}</b> (${teamObj?.shortName}) - ${c.reason}</span>
+                  <span class="font-mono text-rose-500 font-bold">${c.minute}'</span>
+                </div>
+              `;
+            });
+          }
+        }
+        if (!itemsHtml) {
+          itemsHtml = `<span class="text-slate-500 italic">Sin goles ni tarjetas en el encuentro</span>`;
+        }
+        fScorers.innerHTML = itemsHtml;
       }
 
       if (otherRes) {

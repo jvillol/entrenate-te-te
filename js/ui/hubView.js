@@ -32,10 +32,11 @@ export function renderHubView(container, gameState, callbacks) {
     };
   });
 
-  // Goleador del equipo y enfermería
+  // Goleador del equipo, enfermería y sanciones
   const teamScorers = [...userTeam.players].sort((a, b) => (b.goals || 0) - (a.goals || 0));
   const topTeamScorer = teamScorers[0];
-  const injuredPlayers = userTeam.players.filter(p => p.injury);
+  const injuredPlayers = userTeam.players.filter(p => p.injury && p.injury.roundsLeft > 0);
+  const suspendedPlayers = userTeam.players.filter(p => p.suspension && p.suspension.roundsLeft > 0);
 
   container.innerHTML = `
     <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-20 select-none max-w-md mx-auto">
@@ -126,6 +127,32 @@ export function renderHubView(container, gameState, callbacks) {
                   <div class="flex items-center gap-2 flex-shrink-0">
                     <span class="text-[10px] text-rose-300 font-medium">${p.injury.type}</span>
                     <span class="font-mono text-[10px] font-bold text-rose-400 bg-rose-950 px-1.5 py-0.5 rounded border border-rose-500/40">${p.injury.roundsLeft}j</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
+
+        <!-- Sanciones y Disciplina del Club -->
+        ${suspendedPlayers.length > 0 ? `
+          <div class="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                <span>🛑</span> Sanciones Disciplinarias (${suspendedPlayers.length} ${suspendedPlayers.length > 1 ? 'sancionados' : 'sancionado'})
+              </span>
+              <span class="text-[10px] text-amber-400 font-bold bg-amber-950 px-2 py-0.5 rounded-full border border-amber-500/40">Comité Competición</span>
+            </div>
+            <div class="space-y-1.5">
+              ${suspendedPlayers.map(p => `
+                <div class="flex items-center justify-between text-xs p-1.5 rounded-xl bg-slate-950/60 border border-amber-900/40">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="font-extrabold text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 flex-shrink-0">${p.pos}</span>
+                    <span class="font-bold text-white truncate text-xs">${p.name}</span>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="text-[10px] text-amber-300 font-medium">${p.suspension.reason}</span>
+                    <span class="font-mono text-[10px] font-bold text-amber-400 bg-amber-950 px-1.5 py-0.5 rounded border border-amber-500/40">${p.suspension.roundsLeft}j</span>
                   </div>
                 </div>
               `).join('')}
