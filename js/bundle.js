@@ -802,6 +802,68 @@ const MENTALITIES = [
   { id: "very_offensive", label: "Al Ataque", attackMod: +0.30, defenseMod: -0.22 }
 ];
 
+// Funciones e instrucciones individuales por posición (Estilo Football Manager)
+const POSITION_ROLES = {
+  POR: [
+    { id: "gk_classic", name: "Portero Clásico", icon: "🧤", desc: "Seguro bajo palos, colocación y despejes firmes", tag: "Bajo palos", atkMod: 0, defMod: 1.05, passWeight: 0.1, pushMod: 0 },
+    { id: "gk_sweeper", name: "Portero Líbero", icon: "⚡", desc: "Sale a cortar pases en profundidad y salida en corto", tag: "Líbero", atkMod: 0.05, defMod: 0.98, passWeight: 0.4, pushMod: 4 }
+  ],
+  DFC: [
+    { id: "cb_defensive", name: "Central Marcador", icon: "🛡️", desc: "Marcaje zonal férreo, contundente y sin complicaciones", tag: "Marcaje", atkMod: -0.05, defMod: 1.10, passWeight: 0.1, pushMod: -3 },
+    { id: "cb_ball_playing", name: "Central con Salida", icon: "🎯", desc: "Sube a iniciar la jugada desde atrás con pase limpio", tag: "Salida", atkMod: 0.08, defMod: 0.96, passWeight: 0.7, pushMod: 6 },
+    { id: "cb_stopper", name: "Central Anticipador", icon: "💥", desc: "Presión adelantada, choque físico y anticipación aérea", tag: "Anticipador", atkMod: 0, defMod: 1.06, passWeight: 0.2, pushMod: 2 }
+  ],
+  LD: [
+    { id: "fb_attacking", name: "Carrilero Ofensivo", icon: "🚀", desc: "Sube la banda constantemente y dobla centros al área", tag: "Ofensivo", atkMod: 0.18, defMod: -0.10, passWeight: 0.6, pushMod: 14, shootWeight: 0.4 },
+    { id: "fb_balanced", name: "Lateral Equilibrado", icon: "⚖️", desc: "Acompaña la jugada con criterio y repliega rápido", tag: "Equilibrado", atkMod: 0.05, defMod: 1.02, passWeight: 0.4, pushMod: 4 },
+    { id: "fb_defensive", name: "Lateral Invertido / Cierre", icon: "🛡️", desc: "Guarda la posición, apoya a los centrales y no sube", tag: "Defensivo", atkMod: -0.10, defMod: 1.12, passWeight: 0.2, pushMod: -5 }
+  ],
+  LI: [
+    { id: "fb_attacking", name: "Carrilero Ofensivo", icon: "🚀", desc: "Sube la banda constantemente y dobla centros al área", tag: "Ofensivo", atkMod: 0.18, defMod: -0.10, passWeight: 0.6, pushMod: 14, shootWeight: 0.4 },
+    { id: "fb_balanced", name: "Lateral Equilibrado", icon: "⚖️", desc: "Acompaña la jugada con criterio y repliega rápido", tag: "Equilibrado", atkMod: 0.05, defMod: 1.02, passWeight: 0.4, pushMod: 4 },
+    { id: "fb_defensive", name: "Lateral Invertido / Cierre", icon: "🛡️", desc: "Guarda la posición, apoya a los centrales y no sube", tag: "Defensivo", atkMod: -0.10, defMod: 1.12, passWeight: 0.2, pushMod: -5 }
+  ],
+  MCD: [
+    { id: "dm_destroyer", name: "Pivote de Contención", icon: "🛡️", desc: "Destruye juego rival, corta líneas de pase y protege la zaga", tag: "Contención", atkMod: -0.05, defMod: 1.14, midMod: 1.02, passWeight: 0.3, pushMod: -4 },
+    { id: "dm_playmaker", name: "Organizador Retrasado", icon: "🧠", desc: "Pide el balón entre centrales y distribuye con criterio", tag: "Organizador", atkMod: 0.08, defMod: 0.98, midMod: 1.12, passWeight: 1.3, pushMod: 3 }
+  ],
+  MC: [
+    { id: "cm_playmaker", name: "Organizador / Creador", icon: "🧠", desc: "Canaliza el juego, da el último pase y maneja el ritmo", tag: "Organizador", atkMod: 0.10, defMod: 0.94, midMod: 1.16, passWeight: 1.6, pushMod: 6 },
+    { id: "cm_box_to_box", name: "Todocampista (Box to Box)", icon: "⚡", desc: "Llega a ambas áreas, disparo potente y despliegue físico", tag: "Llegador", atkMod: 0.12, defMod: 1.04, midMod: 1.06, passWeight: 0.7, pushMod: 10, shootWeight: 0.7 },
+    { id: "cm_ball_winner", name: "Volante de Trabajo", icon: "💪", desc: "Presión incansable, recuperación y coberturas defensivas", tag: "Recuperador", atkMod: -0.04, defMod: 1.08, midMod: 1.08, passWeight: 0.4, pushMod: 0 }
+  ],
+  MCO: [
+    { id: "am_playmaker", name: "Mediapunta Creativo", icon: "✨", desc: "Visión periférica, asistencias filtradas y libertad total", tag: "Creativo", atkMod: 0.15, defMod: 0.90, midMod: 1.14, passWeight: 1.7, pushMod: 8 },
+    { id: "am_shadow_striker", name: "Segundo Delantero / Llegador", icon: "🎯", desc: "Pisa el área rival como un punta más para disparar a puerta", tag: "Goleador", atkMod: 0.22, defMod: 0.85, midMod: 0.95, passWeight: 0.5, pushMod: 14, shootWeight: 1.4 }
+  ],
+  EI: [
+    { id: "w_winger", name: "Extremo Puro (Desborde)", icon: "⚡", desc: "Desborde vertical por fuera, 1 vs 1 y centros medidos", tag: "Desborde", atkMod: 0.14, defMod: 0.92, passWeight: 0.8, pushMod: 12, shootWeight: 0.7 },
+    { id: "w_inside_forward", name: "Delantero Interior", icon: "🎯", desc: "Diagonal hacia dentro buscando el remate o pared", tag: "Interior", atkMod: 0.20, defMod: 0.88, passWeight: 0.5, pushMod: 13, shootWeight: 1.3 },
+    { id: "w_defensive", name: "Extremo de Trabajo", icon: "🛡️", desc: "Ayuda al lateral cerrando banda y presión tras pérdida", tag: "Apoyo", atkMod: 0.02, defMod: 1.08, passWeight: 0.5, pushMod: 2, shootWeight: 0.4 }
+  ],
+  ED: [
+    { id: "w_winger", name: "Extremo Puro (Desborde)", icon: "⚡", desc: "Desborde vertical por fuera, 1 vs 1 y centros medidos", tag: "Desborde", atkMod: 0.14, defMod: 0.92, passWeight: 0.8, pushMod: 12, shootWeight: 0.7 },
+    { id: "w_inside_forward", name: "Delantero Interior", icon: "🎯", desc: "Diagonal hacia dentro buscando el remate o pared", tag: "Interior", atkMod: 0.20, defMod: 0.88, passWeight: 0.5, pushMod: 13, shootWeight: 1.3 },
+    { id: "w_defensive", name: "Extremo de Trabajo", icon: "🛡️", desc: "Ayuda al lateral cerrando banda y presión tras pérdida", tag: "Apoyo", atkMod: 0.02, defMod: 1.08, passWeight: 0.5, pushMod: 2, shootWeight: 0.4 }
+  ],
+  DC: [
+    { id: "st_target", name: "Hombre de Área (Rematador)", icon: "🎯", desc: "Fija centrales, letal dentro del área al primer toque", tag: "Rematador", atkMod: 0.22, defMod: 0.90, shootWeight: 1.8, passWeight: 0.2, pushMod: 12 },
+    { id: "st_poacher", name: "Delantero Móvil (Ruptura)", icon: "💨", desc: "Desmarques rápidos al espacio y arrastre de defensores", tag: "Ruptura", atkMod: 0.18, defMod: 0.92, shootWeight: 1.4, passWeight: 0.4, pushMod: 14 },
+    { id: "st_false_nine", name: "Falso 9 (Organizador)", icon: "🧠", desc: "Baja a recibir a tres cuartos, organiza y asiste a extremos", tag: "Falso 9", atkMod: 0.12, defMod: 0.96, midMod: 1.10, passWeight: 1.5, shootWeight: 0.8, pushMod: 4 }
+  ]
+};
+function getAvailableRolesForPosition(pos) {
+  return POSITION_ROLES[pos] || POSITION_ROLES["MC"];
+}
+function getDefaultRoleForPosition(pos) {
+  const roles = getAvailableRolesForPosition(pos);
+  return roles[0].id;
+}
+function getRoleDetails(pos, roleId) {
+  const roles = getAvailableRolesForPosition(pos);
+  return roles.find(r => r.id === roleId) || roles[0];
+}
+
 // Cálculo de penalización si un jugador juega fuera de su posición natural
 function getPositionAffinity(playerPos, slotPos) {
   if (playerPos === slotPos) return 1.0;
@@ -1296,6 +1358,9 @@ class MatchSimulator {
     this.homeFormation = options.homeFormation || "4-3-3";
     this.awayFormation = options.awayFormation || "4-3-3";
 
+    this.homePlayerRoles = options.homePlayerRoles || {};
+    this.awayPlayerRoles = options.awayPlayerRoles || {};
+
     // Límite de 5 cambios oficiales en 3 ventanas durante el partido (el descanso no consume ventana)
     this.homeSubsRemaining = 5;
     this.awaySubsRemaining = 5;
@@ -1733,14 +1798,14 @@ class MatchSimulator {
       p.energy = Math.max(25, (p.energy || 100) - rate);
     });
 
-    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk") + 2) * homeMod.atk;
-    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def") + 2) * homeMod.def;
-    const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk") * awayMod.atk;
-    const awayDef = this.calcTeamPower(this.awayPlayersOnPitch, "def") * awayMod.def;
+    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 2) * homeMod.atk;
+    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 2) * homeMod.def;
+    const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk", "away") * awayMod.atk;
+    const awayDef = this.calcTeamPower(this.awayPlayersOnPitch, "def", "away") * awayMod.def;
 
     // Disputa de la posesión
-    const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid");
-    const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid");
+    const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home");
+    const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid", "away");
     const probHomePoss = (midHome / (midHome + midAway)) + 0.03; // Ligera ventaja local
 
     const currentPoss = Math.random() < probHomePoss ? "home" : "away";
@@ -1856,9 +1921,25 @@ class MatchSimulator {
     const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
 
-    const passer = this.pickPlayerForAction(atkPlayers, ["MC", "MCD", "MCO", "EI", "ED"]);
-    const shooter = this.pickPlayerForAction(atkPlayers, ["DC", "EI", "ED", "MCO"]);
+    const passer = this.pickPlayerForAction(atkPlayers, ["MC", "MCD", "MCO", "EI", "ED", "LD", "LI", "DC"], "pass");
+    const shooter = this.pickPlayerForAction(atkPlayers, ["DC", "EI", "ED", "MCO", "MC", "LD", "LI"], "shoot");
     const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
+
+    const passerRole = this.getPlayerRole(passer, attackingSide);
+    const shooterRole = this.getPlayerRole(shooter, attackingSide);
+
+    let chanceComment = `⚡ ¡Ocasión de peligro de ${atkTeam.shortName}!`;
+    if (passerRole && passerRole.tag === "Organizador") {
+      chanceComment = `🧠 ${passer.name} (Organizador) canaliza el juego con un pase magistral`;
+    } else if (passerRole && passerRole.tag === "Ofensivo") {
+      chanceComment = `🚀 ${passer.name} (Carrilero) sube con potencia por la banda y centra`;
+    } else if (passerRole && passerRole.tag === "Creativo") {
+      chanceComment = `✨ ${passer.name} (Mediapunta) filtra un balón con magia`;
+    } else if (passerRole && passerRole.tag === "Salida") {
+      chanceComment = `🎯 ${passer.name} (Central) rompe líneas con pase largo milimétrico`;
+    } else if (passerRole && passerRole.tag === "Falso 9") {
+      chanceComment = `🧠 ${passer.name} (Falso 9) baja a recibir y filtra al espacio`;
+    }
 
     // Notificar al visor de partido del inicio de la jugada clave
     if (this.onHighlightStart) {
@@ -1869,6 +1950,9 @@ class MatchSimulator {
         defTeam,
         passer,
         shooter,
+        passerRole,
+        shooterRole,
+        commentary: chanceComment,
         minute: this.minute
       });
     }
@@ -2378,12 +2462,38 @@ class MatchSimulator {
     });
   }
 
-  pickPlayerForAction(players, preferredPositions) {
-    const candidates = players.filter(p => preferredPositions.includes(p.pos));
-    if (candidates.length > 0) {
-      return candidates[Math.floor(Math.random() * candidates.length)];
+  getPlayerRole(player, side = null) {
+    if (!player) return null;
+    const playerSide = side || (this.homePlayersOnPitch.some(p => p.id === player.id) ? "home" : "away");
+    const rolesMap = playerSide === "home" ? this.homePlayerRoles : this.awayPlayerRoles;
+    const roleId = rolesMap ? rolesMap[player.id] : null;
+    return getRoleDetails(player.pos, roleId);
+  }
+
+  pickPlayerForAction(players, preferredPositions, actionType = "pass") {
+    let candidates = players.filter(p => preferredPositions.includes(p.pos));
+    if (candidates.length === 0) candidates = [...players];
+
+    // Ponderar candidatos según su rol táctico y atributos
+    const weights = candidates.map(p => {
+      const role = this.getPlayerRole(p);
+      if (actionType === "pass") {
+        const roleWeight = role?.passWeight !== undefined ? role.passWeight : 0.6;
+        return roleWeight * ((p.pas || 70) / 70);
+      } else if (actionType === "shoot") {
+        const roleWeight = role?.shootWeight !== undefined ? role.shootWeight : 0.6;
+        return roleWeight * ((p.sho || 70) / 70);
+      }
+      return 1;
+    });
+
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let rand = Math.random() * totalWeight;
+    for (let i = 0; i < candidates.length; i++) {
+      rand -= weights[i];
+      if (rand <= 0) return candidates[i];
     }
-    return players[Math.floor(Math.random() * players.length)];
+    return candidates[0];
   }
 
   triggerAlert(title, text, side, duration = 2200) {
@@ -2391,31 +2501,47 @@ class MatchSimulator {
     this.onAlert(this.currentAlert);
   }
 
-  calcTeamPower(players, type) {
+  calcTeamPower(players, type, side = null) {
     if (!players || players.length === 0) return 75;
     let sum = 0;
     players.forEach(p => {
-      if (type === "atk") sum += (p.sho * 0.4 + p.dri * 0.3 + p.pac * 0.3) * (0.6 + p.energy / 250);
-      else if (type === "mid") sum += (p.pas * 0.4 + p.dri * 0.3 + p.def * 0.3) * (0.6 + p.energy / 250);
-      else if (type === "def") sum += (p.def * 0.5 + p.phy * 0.3 + p.pac * 0.2) * (0.6 + p.energy / 250);
+      const role = this.getPlayerRole(p, side);
+      let power = 75;
+      if (type === "atk") {
+        power = (p.sho * 0.4 + p.dri * 0.3 + p.pac * 0.3) * (0.6 + p.energy / 250);
+        if (role && role.atkMod) power *= (1 + role.atkMod);
+      } else if (type === "mid") {
+        power = (p.pas * 0.4 + p.dri * 0.3 + p.def * 0.3) * (0.6 + p.energy / 250);
+        if (role && role.midMod) power *= role.midMod;
+      } else if (type === "def") {
+        power = (p.def * 0.5 + p.phy * 0.3 + p.pac * 0.2) * (0.6 + p.energy / 250);
+        if (role && role.defMod) power *= role.defMod;
+      }
+      sum += power;
     });
     return sum / players.length;
   }
 
   update2DPositions() {
-    // Los jugadores fijan sus coordenadas objetivo siguiendo dinámicamente la jugada y el balón
+    // Los jugadores fijan sus coordenadas objetivo siguiendo dinámicamente la jugada, el balón y su función táctica (subir, desdoblar, etc.)
     const ballX = this.ball.targetX;
     const ballY = this.ball.targetY;
 
-    this.home2D.forEach(p => {
-      const shiftX = (ballX - 50) * 0.35;
+    this.home2D.forEach((p, idx) => {
+      const playerObj = this.homePlayersOnPitch[idx];
+      const role = this.getPlayerRole(playerObj, "home");
+      const pushMod = role?.pushMod || 0; // ej: +14 para Carrilero Ofensivo, +6 Central con Salida
+      const shiftX = (ballX - 50) * 0.35 + (pushMod * 0.35);
       const shiftY = (ballY - 50) * 0.25;
       p.targetX = Math.max(3, Math.min(95, p.baseX + shiftX + (Math.random() * 4 - 2)));
       p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
     });
 
-    this.away2D.forEach(p => {
-      const shiftX = (ballX - 50) * 0.35;
+    this.away2D.forEach((p, idx) => {
+      const playerObj = this.awayPlayersOnPitch[idx];
+      const role = this.getPlayerRole(playerObj, "away");
+      const pushMod = role?.pushMod || 0;
+      const shiftX = (ballX - 50) * 0.35 - (pushMod * 0.35);
       const shiftY = (ballY - 50) * 0.25;
       p.targetX = Math.max(5, Math.min(97, p.baseX + shiftX + (Math.random() * 4 - 2)));
       p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
@@ -2691,10 +2817,13 @@ function renderTacticsView(container, gameState, onSaveTactics) {
     formation: team.defaultFormation || "4-3-3",
     mentality: "balanced",
     lineup: team.players.slice(0, 11).map(p => p.id),
-    bench: team.players.slice(11).map(p => p.id)
+    bench: team.players.slice(11).map(p => p.id),
+    playerRoles: {}
   };
+  if (!tactics.playerRoles) tactics.playerRoles = {};
 
   let selectedPlayerId = null;
+  let showAllRolesList = false;
 
   function render() {
     const formationKey = tactics.formation;
@@ -2767,6 +2896,8 @@ function renderTacticsView(container, gameState, onSaveTactics) {
               if (!player) return "";
               const effRating = calculateEffectiveRating(player, slot.pos);
               const isSelected = selectedPlayerId === player.id;
+              const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
+              const role = getRoleDetails(slot.pos, roleId);
 
               return `
                 <div class="slot-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
@@ -2785,16 +2916,104 @@ function renderTacticsView(container, gameState, onSaveTactics) {
                   <div class="bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-bold text-white tracking-tight mt-1 truncate max-w-[70px] text-center border border-white/10 shadow">
                     ${player.name.split(' ').slice(-1)[0]}
                   </div>
+                  <!-- Función / Rol asignado -->
+                  <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7.5px] font-bold text-sky-300 truncate max-w-[76px] text-center shadow-sm">
+                    ${role.icon} ${role.tag}
+                  </div>
                 </div>
               `;
             }).join('')}
           </div>
         </div>
 
+        <!-- Panel de Asignación de Función / Rol Táctico del Jugador Seleccionado -->
+        ${(() => {
+          if (!selectedPlayerId) return "";
+          const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+          if (selSlotIndex === -1) return ""; // Está en el banquillo
+          const selSlot = formation.slots[selSlotIndex];
+          const selPlayer = team.players.find(p => p.id === selectedPlayerId);
+          if (!selPlayer || !selSlot) return "";
+
+          const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
+          const curRole = getRoleDetails(selSlot.pos, curRoleId);
+          const availRoles = getAvailableRolesForPosition(selSlot.pos);
+
+          return `
+            <div class="mx-3 my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
+              <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">${curRole.icon}</span>
+                  <div>
+                    <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name} (${selSlot.label})</span>
+                    <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+                  </div>
+                </div>
+                <button id="btn-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+              </div>
+              <div class="text-[10px] text-slate-400 mb-2 font-medium">Elige la función táctica de este futbolista según su posición:</div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                ${availRoles.map(r => `
+                  <button class="btn-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                    <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                    <div class="min-w-0">
+                      <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                      <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                    </div>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          `;
+        })()}
+
+        <!-- Botón para ver y ajustar todas las funciones del 11 -->
+        <div class="px-4 text-center my-2 flex items-center justify-center gap-2">
+          <button id="btn-toggle-all-roles" class="text-xs bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 hover:border-sky-500/40 px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+            <span>⚙️</span>
+            <span>${showAllRolesList ? 'Ocultar funciones' : 'Ver funciones de los 11'}</span>
+          </button>
+        </div>
+
+        <!-- Lista Desplegable de Todas las Funciones del 11 -->
+        ${showAllRolesList ? `
+          <div class="mx-3 mb-3 bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2">
+            <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+              <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                <span>⚙️</span> Funciones e Instrucciones del 11 Titular
+              </span>
+              <span class="text-[10px] text-slate-400">Personaliza cada puesto</span>
+            </div>
+            <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1 no-scrollbar">
+              ${formation.slots.map((slot, idx) => {
+                const p = lineupPlayers[idx];
+                if (!p) return "";
+                const curRoleId = (tactics.playerRoles && tactics.playerRoles[p.id]) || getDefaultRoleForPosition(slot.pos);
+                const availRoles = getAvailableRolesForPosition(slot.pos);
+                return `
+                  <div class="flex items-center justify-between p-2 rounded-xl bg-slate-950 border border-slate-800/80 text-xs">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <span class="w-8 text-center font-extrabold text-[10px] px-1 py-0.5 rounded bg-slate-800 text-sky-400 flex-shrink-0">${slot.label}</span>
+                      <span class="font-bold text-white truncate text-xs">${p.name.split(' ').slice(-1)[0]}</span>
+                    </div>
+                    <select class="select-player-role bg-slate-900 border border-slate-700 text-sky-300 text-[11px] font-bold rounded-lg px-2 py-1 outline-none focus:border-sky-400 max-w-[190px]" data-player-id="${p.id}" data-pos="${slot.pos}">
+                      ${availRoles.map(r => `
+                        <option value="${r.id}" ${r.id === curRoleId ? 'selected' : ''}>
+                          ${r.icon} ${r.name} (${r.tag})
+                        </option>
+                      `).join('')}
+                    </select>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        ` : ''}
+
         <!-- Instrucción de ayuda -->
         <div class="px-4 text-center">
           <p class="text-[11px] text-slate-400">
-            ${selectedPlayerId ? '👉 Ahora toca otro jugador del campo o del banquillo para intercambiarlos.' : '💡 Toca a un jugador para cambiar su posición o sustituirlo.'}
+            ${selectedPlayerId ? '👉 Puedes elegir su función arriba o tocar otro jugador del campo/banquillo para moverlo.' : '💡 Toca a un jugador para elegir su función táctica o cambiar su posición.'}
           </p>
         </div>
 
@@ -2854,6 +3073,50 @@ function renderTacticsView(container, gameState, onSaveTactics) {
       btnAuto.onclick = () => {
         autoAlignLineup();
         onSaveTactics(tactics);
+        render();
+      };
+    }
+
+    // Toggle para ver la lista completa de funciones del 11
+    const btnToggleAllRoles = container.querySelector("#btn-toggle-all-roles");
+    if (btnToggleAllRoles) {
+      btnToggleAllRoles.onclick = () => {
+        showAllRolesList = !showAllRolesList;
+        render();
+      };
+    }
+
+    // Cambiar función desde el selector desplegable
+    container.querySelectorAll(".select-player-role").forEach(sel => {
+      sel.onchange = (e) => {
+        const pId = sel.dataset.playerId;
+        const rId = e.target.value;
+        if (!tactics.playerRoles) tactics.playerRoles = {};
+        tactics.playerRoles[pId] = rId;
+        onSaveTactics(tactics);
+        render();
+      };
+    });
+
+    // Asignar función desde el panel del jugador seleccionado
+    container.querySelectorAll(".btn-assign-role").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const pId = btn.dataset.playerId;
+        const rId = btn.dataset.roleId;
+        if (!tactics.playerRoles) tactics.playerRoles = {};
+        tactics.playerRoles[pId] = rId;
+        onSaveTactics(tactics);
+        render();
+      };
+    });
+
+    // Cerrar panel de rol
+    const btnCloseRoleBox = container.querySelector("#btn-close-role-box");
+    if (btnCloseRoleBox) {
+      btnCloseRoleBox.onclick = (e) => {
+        e.stopPropagation();
+        selectedPlayerId = null;
         render();
       };
     }
@@ -3424,14 +3687,19 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       formation: userTeam.defaultFormation || "4-3-3",
       mentality: "balanced",
       lineup: userTeam.players.slice(0, 11).map(p => p.id),
-      bench: userTeam.players.slice(11).map(p => p.id)
+      bench: userTeam.players.slice(11).map(p => p.id),
+      playerRoles: {}
     };
+  }
+  if (!gameState.userTactics.playerRoles) {
+    gameState.userTactics.playerRoles = {};
   }
 
   let preMatchTab = "USER"; // "USER" o "OPPONENT"
   let selectedPreMatchPlayerId = null;
   let preMatchSaveFeedback = null;
   let masterTacticsForNextMatches = null;
+  let showPreMatchAllRoles = false;
 
   function getOpponentLineup(oppTeam) {
     const formationKey = oppTeam.defaultFormation || "4-3-3";
@@ -3603,6 +3871,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 if (!player) return "";
                 const effRating = calculateEffectiveRating(player, slot.pos);
                 const isSelected = selectedPreMatchPlayerId === player.id;
+                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
+                const role = getRoleDetails(slot.pos, roleId);
 
                 return `
                   <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
@@ -3618,16 +3888,104 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
+                    <!-- Rol / Función del jugador -->
+                    <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center shadow-sm">
+                      ${role.icon} ${role.tag}
+                    </div>
                   </div>
                 `;
               }).join('')}
             </div>
           </div>
 
+          <!-- Panel de Asignación de Función Táctica Pre-Partido -->
+          ${(() => {
+            if (!selectedPreMatchPlayerId) return "";
+            const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
+            if (selSlotIndex === -1) return "";
+            const selSlot = formation.slots[selSlotIndex];
+            const selPlayer = userTeam.players.find(p => p.id === selectedPreMatchPlayerId);
+            if (!selPlayer || !selSlot) return "";
+
+            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
+            const curRole = getRoleDetails(selSlot.pos, curRoleId);
+            const availRoles = getAvailableRolesForPosition(selSlot.pos);
+
+            return `
+              <div class="mx-3 my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
+                <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">${curRole.icon}</span>
+                    <div>
+                      <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name} (${selSlot.label})</span>
+                      <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+                    </div>
+                  </div>
+                  <button id="btn-pre-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                </div>
+                <div class="text-[10px] text-slate-400 mb-2 font-medium">Instrucción individual en este partido:</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  ${availRoles.map(r => `
+                    <button class="btn-pre-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                      <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                      <div class="min-w-0">
+                        <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                        <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                      </div>
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            `;
+          })()}
+
+          <!-- Botón para ver y ajustar todas las funciones del 11 -->
+          <div class="px-4 text-center my-1.5 flex items-center justify-center gap-2">
+            <button id="btn-pre-toggle-all-roles" class="text-xs bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 hover:border-sky-500/40 px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+              <span>⚙️</span>
+              <span>${showPreMatchAllRoles ? 'Ocultar funciones del 11' : 'Ver funciones de los 11'}</span>
+            </button>
+          </div>
+
+          <!-- Lista Desplegable de Todas las Funciones del 11 -->
+          ${showPreMatchAllRoles ? `
+            <div class="mx-3 mb-3 bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2">
+              <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>⚙️</span> Funciones e Instrucciones del 11 Titular
+                </span>
+                <span class="text-[10px] text-slate-400">Personaliza cada puesto</span>
+              </div>
+              <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1 no-scrollbar">
+                ${formation.slots.map((slot, idx) => {
+                  const p = lineupPlayers[idx];
+                  if (!p) return "";
+                  const curRoleId = (tactics.playerRoles && tactics.playerRoles[p.id]) || getDefaultRoleForPosition(slot.pos);
+                  const availRoles = getAvailableRolesForPosition(slot.pos);
+                  return `
+                    <div class="flex items-center justify-between p-2 rounded-xl bg-slate-950 border border-slate-800/80 text-xs">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <span class="w-8 text-center font-extrabold text-[10px] px-1 py-0.5 rounded bg-slate-800 text-sky-400 flex-shrink-0">${slot.label}</span>
+                        <span class="font-bold text-white truncate text-xs">${p.name.split(' ').slice(-1)[0]}</span>
+                      </div>
+                      <select class="select-pre-player-role bg-slate-900 border border-slate-700 text-sky-300 text-[11px] font-bold rounded-lg px-2 py-1 outline-none focus:border-sky-400 max-w-[190px]" data-player-id="${p.id}" data-pos="${slot.pos}">
+                        ${availRoles.map(r => `
+                          <option value="${r.id}" ${r.id === curRoleId ? 'selected' : ''}>
+                            ${r.icon} ${r.name} (${r.tag})
+                          </option>
+                        `).join('')}
+                      </select>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          ` : ''}
+
           <!-- Instrucción de intercambio -->
           <div class="px-4 text-center my-1">
             <p class="text-[11px] text-slate-400">
-              ${selectedPreMatchPlayerId ? '👉 Ahora toca otro titular o un suplente del banquillo para intercambiarlo.' : '💡 Toca un futbolista para modificar su puesto o sustituirlo.'}
+              ${selectedPreMatchPlayerId ? '👉 Puedes elegir su función arriba o tocar otro futbolista para intercambiarlo.' : '💡 Toca un futbolista para elegir su función o cambiar su posición.'}
             </p>
           </div>
 
@@ -3824,6 +4182,46 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       };
     });
 
+    container.querySelectorAll(".btn-pre-assign-role").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const pId = btn.dataset.playerId;
+        const rId = btn.dataset.roleId;
+        if (!tactics.playerRoles) tactics.playerRoles = {};
+        tactics.playerRoles[pId] = rId;
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
+    const btnPreCloseRole = container.querySelector("#btn-pre-close-role-box");
+    if (btnPreCloseRole) {
+      btnPreCloseRole.onclick = (e) => {
+        e.stopPropagation();
+        selectedPreMatchPlayerId = null;
+        renderPreMatch();
+      };
+    }
+
+    const btnPreToggleAll = container.querySelector("#btn-pre-toggle-all-roles");
+    if (btnPreToggleAll) {
+      btnPreToggleAll.onclick = () => {
+        showPreMatchAllRoles = !showPreMatchAllRoles;
+        renderPreMatch();
+      };
+    }
+
+    container.querySelectorAll(".select-pre-player-role").forEach(sel => {
+      sel.onchange = (e) => {
+        const pId = sel.dataset.playerId;
+        const rId = e.target.value;
+        if (!tactics.playerRoles) tactics.playerRoles = {};
+        tactics.playerRoles[pId] = rId;
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
     const btnSaveTactics = container.querySelector("#btn-pre-save-tactics");
     if (btnSaveTactics) {
       btnSaveTactics.onclick = () => {
@@ -3946,6 +4344,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       awayFormation: !isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       homeMentality: isUserHome ? gameState.userTactics.mentality : "balanced",
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
+      homePlayerRoles: isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
+      awayPlayerRoles: !isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
       onGoal: (goalData) => handleGoalSequence(goalData),
@@ -6208,6 +6608,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                   ${isNewSub ? '🔺 ' : ''}${player.name.split(' ').slice(-1)[0]}
                 </div>
+                ${(() => {
+                  const rId = (gameState.userTactics.playerRoles && gameState.userTactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
+                  const r = getRoleDetails(slot.pos, rId);
+                  return `<div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/80 border border-sky-500/30 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center">${r.icon} ${r.tag}</div>`;
+                })()}
               </div>
             `;
           }).join('');
@@ -7258,7 +7663,8 @@ class GameManager {
         formation: selectedTeam.defaultFormation || "4-3-3",
         mentality: "balanced",
         lineup: selectedTeam.players.slice(0, 11).map(p => p.id),
-        bench: selectedTeam.players.slice(11).map(p => p.id)
+        bench: selectedTeam.players.slice(11).map(p => p.id),
+        playerRoles: {}
       },
       topScorers: {},
       isSeasonOver: false
@@ -7285,7 +7691,8 @@ class GameManager {
       formation: userTeam.defaultFormation || "4-3-3",
       mentality: "balanced",
       lineup: userTeam.players.slice(0, 11).map(p => p.id),
-      bench: userTeam.players.slice(11).map(p => p.id)
+      bench: userTeam.players.slice(11).map(p => p.id),
+      playerRoles: {}
     };
 
     SaveManager.saveGame(this.state);

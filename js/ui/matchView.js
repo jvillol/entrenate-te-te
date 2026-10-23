@@ -2,7 +2,7 @@
 
 import { MatchSimulator } from "../engine/matchEngine.js";
 import { simulateAIParties, updateStandings } from "../engine/leagueEngine.js";
-import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating } from "../engine/tactics.js";
+import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails } from "../engine/tactics.js";
 import { SaveManager } from "../engine/saveManager.js";
 
 export function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
@@ -24,14 +24,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       formation: userTeam.defaultFormation || "4-3-3",
       mentality: "balanced",
       lineup: userTeam.players.slice(0, 11).map(p => p.id),
-      bench: userTeam.players.slice(11).map(p => p.id)
+      bench: userTeam.players.slice(11).map(p => p.id),
+      playerRoles: {}
     };
+  }
+  if (!gameState.userTactics.playerRoles) {
+    gameState.userTactics.playerRoles = {};
   }
 
   let preMatchTab = "USER"; // "USER" o "OPPONENT"
   let selectedPreMatchPlayerId = null;
   let preMatchSaveFeedback = null;
   let masterTacticsForNextMatches = null;
+  let showPreMatchAllRoles = false;
 
   function getOpponentLineup(oppTeam) {
     const formationKey = oppTeam.defaultFormation || "4-3-3";
@@ -203,6 +208,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 if (!player) return "";
                 const effRating = calculateEffectiveRating(player, slot.pos);
                 const isSelected = selectedPreMatchPlayerId === player.id;
+                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
+                const role = getRoleDetails(slot.pos, roleId);
 
                 return `
                   <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
@@ -218,16 +225,104 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
+                    <!-- Rol / Función del jugador -->
+                    <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center shadow-sm">
+                      ${role.icon} ${role.tag}
+                    </div>
                   </div>
                 `;
               }).join('')}
             </div>
           </div>
 
+          <!-- Panel de Asignación de Función Táctica Pre-Partido -->
+          ${(() => {
+            if (!selectedPreMatchPlayerId) return "";
+            const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
+            if (selSlotIndex === -1) return "";
+            const selSlot = formation.slots[selSlotIndex];
+            const selPlayer = userTeam.players.find(p => p.id === selectedPreMatchPlayerId);
+            if (!selPlayer || !selSlot) return "";
+
+            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
+            const curRole = getRoleDetails(selSlot.pos, curRoleId);
+            const availRoles = getAvailableRolesForPosition(selSlot.pos);
+
+            return `
+              <div class="mx-3 my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
+                <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">${curRole.icon}</span>
+                    <div>
+                      <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name} (${selSlot.label})</span>
+                      <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+                    </div>
+                  </div>
+                  <button id="btn-pre-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                </div>
+                <div class="text-[10px] text-slate-400 mb-2 font-medium">Instrucción individual en este partido:</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                  ${availRoles.map(r => `
+                    <button class="btn-pre-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                      <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                      <div class="min-w-0">
+                        <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                        <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                      </div>
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            `;
+          })()}
+
+          <!-- Botón para ver y ajustar todas las funciones del 11 -->
+          <div class="px-4 text-center my-1.5 flex items-center justify-center gap-2">
+            <button id="btn-pre-toggle-all-roles" class="text-xs bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 hover:border-sky-500/40 px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+              <span>⚙️</span>
+              <span>${showPreMatchAllRoles ? 'Ocultar funciones del 11' : 'Ver funciones de los 11'}</span>
+            </button>
+          </div>
+
+          <!-- Lista Desplegable de Todas las Funciones del 11 -->
+          ${showPreMatchAllRoles ? `
+            <div class="mx-3 mb-3 bg-slate-900 border border-slate-800 rounded-2xl p-3 space-y-2">
+              <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                <span class="text-xs font-bold text-white flex items-center gap-1.5">
+                  <span>⚙️</span> Funciones e Instrucciones del 11 Titular
+                </span>
+                <span class="text-[10px] text-slate-400">Personaliza cada puesto</span>
+              </div>
+              <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1 no-scrollbar">
+                ${formation.slots.map((slot, idx) => {
+                  const p = lineupPlayers[idx];
+                  if (!p) return "";
+                  const curRoleId = (tactics.playerRoles && tactics.playerRoles[p.id]) || getDefaultRoleForPosition(slot.pos);
+                  const availRoles = getAvailableRolesForPosition(slot.pos);
+                  return `
+                    <div class="flex items-center justify-between p-2 rounded-xl bg-slate-950 border border-slate-800/80 text-xs">
+                      <div class="flex items-center gap-2 min-w-0">
+                        <span class="w-8 text-center font-extrabold text-[10px] px-1 py-0.5 rounded bg-slate-800 text-sky-400 flex-shrink-0">${slot.label}</span>
+                        <span class="font-bold text-white truncate text-xs">${p.name.split(' ').slice(-1)[0]}</span>
+                      </div>
+                      <select class="select-pre-player-role bg-slate-900 border border-slate-700 text-sky-300 text-[11px] font-bold rounded-lg px-2 py-1 outline-none focus:border-sky-400 max-w-[190px]" data-player-id="${p.id}" data-pos="${slot.pos}">
+                        ${availRoles.map(r => `
+                          <option value="${r.id}" ${r.id === curRoleId ? 'selected' : ''}>
+                            ${r.icon} ${r.name} (${r.tag})
+                          </option>
+                        `).join('')}
+                      </select>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          ` : ''}
+
           <!-- Instrucción de intercambio -->
           <div class="px-4 text-center my-1">
             <p class="text-[11px] text-slate-400">
-              ${selectedPreMatchPlayerId ? '👉 Ahora toca otro titular o un suplente del banquillo para intercambiarlo.' : '💡 Toca un futbolista para modificar su puesto o sustituirlo.'}
+              ${selectedPreMatchPlayerId ? '👉 Puedes elegir su función arriba o tocar otro futbolista para intercambiarlo.' : '💡 Toca un futbolista para elegir su función o cambiar su posición.'}
             </p>
           </div>
 
@@ -424,6 +519,46 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     });
 
+    container.querySelectorAll(".btn-pre-assign-role").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const pId = btn.dataset.playerId;
+        const rId = btn.dataset.roleId;
+        if (!tactics.playerRoles) tactics.playerRoles = {};
+        tactics.playerRoles[pId] = rId;
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
+    const btnPreCloseRole = container.querySelector("#btn-pre-close-role-box");
+    if (btnPreCloseRole) {
+      btnPreCloseRole.onclick = (e) => {
+        e.stopPropagation();
+        selectedPreMatchPlayerId = null;
+        renderPreMatch();
+      };
+    }
+
+    const btnPreToggleAll = container.querySelector("#btn-pre-toggle-all-roles");
+    if (btnPreToggleAll) {
+      btnPreToggleAll.onclick = () => {
+        showPreMatchAllRoles = !showPreMatchAllRoles;
+        renderPreMatch();
+      };
+    }
+
+    container.querySelectorAll(".select-pre-player-role").forEach(sel => {
+      sel.onchange = (e) => {
+        const pId = sel.dataset.playerId;
+        const rId = e.target.value;
+        if (!tactics.playerRoles) tactics.playerRoles = {};
+        tactics.playerRoles[pId] = rId;
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
     const btnSaveTactics = container.querySelector("#btn-pre-save-tactics");
     if (btnSaveTactics) {
       btnSaveTactics.onclick = () => {
@@ -546,6 +681,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       awayFormation: !isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       homeMentality: isUserHome ? gameState.userTactics.mentality : "balanced",
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
+      homePlayerRoles: isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
+      awayPlayerRoles: !isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
       onGoal: (goalData) => handleGoalSequence(goalData),
@@ -2808,6 +2945,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                   ${isNewSub ? '🔺 ' : ''}${player.name.split(' ').slice(-1)[0]}
                 </div>
+                ${(() => {
+                  const rId = (gameState.userTactics.playerRoles && gameState.userTactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
+                  const r = getRoleDetails(slot.pos, rId);
+                  return `<div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/80 border border-sky-500/30 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center">${r.icon} ${r.tag}</div>`;
+                })()}
               </div>
             `;
           }).join('');

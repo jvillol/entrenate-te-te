@@ -59,7 +59,8 @@ class GameManager {
         formation: selectedTeam.defaultFormation || "4-3-3",
         mentality: "balanced",
         lineup: selectedTeam.players.slice(0, 11).map(p => p.id),
-        bench: selectedTeam.players.slice(11).map(p => p.id)
+        bench: selectedTeam.players.slice(11).map(p => p.id),
+        playerRoles: {}
       },
       topScorers: {},
       isSeasonOver: false
@@ -86,7 +87,8 @@ class GameManager {
       formation: userTeam.defaultFormation || "4-3-3",
       mentality: "balanced",
       lineup: userTeam.players.slice(0, 11).map(p => p.id),
-      bench: userTeam.players.slice(11).map(p => p.id)
+      bench: userTeam.players.slice(11).map(p => p.id),
+      playerRoles: {}
     };
 
     SaveManager.saveGame(this.state);

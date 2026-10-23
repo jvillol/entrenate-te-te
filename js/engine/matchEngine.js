@@ -1,6 +1,6 @@
 // Motor de simulación de partido 2D interactivo con cambios en vivo (sin comentarios de texto)
 
-import { FORMATIONS } from "./tactics.js";
+import { FORMATIONS, getRoleDetails } from "./tactics.js";
 
 export class MatchSimulator {
   constructor(homeTeam, awayTeam, options = {}) {
@@ -28,6 +28,9 @@ export class MatchSimulator {
 
     this.homeFormation = options.homeFormation || "4-3-3";
     this.awayFormation = options.awayFormation || "4-3-3";
+
+    this.homePlayerRoles = options.homePlayerRoles || {};
+    this.awayPlayerRoles = options.awayPlayerRoles || {};
 
     // Límite de 5 cambios oficiales en 3 ventanas durante el partido (el descanso no consume ventana)
     this.homeSubsRemaining = 5;
@@ -466,14 +469,14 @@ export class MatchSimulator {
       p.energy = Math.max(25, (p.energy || 100) - rate);
     });
 
-    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk") + 2) * homeMod.atk;
-    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def") + 2) * homeMod.def;
-    const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk") * awayMod.atk;
-    const awayDef = this.calcTeamPower(this.awayPlayersOnPitch, "def") * awayMod.def;
+    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 2) * homeMod.atk;
+    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 2) * homeMod.def;
+    const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk", "away") * awayMod.atk;
+    const awayDef = this.calcTeamPower(this.awayPlayersOnPitch, "def", "away") * awayMod.def;
 
     // Disputa de la posesión
-    const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid");
-    const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid");
+    const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home");
+    const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid", "away");
     const probHomePoss = (midHome / (midHome + midAway)) + 0.03; // Ligera ventaja local
 
     const currentPoss = Math.random() < probHomePoss ? "home" : "away";
@@ -589,9 +592,25 @@ export class MatchSimulator {
     const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
 
-    const passer = this.pickPlayerForAction(atkPlayers, ["MC", "MCD", "MCO", "EI", "ED"]);
-    const shooter = this.pickPlayerForAction(atkPlayers, ["DC", "EI", "ED", "MCO"]);
+    const passer = this.pickPlayerForAction(atkPlayers, ["MC", "MCD", "MCO", "EI", "ED", "LD", "LI", "DC"], "pass");
+    const shooter = this.pickPlayerForAction(atkPlayers, ["DC", "EI", "ED", "MCO", "MC", "LD", "LI"], "shoot");
     const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
+
+    const passerRole = this.getPlayerRole(passer, attackingSide);
+    const shooterRole = this.getPlayerRole(shooter, attackingSide);
+
+    let chanceComment = `⚡ ¡Ocasión de peligro de ${atkTeam.shortName}!`;
+    if (passerRole && passerRole.tag === "Organizador") {
+      chanceComment = `🧠 ${passer.name} (Organizador) canaliza el juego con un pase magistral`;
+    } else if (passerRole && passerRole.tag === "Ofensivo") {
+      chanceComment = `🚀 ${passer.name} (Carrilero) sube con potencia por la banda y centra`;
+    } else if (passerRole && passerRole.tag === "Creativo") {
+      chanceComment = `✨ ${passer.name} (Mediapunta) filtra un balón con magia`;
+    } else if (passerRole && passerRole.tag === "Salida") {
+      chanceComment = `🎯 ${passer.name} (Central) rompe líneas con pase largo milimétrico`;
+    } else if (passerRole && passerRole.tag === "Falso 9") {
+      chanceComment = `🧠 ${passer.name} (Falso 9) baja a recibir y filtra al espacio`;
+    }
 
     // Notificar al visor de partido del inicio de la jugada clave
     if (this.onHighlightStart) {
@@ -602,6 +621,9 @@ export class MatchSimulator {
         defTeam,
         passer,
         shooter,
+        passerRole,
+        shooterRole,
+        commentary: chanceComment,
         minute: this.minute
       });
     }
@@ -1111,12 +1133,38 @@ export class MatchSimulator {
     });
   }
 
-  pickPlayerForAction(players, preferredPositions) {
-    const candidates = players.filter(p => preferredPositions.includes(p.pos));
-    if (candidates.length > 0) {
-      return candidates[Math.floor(Math.random() * candidates.length)];
+  getPlayerRole(player, side = null) {
+    if (!player) return null;
+    const playerSide = side || (this.homePlayersOnPitch.some(p => p.id === player.id) ? "home" : "away");
+    const rolesMap = playerSide === "home" ? this.homePlayerRoles : this.awayPlayerRoles;
+    const roleId = rolesMap ? rolesMap[player.id] : null;
+    return getRoleDetails(player.pos, roleId);
+  }
+
+  pickPlayerForAction(players, preferredPositions, actionType = "pass") {
+    let candidates = players.filter(p => preferredPositions.includes(p.pos));
+    if (candidates.length === 0) candidates = [...players];
+
+    // Ponderar candidatos según su rol táctico y atributos
+    const weights = candidates.map(p => {
+      const role = this.getPlayerRole(p);
+      if (actionType === "pass") {
+        const roleWeight = role?.passWeight !== undefined ? role.passWeight : 0.6;
+        return roleWeight * ((p.pas || 70) / 70);
+      } else if (actionType === "shoot") {
+        const roleWeight = role?.shootWeight !== undefined ? role.shootWeight : 0.6;
+        return roleWeight * ((p.sho || 70) / 70);
+      }
+      return 1;
+    });
+
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let rand = Math.random() * totalWeight;
+    for (let i = 0; i < candidates.length; i++) {
+      rand -= weights[i];
+      if (rand <= 0) return candidates[i];
     }
-    return players[Math.floor(Math.random() * players.length)];
+    return candidates[0];
   }
 
   triggerAlert(title, text, side, duration = 2200) {
@@ -1124,31 +1172,47 @@ export class MatchSimulator {
     this.onAlert(this.currentAlert);
   }
 
-  calcTeamPower(players, type) {
+  calcTeamPower(players, type, side = null) {
     if (!players || players.length === 0) return 75;
     let sum = 0;
     players.forEach(p => {
-      if (type === "atk") sum += (p.sho * 0.4 + p.dri * 0.3 + p.pac * 0.3) * (0.6 + p.energy / 250);
-      else if (type === "mid") sum += (p.pas * 0.4 + p.dri * 0.3 + p.def * 0.3) * (0.6 + p.energy / 250);
-      else if (type === "def") sum += (p.def * 0.5 + p.phy * 0.3 + p.pac * 0.2) * (0.6 + p.energy / 250);
+      const role = this.getPlayerRole(p, side);
+      let power = 75;
+      if (type === "atk") {
+        power = (p.sho * 0.4 + p.dri * 0.3 + p.pac * 0.3) * (0.6 + p.energy / 250);
+        if (role && role.atkMod) power *= (1 + role.atkMod);
+      } else if (type === "mid") {
+        power = (p.pas * 0.4 + p.dri * 0.3 + p.def * 0.3) * (0.6 + p.energy / 250);
+        if (role && role.midMod) power *= role.midMod;
+      } else if (type === "def") {
+        power = (p.def * 0.5 + p.phy * 0.3 + p.pac * 0.2) * (0.6 + p.energy / 250);
+        if (role && role.defMod) power *= role.defMod;
+      }
+      sum += power;
     });
     return sum / players.length;
   }
 
   update2DPositions() {
-    // Los jugadores fijan sus coordenadas objetivo siguiendo dinámicamente la jugada y el balón
+    // Los jugadores fijan sus coordenadas objetivo siguiendo dinámicamente la jugada, el balón y su función táctica (subir, desdoblar, etc.)
     const ballX = this.ball.targetX;
     const ballY = this.ball.targetY;
 
-    this.home2D.forEach(p => {
-      const shiftX = (ballX - 50) * 0.35;
+    this.home2D.forEach((p, idx) => {
+      const playerObj = this.homePlayersOnPitch[idx];
+      const role = this.getPlayerRole(playerObj, "home");
+      const pushMod = role?.pushMod || 0; // ej: +14 para Carrilero Ofensivo, +6 Central con Salida
+      const shiftX = (ballX - 50) * 0.35 + (pushMod * 0.35);
       const shiftY = (ballY - 50) * 0.25;
       p.targetX = Math.max(3, Math.min(95, p.baseX + shiftX + (Math.random() * 4 - 2)));
       p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
     });
 
-    this.away2D.forEach(p => {
-      const shiftX = (ballX - 50) * 0.35;
+    this.away2D.forEach((p, idx) => {
+      const playerObj = this.awayPlayersOnPitch[idx];
+      const role = this.getPlayerRole(playerObj, "away");
+      const pushMod = role?.pushMod || 0;
+      const shiftX = (ballX - 50) * 0.35 - (pushMod * 0.35);
       const shiftY = (ballY - 50) * 0.25;
       p.targetX = Math.max(5, Math.min(97, p.baseX + shiftX + (Math.random() * 4 - 2)));
       p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
