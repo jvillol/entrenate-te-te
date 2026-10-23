@@ -678,7 +678,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
           <div class="flex items-center gap-2">
             <button id="btn-subs" class="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 active:scale-98 text-white font-extrabold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2">
-              <span>🔄 HACER CAMBIOS</span>
+              <span>📋 TÁCTICA Y CAMBIOS</span>
               <span id="subs-count-badge" class="px-2 py-0.5 rounded-full bg-black/40 text-[10px] font-mono">5 rest.</span>
             </button>
 
@@ -770,14 +770,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           </div>
         </div>
 
-        <!-- Modal Táctico de Descanso (Estilo Elección de Alineación Oficial) -->
+        <!-- Modal Táctico de Descanso y En Directo (Pizarra Oficial Completa) -->
         <div id="modal-halftime-tactics" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 hidden flex flex-col justify-between overflow-y-auto">
           <div class="max-w-md w-full mx-auto flex flex-col min-h-screen text-white select-none pb-4">
-            <!-- Header Táctico de Descanso -->
+            <!-- Header Táctico -->
             <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 shadow-md flex items-center justify-between">
               <div>
-                <span class="text-[10px] uppercase font-bold text-amber-400">Descanso (45') · Ajustes Tácticos</span>
-                <h2 class="text-sm font-extrabold text-white leading-tight">Pizarra Táctica y Cambios</h2>
+                <span id="tactics-modal-stage" class="text-[10px] uppercase font-bold text-amber-400">Descanso (45') · Ajustes Tácticos</span>
+                <h2 id="tactics-modal-title" class="text-sm font-extrabold text-white leading-tight">Pizarra Táctica y Cambios</h2>
               </div>
               <div id="ht-tactic-remaining-badge" class="px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400">
                 5 cambios rest.
@@ -835,7 +835,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 ✕ Descartar
               </button>
               <button id="btn-ht-tactic-confirm" class="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-xs rounded-xl shadow-xl shadow-emerald-500/25 transition flex items-center justify-center gap-2">
-                <span>⚽ GUARDAR AJUSTES Y VOLVER</span>
+                <span id="tactics-modal-btn-confirm-text">⚽ GUARDAR AJUSTES Y VOLVER</span>
                 <span>➔</span>
               </button>
             </footer>
@@ -2253,7 +2253,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     if (btnHtSubs) {
       btnHtSubs.onclick = () => {
-        openHalfTimeTacticsModal();
+        openTacticsModal(false);
       };
     }
 
@@ -2268,21 +2268,38 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     btnSubs.onclick = () => {
-      if (simulator.isHalfTime) {
-        openHalfTimeTacticsModal();
-        return;
-      }
-      simulator.pause();
-      iconPP.textContent = "▶";
-      textPP.textContent = "Reanudar";
-      renderMatchSubsModal();
-      modalSubs.classList.remove("hidden");
+      openTacticsModal(!simulator.isHalfTime);
     };
 
-    function openHalfTimeTacticsModal() {
-      if (modalHT) modalHT.classList.add("hidden");
+    function openTacticsModal(isLive = false) {
+      const wasRunning = simulator.isRunning;
+      if (isLive) {
+        simulator.pause();
+        iconPP.textContent = "▶";
+        textPP.textContent = "Reanudar";
+      } else {
+        if (modalHT) modalHT.classList.add("hidden");
+      }
+
       const modalHTTactics = container.querySelector("#modal-halftime-tactics");
       if (!modalHTTactics) return;
+
+      const elStage = modalHTTactics.querySelector("#tactics-modal-stage");
+      if (elStage) {
+        elStage.textContent = isLive 
+          ? `Minuto ${simulator.getFormattedMinute ? simulator.getFormattedMinute() : simulator.minute + "'"} · En Directo`
+          : "Descanso (45') · Ajustes Tácticos";
+      }
+
+      const elTitle = modalHTTactics.querySelector("#tactics-modal-title");
+      if (elTitle) {
+        elTitle.textContent = isLive ? "Pizarra Táctica y Sustituciones" : "Pizarra Táctica y Cambios";
+      }
+
+      const elConfirmText = modalHTTactics.querySelector("#tactics-modal-btn-confirm-text");
+      if (elConfirmText) {
+        elConfirmText.textContent = isLive ? "⚽ APLICAR CAMBIOS Y CONTINUAR" : "⚽ GUARDAR AJUSTES Y VOLVER";
+      }
 
       const teamSide = isUserHome ? "home" : "away";
       let htFormationKey = isUserHome ? simulator.homeFormation : simulator.awayFormation;
@@ -2320,7 +2337,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         if (elPending) {
           if (subsMadeCount > 0) {
             elPending.classList.remove("hidden");
-            elPending.textContent = `🔄 ${subsMadeCount} cambio${subsMadeCount > 1 ? 's' : ''} preparado${subsMadeCount > 1 ? 's' : ''} para la 2ª parte`;
+            elPending.textContent = isLive
+              ? `🔄 ${subsMadeCount} cambio${subsMadeCount > 1 ? 's' : ''} preparado${subsMadeCount > 1 ? 's' : ''}`
+              : `🔄 ${subsMadeCount} cambio${subsMadeCount > 1 ? 's' : ''} preparado${subsMadeCount > 1 ? 's' : ''} para la 2ª parte`;
           } else {
             elPending.classList.add("hidden");
           }
@@ -2509,7 +2528,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       btnCancel.onclick = () => {
         modalHTTactics.classList.add("hidden");
-        if (modalHT) modalHT.classList.remove("hidden");
+        if (isLive) {
+          if (wasRunning && !simulator.isFinished && !simulator.isHalfTime) {
+            simulator.start();
+            iconPP.textContent = "⏸";
+            textPP.textContent = "Pausar";
+          }
+        } else {
+          if (modalHT) modalHT.classList.remove("hidden");
+        }
       };
 
       btnConfirm.onclick = () => {
@@ -2543,19 +2570,44 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         const subsBadge = container.querySelector("#subs-count-badge");
         if (subsBadge) subsBadge.textContent = `${res.remaining} rest.`;
 
-        if (res.subsCount > 0) {
-          showSubstitutionChyron({
-            teamSide: teamSide,
-            team: userTeam,
-            subs: res.subsPairs,
-            minute: 45,
-            remaining: res.remaining
-          }, () => {
-            if (modalHT) modalHT.classList.remove("hidden");
-          });
+        if (isLive) {
+          if (res.subsCount > 0) {
+            showSubstitutionChyron({
+              teamSide: teamSide,
+              team: userTeam,
+              subs: res.subsPairs,
+              minute: simulator.minute,
+              remaining: res.remaining
+            }, () => {
+              if (wasRunning && !simulator.isFinished && !simulator.isHalfTime) {
+                simulator.start();
+                iconPP.textContent = "⏸";
+                textPP.textContent = "Pausar";
+              }
+            });
+          } else {
+            showMatchAlert({ text: "🎯 Esquema táctico y posiciones actualizadas" });
+            if (wasRunning && !simulator.isFinished && !simulator.isHalfTime) {
+              simulator.start();
+              iconPP.textContent = "⏸";
+              textPP.textContent = "Pausar";
+            }
+          }
         } else {
-          showMatchAlert({ text: "🎯 Esquema táctico actualizado para la 2ª parte" });
-          if (modalHT) modalHT.classList.remove("hidden");
+          if (res.subsCount > 0) {
+            showSubstitutionChyron({
+              teamSide: teamSide,
+              team: userTeam,
+              subs: res.subsPairs,
+              minute: 45,
+              remaining: res.remaining
+            }, () => {
+              if (modalHT) modalHT.classList.remove("hidden");
+            });
+          } else {
+            showMatchAlert({ text: "🎯 Esquema táctico actualizado para la 2ª parte" });
+            if (modalHT) modalHT.classList.remove("hidden");
+          }
         }
       };
 
