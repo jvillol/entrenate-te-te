@@ -87,6 +87,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
               if (!player) return "";
               const effRating = calculateEffectiveRating(player, slot.pos);
               const isSelected = selectedPlayerId === player.id;
+              const isInjured = Boolean(player.injury);
               const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
               const role = getRoleDetails(slot.pos, roleId);
 
@@ -95,9 +96,9 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                      style="left: ${slot.x}%; top: ${slot.y}%;"
                      data-player-id="${player.id}">
                   <!-- Ficha con dorsal y valoración -->
-                  <div class="w-10 h-10 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                  <div class="w-10 h-10 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
                     <span class="text-[9px] font-black leading-none">${effRating}</span>
-                    <span class="text-[8px] font-bold text-slate-300 leading-none">${slot.label}</span>
+                    <span class="text-[8px] font-bold ${isInjured ? 'text-rose-300' : 'text-slate-300'} leading-none">${slot.label}</span>
                     <!-- Barra de energía en miniatura -->
                     <div class="absolute -bottom-1 w-6 h-1 bg-black/60 rounded-full overflow-hidden">
                       <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy}%;"></div>
@@ -107,10 +108,16 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                   <div class="bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-bold text-white tracking-tight mt-1 truncate max-w-[70px] text-center border border-white/10 shadow">
                     ${player.name.split(' ').slice(-1)[0]}
                   </div>
-                  <!-- Función / Rol asignado -->
-                  <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7.5px] font-bold text-sky-300 truncate max-w-[76px] text-center shadow-sm">
-                    ${role.icon} ${role.tag}
-                  </div>
+                  <!-- Función / Rol asignado o Lesión -->
+                  ${isInjured ? `
+                    <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7.5px] font-bold text-rose-200 truncate max-w-[76px] text-center shadow-sm">
+                      🚑 ${player.injury.roundsLeft}j
+                    </div>
+                  ` : `
+                    <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7.5px] font-bold text-sky-300 truncate max-w-[76px] text-center shadow-sm">
+                      ${role.icon} ${role.tag}
+                    </div>
+                  `}
                 </div>
               `;
             }).join('')}
@@ -218,20 +225,22 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
           <div class="space-y-1.5">
             ${benchPlayers.map(p => {
               const isSelected = selectedPlayerId === p.id;
+              const isInjured = Boolean(p.injury);
               return `
-                <div class="bench-player flex items-center justify-between p-2 rounded-xl border ${isSelected ? 'border-amber-400 bg-amber-500/10' : 'border-slate-800 bg-slate-900/60'} cursor-pointer active:scale-98 transition"
+                <div class="bench-player flex items-center justify-between p-2 rounded-xl border ${isSelected ? 'border-amber-400 bg-amber-500/10' : isInjured ? 'border-rose-900/80 bg-rose-950/20' : 'border-slate-800 bg-slate-900/60'} cursor-pointer active:scale-98 transition"
                      data-player-id="${p.id}">
                   <div class="flex items-center gap-2">
                     <span class="w-5 text-center font-mono text-[10px] text-slate-500 font-bold">#${p.number}</span>
                     <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                     <span class="text-xs font-bold text-slate-200">${p.name}</span>
+                    ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900/90 border border-rose-500/60 text-[8.5px] font-bold text-rose-300">🚑 ${p.injury.roundsLeft}j</span>` : ''}
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-[10px] font-mono ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} font-bold">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
                     <div class="w-10 h-1.5 bg-slate-800 rounded-full overflow-hidden">
                       <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy !== undefined ? p.energy : 100}%;"></div>
                     </div>
-                    <span class="text-xs font-black text-amber-400 px-1.5 py-0.5 bg-slate-800/80 rounded">${p.ovr}</span>
+                    <span class="text-xs font-black ${isInjured ? 'text-slate-500' : 'text-amber-400'} px-1.5 py-0.5 bg-slate-800/80 rounded">${p.ovr}</span>
                   </div>
                 </div>
               `;
@@ -368,14 +377,14 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
   function autoAlignLineup() {
     const formationKey = tactics.formation;
     const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    // Considerar tanto la media del jugador como su estado físico actual para rotar si está fatigado
+    // Considerar tanto la media del jugador como su estado físico actual y descartar lesionados
     const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
-    const allPlayers = [...team.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
+    const availablePlayers = [...team.players].filter(p => !p.injury).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const newLineup = [];
 
     // Asignar mejor portero primero
-    const gk = allPlayers.find(p => p.pos === "POR");
+    const gk = availablePlayers.find(p => p.pos === "POR");
     if (gk) {
       newLineup[0] = gk.id;
       used.add(gk.id);
@@ -385,10 +394,10 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
     formation.slots.forEach((slot, idx) => {
       if (idx === 0) return; // Ya asignamos portero
       // Buscar mejor jugador con posición exacta no usado
-      let best = allPlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
+      let best = availablePlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
       // Si no hay exacto, el mejor que quede
       if (!best) {
-        best = allPlayers.find(p => !used.has(p.id) && p.pos !== "POR");
+        best = availablePlayers.find(p => !used.has(p.id) && p.pos !== "POR");
       }
       if (best) {
         newLineup[idx] = best.id;
@@ -396,7 +405,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
       }
     });
 
-    const newBench = allPlayers.filter(p => !used.has(p.id)).map(p => p.id);
+    const newBench = team.players.filter(p => !used.has(p.id)).map(p => p.id);
 
     tactics.lineup = newLineup;
     tactics.bench = newBench;

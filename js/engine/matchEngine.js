@@ -1,6 +1,6 @@
 // Motor de simulación de partido 2D interactivo con cambios en vivo (sin comentarios de texto)
 
-import { FORMATIONS, getRoleDetails } from "./tactics.js";
+import { FORMATIONS, getRoleDetails, generateRandomInjury } from "./tactics.js";
 
 export class MatchSimulator {
   constructor(homeTeam, awayTeam, options = {}) {
@@ -80,6 +80,8 @@ export class MatchSimulator {
 
     this.onSetPiece = options.onSetPiece || (() => {});
     this.isSetPieceRunning = false;
+
+    this.onInjury = options.onInjury || (() => {});
 
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
@@ -315,9 +317,10 @@ export class MatchSimulator {
     if (this.minute - this.lastAISubMinute < 7) return;
 
     const aiPitch = this.aiSide === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
-    const aiBench = this.aiSide === "home" ? this.homeBench : this.awayBench;
+    const aiBenchRaw = this.aiSide === "home" ? this.homeBench : this.awayBench;
+    const aiBench = (aiBenchRaw || []).filter(p => !p.injury);
 
-    if (!aiBench || aiBench.length === 0) return;
+    if (aiBench.length === 0) return;
 
     // Buscar jugadores de campo con energía más baja (< 68%) o al llegar a minutos clave
     const outfieldPitch = aiPitch.filter(p => p.pos !== "POR");
@@ -330,7 +333,7 @@ export class MatchSimulator {
 
     if (!isKeyMinute && !isVeryTired && Math.random() > 0.22) return;
 
-    // Buscar sustituto adecuado en el banquillo
+    // Buscar sustituto adecuado en el banquillo (no lesionado)
     const samePos = aiBench.filter(p => p.pos === mostTired.pos);
     let candidate = null;
     if (samePos.length > 0) {
@@ -365,6 +368,75 @@ export class MatchSimulator {
           subs: [{ outPlayer: res.outPlayer, inPlayer: res.inPlayer }],
           minute: this.minute,
           remaining: this.aiSide === "home" ? this.homeSubsRemaining : this.awaySubsRemaining
+        });
+      }
+    }
+  }
+
+  // Activar lesión de un jugador durante el partido por fatiga, lance o falta
+  triggerPlayerInjury(player, teamSide, cause = "random") {
+    if (!player || player.injury) return;
+
+    const injuryData = generateRandomInjury(cause);
+    player.injury = injuryData;
+    player.energy = Math.max(10, (player.energy || 50) - 28);
+
+    const teamObj = teamSide === "home" ? this.homeTeam : this.awayTeam;
+    const alertMsg = `${injuryData.icon} ¡LESIÓN! ${player.name} (${injuryData.type}) - ${injuryData.roundsLeft}j de baja`;
+    this.triggerAlert("LESIÓN", alertMsg, teamSide, 5000);
+
+    this.events.push({
+      minute: this.minute,
+      type: "INJURY",
+      team: teamSide,
+      teamName: teamObj.shortName || teamObj.name,
+      player: player.name,
+      playerId: player.id,
+      injury: injuryData
+    });
+
+    this.onInjury({
+      player,
+      injury: injuryData,
+      teamSide,
+      minute: this.minute,
+      team: teamObj
+    });
+
+    // Si es el equipo de la IA rival, gestionar sustitución inmediata de emergencia
+    if (teamSide === this.aiSide) {
+      this.handleAIInjurySub(player, teamSide);
+    }
+  }
+
+  // Sustitución forzosa por lesión para el equipo IA
+  handleAIInjurySub(injuredPlayer, teamSide) {
+    const isHome = teamSide === "home";
+    const remaining = isHome ? this.homeSubsRemaining : this.awaySubsRemaining;
+    const remainingWindows = isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining;
+    const aiBenchRaw = isHome ? this.homeBench : this.awayBench;
+    const aiBench = (aiBenchRaw || []).filter(p => !p.injury);
+
+    if (remaining <= 0 || remainingWindows <= 0 || aiBench.length === 0) return;
+
+    const samePos = aiBench.filter(p => p.pos === injuredPlayer.pos);
+    let candidate = null;
+    if (samePos.length > 0) {
+      candidate = samePos.sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0];
+    } else {
+      candidate = aiBench.filter(p => p.pos !== "POR").sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0] || aiBench[0];
+    }
+
+    if (candidate) {
+      const res = this.makeSubstitution(teamSide, injuredPlayer.id, candidate.id, this.isHalfTime);
+      if (res.success) {
+        this.onSubstitution({
+          teamSide,
+          team: teamSide === "home" ? this.homeTeam : this.awayTeam,
+          subs: [{ outPlayer: res.outPlayer, inPlayer: res.inPlayer }],
+          minute: this.minute,
+          remaining: res.remaining,
+          forcedInjury: true
         });
       }
     }
@@ -469,6 +541,22 @@ export class MatchSimulator {
       p.energy = Math.max(25, (p.energy || 100) - rate);
     });
 
+    // Comprobación de riesgo de lesión por acumulación de minutos y fatiga física (< 58% energía)
+    const checkFatigueInjury = (player, teamSide) => {
+      if (player.injury || player.pos === "POR") return;
+      const energy = player.energy !== undefined ? player.energy : 100;
+      if (energy < 58) {
+        const fatigueRisk = (58 - energy) / 100;
+        const phyFactor = Math.max(0.5, (player.phy || 70) / 100);
+        const chance = (fatigueRisk * 0.0032) / phyFactor;
+        if (Math.random() < chance) {
+          this.triggerPlayerInjury(player, teamSide, "fatigue");
+        }
+      }
+    };
+    this.homePlayersOnPitch.forEach(p => checkFatigueInjury(p, "home"));
+    this.awayPlayersOnPitch.forEach(p => checkFatigueInjury(p, "away"));
+
     const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 2) * homeMod.atk;
     const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 2) * homeMod.def;
     const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk", "away") * awayMod.atk;
@@ -560,16 +648,41 @@ export class MatchSimulator {
       const foulTeam = Math.random() > 0.5 ? "home" : "away";
       this.stats.fouls[foulTeam]++;
       const victimTeam = foulTeam === "home" ? "away" : "home";
+      const isYellow = Math.random() < 0.22;
 
-      if (Math.random() < 0.22) {
+      if (isYellow) {
         this.stats.yellowCards[foulTeam]++;
         const teamName = foulTeam === "home" ? this.homeTeam.shortName : this.awayTeam.shortName;
         this.triggerAlert("TARJETA", `🟨 Tarjeta amarilla para ${teamName}`, foulTeam);
       }
 
+      // Riesgo de lesión por agresividad o entrada dura del rival
+      const foulTeamMentality = foulTeam === "home" ? this.homeMentality : this.awayMentality;
+      const aggMod = (foulTeamMentality === "very_offensive" || foulTeamMentality === "offensive") ? 1.4 : 1.0;
+      const injuryFoulChance = (isYellow ? 0.075 : 0.018) * aggMod;
+      if (Math.random() < injuryFoulChance) {
+        const victimPitch = victimTeam === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+        const eligible = victimPitch.filter(p => !p.injury);
+        if (eligible.length > 0) {
+          const victim = eligible[Math.floor(Math.random() * eligible.length)];
+          this.triggerPlayerInjury(victim, victimTeam, "foul");
+        }
+      }
+
       if (Math.random() < 0.40 && !this.isHighlightRunning && !this.isSetPieceRunning) {
         this.triggerSetPiece(victimTeam, "FREE_KICK");
         return true;
+      }
+    }
+
+    // Lance fortuito aislado del juego (esguince, mala caída por puro azar)
+    if (Math.random() < 0.0006) {
+      const side = Math.random() > 0.5 ? "home" : "away";
+      const pitch = side === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+      const eligible = pitch.filter(p => !p.injury);
+      if (eligible.length > 0) {
+        const victim = eligible[Math.floor(Math.random() * eligible.length)];
+        this.triggerPlayerInjury(victim, side, "random");
       }
     }
 
@@ -1369,7 +1482,9 @@ export class MatchSimulator {
       awayScore: this.awayScore,
       stats: this.stats,
       events: this.events,
-      scorers: this.events.filter(e => e.type === "GOAL")
+      scorers: this.events.filter(e => e.type === "GOAL"),
+      homePlayers: [...this.homePlayersOnPitch, ...this.homeBench],
+      awayPlayers: [...this.awayPlayersOnPitch, ...this.awayBench]
     };
   }
 }

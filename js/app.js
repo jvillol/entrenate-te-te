@@ -109,12 +109,27 @@ class GameManager {
     }
   }
 
-  // Recuperación física de los futbolistas entre jornadas en función de su Físico (PHY) y Media (OVR)
+  // Recuperación física y evolución del parte médico de lesiones entre jornadas
   recoverPlayersEnergy() {
     if (!this.state || !this.state.teams) return;
     this.state.teams.forEach(team => {
       (team.players || []).forEach(p => {
+        // 1. Evolución de lesiones (reducir semanas de baja y alta médica)
+        if (p.injury) {
+          p.injury.roundsLeft -= 1;
+          if (p.injury.roundsLeft <= 0) {
+            p.injury = null; // ¡Alta médica oficial!
+            p.energy = 85;
+          }
+        }
+
         const curEnergy = p.energy !== undefined ? p.energy : 100;
+
+        // Si continúa lesionado, su energía no recupera al 100% hasta tener el alta médica
+        if (p.injury && p.injury.roundsLeft > 1) {
+          p.energy = Math.min(80, curEnergy + 8);
+          return;
+        }
 
         // Si ya está prácticamente descansado (suplente o apenas participó), recupera al 100%
         if (curEnergy >= 94) {
@@ -122,16 +137,16 @@ class GameManager {
           return;
         }
 
-        // 1. Base semanal de recuperación
+        // Base semanal de recuperación
         const baseRecovery = 18;
 
-        // 2. Bonificación por Físico (PHY): mayor fondo físico y velocidad de regeneración celular
+        // Bonificación por Físico (PHY): mayor fondo físico y velocidad de regeneración
         const phyBonus = Math.max(0, ((p.phy || 70) - 50) * 0.40);
 
-        // 3. Bonificación por Media (OVR): profesionalismo, fisioterapia de élite y nutrición
+        // Bonificación por Media (OVR): profesionalismo y nutrición
         const ovrBonus = Math.max(0, ((p.ovr || 70) - 60) * 0.22);
 
-        // 4. Bonificación extra para jugadores de banquillo o que no jugaron el partido completo
+        // Bonificación extra para jugadores de banquillo o con pocos minutos
         const restBonus = curEnergy > 78 ? 10 : 0;
 
         const totalRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;

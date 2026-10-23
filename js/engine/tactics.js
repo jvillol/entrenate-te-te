@@ -194,7 +194,8 @@ export function calculateEffectiveRating(player, slotPos) {
   const affinity = getPositionAffinity(player.pos, slotPos);
   const curEnergy = player.energy !== undefined ? player.energy : 100;
   const energyFactor = 0.5 + (curEnergy / 100) * 0.5; // La energía baja reduce rendimiento
-  return Math.round(player.ovr * affinity * energyFactor);
+  const injuryPenalty = player.injury ? 0.40 : 1.0; // Los futbolistas lesionados ven mermado su rendimiento drásticamente
+  return Math.round(player.ovr * affinity * energyFactor * injuryPenalty);
 }
 
 // Media global de un equipo en base a su 11 inicial
@@ -232,6 +233,35 @@ export function calculateTeamAverages(lineupPlayers, formationKey) {
     attack: atkCount > 0 ? Math.round(atkSum / atkCount) : 75,
     midfield: midCount > 0 ? Math.round(midSum / midCount) : 75,
     defense: defCount > 0 ? Math.round(defSum / defCount) : 75
+  };
+}
+
+// Catálogo de lesiones del simulador con duración estimada en jornadas y causas
+export const INJURY_TYPES = [
+  // Por sobrecarga / fatiga
+  { type: "Sobrecarga muscular", severity: "light", minRounds: 1, maxRounds: 1, icon: "🩹", cause: "fatigue" },
+  { type: "Contractura en el gemelo", severity: "light", minRounds: 1, maxRounds: 2, icon: "🩹", cause: "fatigue" },
+  { type: "Rotura de fibras en el isquiotibial", severity: "moderate", minRounds: 2, maxRounds: 4, icon: "🚑", cause: "fatigue" },
+  // Por faltas duras / agresividad rival
+  { type: "Contusión fuerte en la tibia", severity: "light", minRounds: 1, maxRounds: 2, icon: "🩹", cause: "foul" },
+  { type: "Esguince de tobillo", severity: "moderate", minRounds: 2, maxRounds: 3, icon: "🚑", cause: "foul" },
+  { type: "Rotura de menisco", severity: "severe", minRounds: 5, maxRounds: 7, icon: "🚨", cause: "foul" },
+  // Por lances fortuitos / azar del partido
+  { type: "Distensión ligamentosa", severity: "moderate", minRounds: 2, maxRounds: 4, icon: "🚑", cause: "random" },
+  { type: "Esguince de rodilla", severity: "moderate", minRounds: 3, maxRounds: 5, icon: "🚑", cause: "random" },
+  { type: "Rotura de ligamento cruzado", severity: "severe", minRounds: 7, maxRounds: 10, icon: "🚨", cause: "random" }
+];
+
+export function generateRandomInjury(cause = "random") {
+  let pool = INJURY_TYPES.filter(inj => inj.cause === cause);
+  if (pool.length === 0) pool = INJURY_TYPES;
+  const picked = pool[Math.floor(Math.random() * pool.length)];
+  const rounds = Math.floor(Math.random() * (picked.maxRounds - picked.minRounds + 1)) + picked.minRounds;
+  return {
+    type: picked.type,
+    severity: picked.severity,
+    roundsLeft: rounds,
+    icon: picked.icon
   };
 }
 

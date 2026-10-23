@@ -57,7 +57,10 @@ export function renderSquadView(container, gameState) {
 
                 <!-- Nombre y Goles -->
                 <div>
-                  <h4 class="text-xs font-bold text-white leading-tight">${p.name}</h4>
+                  <div class="flex items-center gap-1.5 flex-wrap">
+                    <h4 class="text-xs font-bold text-white leading-tight">${p.name}</h4>
+                    ${p.injury ? `<span class="px-1.5 py-0.2 rounded bg-rose-950/90 border border-rose-500/60 text-[8px] font-bold text-rose-300">🚑 ${p.injury.type} (${p.injury.roundsLeft}j)</span>` : ''}
+                  </div>
                   <div class="flex items-center gap-2 mt-1">
                     <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0}</span>
                     <span class="text-[10px] font-mono ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400 font-bold'}">⚡ ${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
@@ -132,6 +135,21 @@ export function renderSquadView(container, gameState) {
             </div>
             <button id="btn-close-pmodal" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 font-bold active:scale-90">✕</button>
           </div>
+
+          <!-- Parte Médico si el jugador está lesionado -->
+          ${p.injury ? `
+            <div class="p-3 mb-3 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-xs">
+              <div class="flex items-center gap-1.5 mb-1 text-rose-300 font-extrabold text-[10px] uppercase tracking-wider">
+                <span>🚑</span>
+                <span>Parte Médico Oficial</span>
+              </div>
+              <div class="text-white font-black text-xs">${p.injury.type}</div>
+              <div class="flex justify-between items-center text-[11px] text-rose-200 mt-1.5 pt-1.5 border-t border-rose-500/20">
+                <span>Gravedad: <b class="text-amber-400 capitalize">${p.injury.severity === 'severe' ? 'Grave' : p.injury.severity === 'moderate' ? 'Moderada' : 'Leve'}</b></span>
+                <span class="bg-rose-950/90 px-2 py-0.5 rounded border border-rose-500/50 font-mono font-bold text-rose-300">⏱️ ${p.injury.roundsLeft} jornada(s) de baja</span>
+              </div>
+            </div>
+          ` : ''}
 
           <!-- Atributos estilo FC (Hexágono / Barras) -->
           <div class="space-y-2 mb-4 bg-slate-950/70 p-3.5 rounded-2xl border border-slate-800/80">

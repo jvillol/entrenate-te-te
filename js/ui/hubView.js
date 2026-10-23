@@ -32,9 +32,10 @@ export function renderHubView(container, gameState, callbacks) {
     };
   });
 
-  // Goleador del equipo
+  // Goleador del equipo y enfermería
   const teamScorers = [...userTeam.players].sort((a, b) => (b.goals || 0) - (a.goals || 0));
   const topTeamScorer = teamScorers[0];
+  const injuredPlayers = userTeam.players.filter(p => p.injury);
 
   container.innerHTML = `
     <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-20 select-none max-w-md mx-auto">
@@ -105,6 +106,32 @@ export function renderHubView(container, gameState, callbacks) {
             <span>➔</span>
           </button>
         </div>
+
+        <!-- Enfermería y Parte Médico del Club -->
+        ${injuredPlayers.length > 0 ? `
+          <div class="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-3.5">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-xs font-bold uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+                <span>🏥</span> Enfermería (${injuredPlayers.length} ${injuredPlayers.length > 1 ? 'bajas' : 'baja'})
+              </span>
+              <span class="text-[10px] text-rose-400 font-bold bg-rose-950 px-2 py-0.5 rounded-full border border-rose-500/40">Parte Médico</span>
+            </div>
+            <div class="space-y-1.5">
+              ${injuredPlayers.map(p => `
+                <div class="flex items-center justify-between text-xs p-1.5 rounded-xl bg-slate-950/60 border border-rose-900/40">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class="font-extrabold text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 flex-shrink-0">${p.pos}</span>
+                    <span class="font-bold text-white truncate text-xs">${p.name}</span>
+                  </div>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <span class="text-[10px] text-rose-300 font-medium">${p.injury.type}</span>
+                    <span class="font-mono text-[10px] font-bold text-rose-400 bg-rose-950 px-1.5 py-0.5 rounded border border-rose-500/40">${p.injury.roundsLeft}j</span>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        ` : ''}
 
         <!-- Fila de Resumen de Plantilla y Rendimiento -->
         <div class="grid grid-cols-2 gap-3">

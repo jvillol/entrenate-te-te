@@ -1,5 +1,7 @@
 // Motor del calendario de LaLiga, clasificación y simulación de partidos paralelos
 
+import { generateRandomInjury } from "./tactics.js";
+
 /**
  * Genera el calendario de 38 jornadas para 20 equipos usando el algoritmo de Berger (Round-Robin)
  */
@@ -264,6 +266,16 @@ export function simulateAIParties(match, teamsMap) {
         p.energy = Math.max(25, Math.round((p.energy !== undefined ? p.energy : 100) - drain));
       }
     });
+
+    // Lesiones ocasionales por acumulación de minutos o lances en los partidos de la IA
+    if (Math.random() < 0.04) {
+      const candidates = (team.players || []).slice(0, 11).filter(p => p.pos !== "POR" && !p.injury);
+      if (candidates.length > 0) {
+        const victim = candidates[Math.floor(Math.random() * candidates.length)];
+        const cause = (victim.energy < 60) ? "fatigue" : (Math.random() < 0.5 ? "foul" : "random");
+        victim.injury = generateRandomInjury(cause);
+      }
+    }
   });
 
   // Mutar y devolver el objeto match para asegurar persistencia y evitar null-null

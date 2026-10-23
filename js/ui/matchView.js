@@ -41,9 +41,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   function getOpponentLineup(oppTeam) {
     const formationKey = oppTeam.defaultFormation || "4-3-3";
     const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    // El rival también gestiona la energía rotando si tiene titulares agotados
+    // El rival también gestiona la energía y descarta futbolistas que estén en el parte médico
     const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
-    const allPlayers = [...oppTeam.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
+    const allPlayers = [...oppTeam.players].filter(p => !p.injury).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const lineup = [];
 
@@ -168,6 +168,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
           </div>
 
+          <!-- Banner Alerta de Lesiones en Titulares -->
+          ${(() => {
+            const injuredStarters = lineupPlayers.filter(p => p.injury);
+            if (injuredStarters.length === 0) return "";
+            return `
+              <div class="mx-3 mt-2 p-2.5 rounded-xl bg-rose-500/20 border border-rose-500/60 flex items-center justify-between text-xs text-rose-200 shadow-md">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl flex-shrink-0">🚑</span>
+                  <div>
+                    <span class="font-extrabold text-white">¡Bajas por lesión en el 11 titular!</span>
+                    <p class="text-[10px] text-rose-300">${injuredStarters.map(p => `${p.name.split(' ').slice(-1)[0]} (${p.injury.roundsLeft}j)`).join(', ')} no pueden jugar.</p>
+                  </div>
+                </div>
+                <button id="btn-pre-replace-injured" class="text-[10px] bg-rose-600 hover:bg-rose-500 text-white font-bold px-2.5 py-1.5 rounded-lg active:scale-95 transition shadow whitespace-nowrap">
+                  ⚡ Sustituir
+                </button>
+              </div>
+            `;
+          })()}
+
           <!-- Banner Alerta de Fatiga si hay titulares cansados -->
           ${(() => {
             const tiredCount = lineupPlayers.filter(p => (p.energy !== undefined ? p.energy : 100) < 78).length;
@@ -208,6 +228,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 if (!player) return "";
                 const effRating = calculateEffectiveRating(player, slot.pos);
                 const isSelected = selectedPreMatchPlayerId === player.id;
+                const isInjured = Boolean(player.injury);
                 const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
                 const role = getRoleDetails(slot.pos, roleId);
 
@@ -215,9 +236,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                   <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
                        style="left: ${slot.x}%; top: ${slot.y}%;"
                        data-player-id="${player.id}">
-                    <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                    <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
                       <span class="text-[9px] font-black leading-none">${effRating}</span>
-                      <span class="text-[7px] font-bold text-slate-300 leading-none">${slot.label}</span>
+                      <span class="text-[7px] font-bold ${isInjured ? 'text-rose-300' : 'text-slate-300'} leading-none">${slot.label}</span>
                       <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
                         <div class="h-full ${(player.energy || 100) >= 80 ? 'bg-emerald-400' : (player.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                       </div>
@@ -225,10 +246,16 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
-                    <!-- Rol / Función del jugador -->
-                    <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center shadow-sm">
-                      ${role.icon} ${role.tag}
-                    </div>
+                    <!-- Rol / Función del jugador o badge de lesión -->
+                    ${isInjured ? `
+                      <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7px] font-bold text-rose-200 truncate max-w-[70px] text-center shadow-sm">
+                        🚑 ${player.injury.roundsLeft}j
+                      </div>
+                    ` : `
+                      <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center shadow-sm">
+                        ${role.icon} ${role.tag}
+                      </div>
+                    `}
                   </div>
                 `;
               }).join('')}
@@ -335,11 +362,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <div class="flex gap-1.5 overflow-x-auto pb-2 no-scrollbar">
               ${benchPlayers.map(p => {
                 const isSelected = selectedPreMatchPlayerId === p.id;
+                const isInjured = Boolean(p.injury);
                 return `
-                  <div class="bench-pre-card flex-shrink-0 bg-slate-900 border ${isSelected ? 'border-amber-400 bg-amber-500/20' : 'border-slate-800'} p-2 rounded-xl text-center cursor-pointer active:scale-95 transition min-w-[76px]" data-player-id="${p.id}">
-                    <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
+                  <div class="bench-pre-card flex-shrink-0 bg-slate-900 border ${isSelected ? 'border-amber-400 bg-amber-500/20' : isInjured ? 'border-rose-900/80 bg-rose-950/20' : 'border-slate-800'} p-2 rounded-xl text-center cursor-pointer active:scale-95 transition min-w-[76px]" data-player-id="${p.id}">
+                    <div class="flex items-center justify-center gap-1">
+                      <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
+                      ${isInjured ? `<span class="text-[8px] px-1 py-0.2 rounded bg-rose-900/90 text-rose-200 font-bold border border-rose-500/50">🚑 ${p.injury.roundsLeft}j</span>` : ''}
+                    </div>
                     <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
-                    <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
+                    <div class="text-xs font-black ${isInjured ? 'text-slate-500' : 'text-amber-400'} mt-0.5">${p.ovr}</div>
                     <div class="text-[9px] font-mono font-bold ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} mt-0.5">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
                     <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-0.5 overflow-hidden">
                       <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy || 100}%;"></div>
@@ -483,9 +514,22 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     });
 
     container.querySelector("#btn-start-match-from-rival")?.addEventListener("click", () => {
+      const curInjured = lineupPlayers.filter(p => p.injury);
+      if (curInjured.length > 0) {
+        alert(`⚠️ No puedes comenzar el partido con jugadores lesionados en el once titular (${curInjured.map(p => p.name).join(', ')}).\n\nSustitúyelos por futbolistas disponibles del banquillo o pulsa '⚡ Sustituir'.`);
+        return;
+      }
       SaveManager.saveGame(gameState);
       startLiveSimulation();
     });
+
+    const btnReplaceInjured = container.querySelector("#btn-pre-replace-injured");
+    if (btnReplaceInjured) {
+      btnReplaceInjured.onclick = () => {
+        replaceInjuredStarters();
+        renderPreMatch();
+      };
+    }
 
     const btnAuto = container.querySelector("#btn-pre-auto");
     if (btnAuto) {
@@ -571,6 +615,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const btnConfirm = container.querySelector("#btn-start-match-confirmed");
     if (btnConfirm) {
       btnConfirm.onclick = () => {
+        const curInjured = lineupPlayers.filter(p => p.injury);
+        if (curInjured.length > 0) {
+          alert(`⚠️ No puedes comenzar el partido con jugadores lesionados en el once titular (${curInjured.map(p => p.name).join(', ')}).\n\nSustitúyelos por futbolistas disponibles del banquillo o pulsa '⚡ Sustituir'.`);
+          return;
+        }
         SaveManager.saveGame(gameState);
         startLiveSimulation();
       };
@@ -597,16 +646,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const inLineup2 = tactics.lineup.indexOf(tappedId);
     const inBench2 = tactics.bench.indexOf(tappedId);
 
-    if (inLineup1 !== -1 && inLineup2 !== -1) {
-      const tmp = tactics.lineup[inLineup1];
-      tactics.lineup[inLineup1] = tactics.lineup[inLineup2];
-      tactics.lineup[inLineup2] = tmp;
-    } else if (inLineup1 !== -1 && inBench2 !== -1) {
+    if (inLineup1 !== -1 && inBench2 !== -1) {
+      const benchP = userTeam.players.find(p => p.id === tappedId);
+      if (benchP && benchP.injury) {
+        alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar como titular.`);
+        return;
+      }
       tactics.lineup[inLineup1] = tappedId;
       tactics.bench[inBench2] = selectedPreMatchPlayerId;
     } else if (inBench1 !== -1 && inLineup2 !== -1) {
+      const benchP = userTeam.players.find(p => p.id === selectedPreMatchPlayerId);
+      if (benchP && benchP.injury) {
+        alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar como titular.`);
+        return;
+      }
       tactics.bench[inBench1] = tappedId;
       tactics.lineup[inLineup2] = selectedPreMatchPlayerId;
+    } else if (inLineup1 !== -1 && inLineup2 !== -1) {
+      const tmp = tactics.lineup[inLineup1];
+      tactics.lineup[inLineup1] = tactics.lineup[inLineup2];
+      tactics.lineup[inLineup2] = tmp;
     } else if (inBench1 !== -1 && inBench2 !== -1) {
       const tmp = tactics.bench[inBench1];
       tactics.bench[inBench1] = tactics.bench[inBench2];
@@ -618,16 +677,53 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     renderPreMatch();
   }
 
+  function replaceInjuredStarters() {
+    const tactics = gameState.userTactics;
+    const formation = FORMATIONS[tactics.formation] || FORMATIONS["4-3-3"];
+    const healthyBench = tactics.bench
+      .map(id => userTeam.players.find(p => p.id === id))
+      .filter(p => p && !p.injury)
+      .sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+
+    let replacedCount = 0;
+    tactics.lineup.forEach((id, idx) => {
+      const p = userTeam.players.find(x => x.id === id);
+      if (p && p.injury) {
+        const slot = formation.slots[idx];
+        let subIndex = healthyBench.findIndex(b => b.pos === slot.pos);
+        if (subIndex === -1 && slot.pos !== "POR") {
+          subIndex = healthyBench.findIndex(b => b.pos !== "POR");
+        }
+        if (subIndex === -1 && healthyBench.length > 0) subIndex = 0;
+
+        if (subIndex !== -1 && healthyBench[subIndex]) {
+          const replacement = healthyBench.splice(subIndex, 1)[0];
+          const oldId = tactics.lineup[idx];
+          tactics.lineup[idx] = replacement.id;
+          const bIdx = tactics.bench.indexOf(replacement.id);
+          if (bIdx !== -1) tactics.bench.splice(bIdx, 1);
+          tactics.bench.push(oldId);
+          replacedCount++;
+        }
+      }
+    });
+
+    if (replacedCount > 0) {
+      SaveManager.saveGame(gameState);
+      preMatchSaveFeedback = `¡Se han sustituido ${replacedCount} jugador(es) lesionados por suplentes disponibles!`;
+    }
+  }
+
   function autoAlignLineup() {
     const tactics = gameState.userTactics;
     const formation = FORMATIONS[tactics.formation] || FORMATIONS["4-3-3"];
-    // Ponderar media con condición física para dar rotación a jugadores agotados
+    // Ponderar media con condición física y descartar futbolistas de baja médica
     const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
-    const allPlayers = [...userTeam.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
+    const availablePlayers = [...userTeam.players].filter(p => !p.injury).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const newLineup = [];
 
-    const gk = allPlayers.find(p => p.pos === "POR");
+    const gk = availablePlayers.find(p => p.pos === "POR");
     if (gk) {
       newLineup[0] = gk.id;
       used.add(gk.id);
@@ -635,9 +731,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     formation.slots.forEach((slot, idx) => {
       if (idx === 0) return;
-      let best = allPlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
+      let best = availablePlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
       if (!best) {
-        best = allPlayers.find(p => !used.has(p.id) && p.pos !== "POR");
+        best = availablePlayers.find(p => !used.has(p.id) && p.pos !== "POR");
+      }
+      if (!best) {
+        best = availablePlayers.find(p => !used.has(p.id));
       }
       if (best) {
         newLineup[idx] = best.id;
@@ -646,7 +745,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     });
 
     tactics.lineup = newLineup;
-    tactics.bench = allPlayers.filter(p => !used.has(p.id)).map(p => p.id);
+    tactics.bench = userTeam.players.filter(p => !used.has(p.id)).map(p => p.id);
     SaveManager.saveGame(gameState);
   }
 
@@ -691,6 +790,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       onHighlightStart: (hlData) => handleHighlightStart(hlData),
       onHighlightEnd: () => handleHighlightEnd(),
       onSetPiece: (spInfo) => openSetPieceModal(spInfo),
+      onInjury: (injData) => handleInjurySequence(injData),
       onFinish: handleLiveMatchEnd
     });
 
@@ -892,6 +992,24 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </button>
           </div>
         </footer>
+
+        <!-- Modal de Alerta Médica por Lesión en Vivo -->
+        <div id="modal-injury-alert" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex flex-col justify-center p-4">
+          <div class="bg-slate-900 border-2 border-rose-500/80 rounded-3xl p-5 max-w-sm mx-auto w-full shadow-2xl text-center">
+            <div class="w-14 h-14 mx-auto rounded-full bg-rose-500/20 border-2 border-rose-500/60 flex items-center justify-center text-3xl mb-3 animate-bounce">
+              🚑
+            </div>
+            <span class="inline-block px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 font-extrabold text-[11px] tracking-wider uppercase mb-2 border border-rose-500/40">
+              PARTE MÉDICO EN DIRECTO
+            </span>
+            <h3 id="injury-modal-title" class="text-base font-black text-white leading-tight mb-1">¡Lesión en el terreno de juego!</h3>
+            <p id="injury-modal-desc" class="text-xs text-rose-300 font-medium mb-3"></p>
+            <div id="injury-modal-detail" class="bg-slate-950 p-3 rounded-2xl border border-slate-800 text-left text-xs mb-4 space-y-1"></div>
+            <button id="btn-injury-sub-now" class="w-full py-3 bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 text-white font-extrabold text-sm rounded-xl shadow-lg shadow-rose-600/30 transition active:scale-98 flex items-center justify-center gap-2">
+              <span>🔄 Realizar cambio por lesión</span>
+            </button>
+          </div>
+        </div>
 
         <!-- Modal de Sustituciones en Vivo -->
         <div id="modal-live-subs" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex flex-col justify-end">
@@ -3547,37 +3665,119 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       }
     };
 
+    function handleInjurySequence(injData) {
+      // 1. Sincronizar de inmediato la lesión en gameState.teams para persistencia
+      const isUserSide = injData.teamSide === (isUserHome ? "home" : "away");
+      const targetTeam = injData.teamSide === "home" ? homeTeam : awayTeam;
+      const realP = targetTeam.players.find(p => p.id === injData.player.id);
+      if (realP) {
+        realP.injury = injData.injury;
+        realP.energy = Math.round(injData.player.energy !== undefined ? injData.player.energy : 50);
+      }
+      SaveManager.saveGame(gameState);
+
+      if (isUserSide) {
+        // Pausar el simulador para que el usuario gestione la lesión obligatoria
+        simulator.pause();
+        const iconPP = container.querySelector("#pp-icon");
+        const textPP = container.querySelector("#pp-text");
+        if (iconPP) iconPP.textContent = "▶";
+        if (textPP) textPP.textContent = "Reanudar";
+
+        const modalInj = container.querySelector("#modal-injury-alert");
+        const titleInj = container.querySelector("#injury-modal-title");
+        const descInj = container.querySelector("#injury-modal-desc");
+        const detailInj = container.querySelector("#injury-modal-detail");
+        const btnSubNow = container.querySelector("#btn-injury-sub-now");
+
+        if (titleInj) titleInj.textContent = `¡${injData.player.name} ha caído lesionado!`;
+        if (descInj) descInj.textContent = `El cuerpo médico atiende al futbolista y confirma que no puede continuar en el encuentro.`;
+        if (detailInj) {
+          const sevLabels = { light: "Leve", moderate: "Moderada", severe: "Grave" };
+          detailInj.innerHTML = `
+            <div class="flex justify-between border-b border-slate-900 pb-1">
+              <span class="text-slate-400">Lesión:</span>
+              <b class="text-rose-400 font-bold">${injData.injury.type}</b>
+            </div>
+            <div class="flex justify-between border-b border-slate-900 py-1">
+              <span class="text-slate-400">Gravedad:</span>
+              <b class="text-amber-400 font-bold">${sevLabels[injData.injury.severity] || "Moderada"}</b>
+            </div>
+            <div class="flex justify-between pt-1">
+              <span class="text-slate-400">Baja estimada:</span>
+              <b class="text-white font-mono font-bold">${injData.injury.roundsLeft} jornada(s)</b>
+            </div>
+          `;
+        }
+
+        const remaining = isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining;
+        const remainingWindows = isUserHome ? simulator.homeWindowsRemaining : simulator.awayWindowsRemaining;
+
+        if (btnSubNow) {
+          if (remaining > 0 && (remainingWindows > 0 || simulator.isHalfTime)) {
+            btnSubNow.innerHTML = `<span>🔄 Realizar cambio por lesión (${remaining} restantes)</span>`;
+            btnSubNow.onclick = () => {
+              if (modalInj) modalInj.classList.add("hidden");
+              subSelectedPitchId = injData.player.id;
+              openTacticsModal(true);
+            };
+          } else {
+            btnSubNow.innerHTML = `<span>⚠️ Sin cambios disponibles (Continuar con jugador tocado)</span>`;
+            btnSubNow.onclick = () => {
+              if (modalInj) modalInj.classList.add("hidden");
+              if (!simulator.isFinished && !simulator.isHalfTime) {
+                simulator.start();
+                if (iconPP) iconPP.textContent = "⏸";
+                if (textPP) textPP.textContent = "Pausar";
+              }
+            };
+          }
+        }
+
+        if (modalInj) modalInj.classList.remove("hidden");
+      }
+    }
+
     function renderMatchSubsModal() {
       const userPlayersOnPitch = isUserHome ? simulator.homePlayersOnPitch : simulator.awayPlayersOnPitch;
       const userBench = isUserHome ? simulator.homeBench : simulator.awayBench;
       const pitchList = container.querySelector("#sub-pitch-list");
       const benchList = container.querySelector("#sub-bench-list");
 
-      pitchList.innerHTML = userPlayersOnPitch.map(p => `
-        <div class="sub-pitch-item p-2 rounded-xl border ${subSelectedPitchId === p.id ? 'border-red-400 bg-red-500/20' : 'border-slate-800 bg-slate-950/70'} flex items-center justify-between text-xs cursor-pointer active:scale-98" data-id="${p.id}">
-          <div class="flex items-center gap-2">
-            <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-sky-400">${p.pos}</span>
-            <span class="font-bold text-white">${p.name}</span>
+      pitchList.innerHTML = userPlayersOnPitch.map(p => {
+        const isInjured = Boolean(p.injury);
+        const isSelected = subSelectedPitchId === p.id;
+        return `
+          <div class="sub-pitch-item p-2 rounded-xl border ${isSelected ? 'border-red-400 bg-red-500/25' : isInjured ? 'border-rose-500 bg-rose-950/60' : 'border-slate-800 bg-slate-950/70'} flex items-center justify-between text-xs cursor-pointer active:scale-98" data-id="${p.id}">
+            <div class="flex items-center gap-2">
+              <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-sky-400">${p.pos}</span>
+              <span class="font-bold text-white">${p.name}</span>
+              ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900 border border-rose-500 text-[9px] font-bold text-rose-200">🚑 ${p.injury.roundsLeft}j</span>` : ''}
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy)}%</span>
+              <span class="font-bold text-amber-400">${p.ovr}</span>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy)}%</span>
-            <span class="font-bold text-amber-400">${p.ovr}</span>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
-      benchList.innerHTML = userBench.map(p => `
-        <div class="sub-bench-item p-2 rounded-xl border border-slate-800 bg-slate-950/70 flex items-center justify-between text-xs cursor-pointer hover:border-emerald-500/60 active:scale-98" data-id="${p.id}">
-          <div class="flex items-center gap-2">
-            <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-emerald-400">${p.pos}</span>
-            <span class="font-bold text-white">${p.name}</span>
+      benchList.innerHTML = userBench.map(p => {
+        const isInjured = Boolean(p.injury);
+        return `
+          <div class="sub-bench-item p-2 rounded-xl border ${isInjured ? 'border-rose-900/60 bg-rose-950/20' : 'border-slate-800 bg-slate-950/70 hover:border-emerald-500/60'} flex items-center justify-between text-xs cursor-pointer active:scale-98" data-id="${p.id}">
+            <div class="flex items-center gap-2">
+              <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold text-emerald-400">${p.pos}</span>
+              <span class="font-bold text-white">${p.name}</span>
+              ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900/90 border border-rose-500/60 text-[9px] font-bold text-rose-300">🚑 ${p.injury.roundsLeft}j</span>` : ''}
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy)}%</span>
+              <span class="font-bold text-amber-400">${p.ovr}</span>
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy)}%</span>
-            <span class="font-bold text-amber-400">${p.ovr}</span>
-          </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
 
       container.querySelectorAll(".sub-pitch-item").forEach(item => {
         item.onclick = () => {
@@ -3593,6 +3793,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             return;
           }
           const benchId = item.dataset.id;
+          const benchP = userBench.find(p => p.id === benchId);
+          if (benchP && benchP.injury) {
+            alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede saltar al terreno de juego.`);
+            return;
+          }
           const res = simulator.makeSubstitution(isUserHome ? "home" : "away", subSelectedPitchId, benchId, simulator.isHalfTime);
           if (res.success) {
             pendingUserSubs.push({ outPlayer: res.outPlayer, inPlayer: res.inPlayer });
@@ -3606,6 +3811,25 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     function handleLiveMatchEnd(result) {
+      // Sincronizar estados finales de energía y lesiones de ambos equipos con gameState
+      if (result.homePlayers) {
+        result.homePlayers.forEach(pSim => {
+          const pReal = homeTeam.players.find(p => p.id === pSim.id);
+          if (pReal) {
+            pReal.energy = Math.round(pSim.energy !== undefined ? pSim.energy : 100);
+            if (pSim.injury) pReal.injury = pSim.injury;
+          }
+        });
+      }
+      if (result.awayPlayers) {
+        result.awayPlayers.forEach(pSim => {
+          const pReal = awayTeam.players.find(p => p.id === pSim.id);
+          if (pReal) {
+            pReal.energy = Math.round(pSim.energy !== undefined ? pSim.energy : 100);
+            if (pSim.injury) pReal.injury = pSim.injury;
+          }
+        });
+      }
       userMatch.played = true;
       userMatch.homeScore = result.homeScore;
       userMatch.awayScore = result.awayScore;
