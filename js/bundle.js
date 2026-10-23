@@ -1263,7 +1263,9 @@ class MatchSimulator {
 
     this.minute = 0;
     this.maxMinutes = 90 + Math.floor(Math.random() * 5); // Tiempo añadido
-    this.speed = options.speed || 1; // Multiplicador de velocidad
+    this.userSpeed = options.speed || 1; // Velocidad elegida por el usuario
+    this.speed = this.userSpeed;
+    this.isHighlightRunning = false;
     this.isRunning = false;
     this.isFinished = false;
 
@@ -1313,6 +1315,8 @@ class MatchSimulator {
     this.onGoal = options.onGoal || (() => {});
     this.onHalfTime = options.onHalfTime || (() => {});
     this.onSubstitution = options.onSubstitution || (() => {});
+    this.onHighlightStart = options.onHighlightStart || (() => {});
+    this.onHighlightEnd = options.onHighlightEnd || (() => {});
 
     this.userSide = options.userSide || "home";
     this.aiSide = this.userSide === "home" ? "away" : "home";
@@ -1376,7 +1380,10 @@ class MatchSimulator {
   }
 
   setSpeed(speedMultiplier) {
-    this.speed = speedMultiplier;
+    this.userSpeed = speedMultiplier;
+    if (!this.isHighlightRunning) {
+      this.speed = speedMultiplier;
+    }
   }
 
   setMentality(teamSide, mentalityId) {
@@ -1576,10 +1583,15 @@ class MatchSimulator {
   }
 
   loop() {
-    if (!this.isRunning || this.isFinished) return;
+    if (!this.isRunning || this.isFinished || this.isHighlightRunning) return;
 
-    this.stepMinute();
+    const hadHighlight = this.stepMinute();
     this.onTick(this.getState());
+
+    // Si la jugada clave se ha iniciado, el loop asíncrono toma el control hasta su resolución
+    if (hadHighlight) {
+      return;
+    }
 
     // Pausa oficial en el descanso (minuto 45) para cambios y ajustes tácticos
     if (this.minute === 45 && !this.halfTimeTriggered) {
@@ -1656,8 +1668,12 @@ class MatchSimulator {
       // Ocasión de ataque local
       const attackScore = (homeAtk / (homeAtk + awayDef)) * 0.28;
       if (chanceRoll < attackScore) {
-        this.ball.targetZ = 10 + Math.random() * 12; // Arco 3D hacia portería
-        this.resolveGoalOpportunity("home");
+        this.executeKeyHighlight("home", () => {
+          if (this.isRunning && !this.isFinished) {
+            this.loop();
+          }
+        });
+        return true;
       } else if (chanceRoll < attackScore + 0.05) {
         // Córner o falta colgada al área
         this.ball.targetZ = 18;
@@ -1674,8 +1690,12 @@ class MatchSimulator {
 
       const attackScore = (awayAtk / (awayAtk + homeDef)) * 0.26;
       if (chanceRoll < attackScore) {
-        this.ball.targetZ = 10 + Math.random() * 12;
-        this.resolveGoalOpportunity("away");
+        this.executeKeyHighlight("away", () => {
+          if (this.isRunning && !this.isFinished) {
+            this.loop();
+          }
+        });
+        return true;
       } else if (chanceRoll < attackScore + 0.05) {
         this.ball.targetZ = 18;
         this.stats.corners.away++;
@@ -1701,81 +1721,157 @@ class MatchSimulator {
 
     // Actualizar coordenadas 3D de los jugadores hacia el balón para visualización dinámica
     this.update2DPositions();
+    return false;
   }
 
-  resolveGoalOpportunity(attackingSide) {
+  // Ejecución de jugada clave en varias fases a ritmo normal (Estilo Football Manager)
+  executeKeyHighlight(attackingSide, onComplete) {
+    this.isHighlightRunning = true;
+    this.speed = 1; // Ajuste automático a ritmo normal y fluido durante la ocasión trascendental
+
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
     const defTeam = isHome ? this.awayTeam : this.homeTeam;
     const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
 
-    this.stats.shots[attackingSide]++;
-
-    // Seleccionar rematador (delantero o centrocampista)
-    const shooter = this.pickPlayerForAction(atkPlayers, ["DC", "EI", "ED", "MCO", "MC"]);
+    const passer = this.pickPlayerForAction(atkPlayers, ["MC", "MCD", "MCO", "EI", "ED"]);
+    const shooter = this.pickPlayerForAction(atkPlayers, ["DC", "EI", "ED", "MCO"]);
     const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
 
-    const shotQuality = (shooter.sho || 75) + (Math.random() * 30 - 15);
-    const gkSavePower = (goalkeeper.ovr || 78) + (Math.random() * 25 - 10);
-
-    // ¿Va a puerta?
-    const onTarget = Math.random() < 0.65;
-    if (!onTarget) {
-      if (Math.random() < 0.12) {
-        this.triggerAlert("AL PALO", `🥅 ¡Al palo! Disparo de ${shooter.name} a la madera`, attackingSide);
-      } else {
-        this.triggerAlert("DISPARO FUERA", `💨 Disparo fuera de ${shooter.name}`, attackingSide);
-      }
-      return;
-    }
-
-    this.stats.shotsOnTarget[attackingSide]++;
-
-    // ¿Es Gol o Paradón?
-    if (shotQuality > gkSavePower + 8) {
-      // ¡GOL!
-      if (isHome) {
-        this.homeScore++;
-        this.ball.targetX = 99;
-        this.ball.targetY = 48 + Math.random() * 4;
-        this.ball.targetZ = 6 + Math.random() * 6;
-      } else {
-        this.awayScore++;
-        this.ball.targetX = 1;
-        this.ball.targetY = 48 + Math.random() * 4;
-        this.ball.targetZ = 6 + Math.random() * 6;
-      }
-
-      shooter.goals = (shooter.goals || 0) + 1;
-
-      const event = {
-        type: "GOAL",
-        minute: this.minute,
-        teamSide: attackingSide,
-        teamId: atkTeam.id,
-        teamName: atkTeam.shortName,
-        playerName: shooter.name,
-        currentScore: `${this.homeScore} - ${this.awayScore}`
-      };
-      this.events.push(event);
-
-      this.triggerAlert("GOL", `⚽ ¡GOOOOOOL DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
-
-      // Notificar al visor de partido para activar aviso cinematográfico, repetición y saque de centro
-      this.onGoal({
-        shooter,
+    // Notificar al visor de partido del inicio de la jugada clave
+    if (this.onHighlightStart) {
+      this.onHighlightStart({
+        type: "KEY_CHANCE",
         attackingSide,
-        concedingSide: isHome ? "away" : "home",
         atkTeam,
         defTeam,
-        minute: this.minute,
-        score: `${this.homeScore} - ${this.awayScore}`
+        passer,
+        shooter,
+        minute: this.minute
       });
-    } else {
-      // Paradón del portero rival
-      this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name} ante ${shooter.name}!`, attackingSide === "home" ? "away" : "home");
     }
+
+    // FASE 1: Construcción y arranque de la jugada de peligro en tres cuartos
+    const midX = isHome ? (60 + Math.random() * 8) : (40 - Math.random() * 8);
+    const midY = 32 + Math.random() * 36;
+    this.ball.targetX = midX;
+    this.ball.targetY = midY;
+    this.ball.targetZ = 0;
+    this.update2DPositions();
+
+    setTimeout(() => {
+      if (!this.isRunning && !this.isHighlightRunning) return;
+
+      // FASE 2: Pase filtrado y desmarque al área del rematador
+      const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
+      const boxY = 38 + Math.random() * 24;
+      this.ball.targetX = boxX;
+      this.ball.targetY = boxY;
+      this.ball.targetZ = 3 + Math.random() * 4;
+      this.update2DPositions();
+
+      setTimeout(() => {
+        if (!this.isRunning && !this.isHighlightRunning) return;
+
+        // FASE 3: Remate y resolución (Gol, Paradón, Palo o Fuera)
+        this.stats.shots[attackingSide]++;
+        const shotQuality = (shooter.sho || 75) + (Math.random() * 30 - 15);
+        const gkSavePower = (goalkeeper.ovr || 78) + (Math.random() * 25 - 10);
+        const onTarget = Math.random() < 0.68;
+
+        if (!onTarget) {
+          const isPost = Math.random() < 0.22;
+          if (isPost) {
+            this.ball.targetX = isHome ? 99 : 1;
+            this.ball.targetY = Math.random() < 0.5 ? 44.5 : 55.5; // Directo a la madera
+            this.ball.targetZ = 7;
+            this.triggerAlert("AL PALO", `🥅 ¡Al palo! Disparo de ${shooter.name} a la madera`, attackingSide, 3000);
+          } else {
+            this.ball.targetX = isHome ? 104 : -4;
+            this.ball.targetY = Math.random() < 0.5 ? 32 : 68;
+            this.ball.targetZ = 10;
+            this.triggerAlert("DISPARO FUERA", `💨 Disparo fuera de ${shooter.name}`, attackingSide, 2600);
+          }
+
+          setTimeout(() => {
+            this.isHighlightRunning = false;
+            this.speed = this.userSpeed;
+            if (this.onHighlightEnd) this.onHighlightEnd();
+            if (onComplete) onComplete();
+          }, 1400);
+
+        } else {
+          this.stats.shotsOnTarget[attackingSide]++;
+
+          if (shotQuality > gkSavePower + 6) {
+            // ¡GOOOOOOLAZO!
+            if (isHome) {
+              this.homeScore++;
+              this.ball.targetX = 99;
+              this.ball.targetY = 46 + Math.random() * 8;
+              this.ball.targetZ = 6 + Math.random() * 5;
+            } else {
+              this.awayScore++;
+              this.ball.targetX = 1;
+              this.ball.targetY = 46 + Math.random() * 8;
+              this.ball.targetZ = 6 + Math.random() * 5;
+            }
+
+            shooter.goals = (shooter.goals || 0) + 1;
+
+            const event = {
+              type: "GOAL",
+              minute: this.minute,
+              teamSide: attackingSide,
+              teamId: atkTeam.id,
+              teamName: atkTeam.shortName,
+              playerName: shooter.name,
+              currentScore: `${this.homeScore} - ${this.awayScore}`
+            };
+            this.events.push(event);
+
+            this.triggerAlert("GOL", `⚽ ¡GOOOOOOL DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
+
+            this.isHighlightRunning = false;
+            this.speed = this.userSpeed;
+            if (this.onHighlightEnd) this.onHighlightEnd();
+
+            this.onGoal({
+              shooter,
+              passer,
+              attackingSide,
+              concedingSide: isHome ? "away" : "home",
+              atkTeam,
+              defTeam,
+              minute: this.minute,
+              score: `${this.homeScore} - ${this.awayScore}`
+            });
+
+          } else {
+            // ¡PARADÓN DEL GUARDAMETA!
+            this.ball.targetX = isHome ? 98 : 2;
+            this.ball.targetY = 48 + Math.random() * 4;
+            this.ball.targetZ = 5;
+
+            setTimeout(() => {
+              this.ball.targetX = isHome ? 88 : 12;
+              this.ball.targetY = Math.random() < 0.5 ? 26 : 74;
+              this.ball.targetZ = 0;
+              this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name} ante ${shooter.name}!`, isHome ? "away" : "home", 3200);
+              this.stats.corners[attackingSide]++;
+
+              setTimeout(() => {
+                this.isHighlightRunning = false;
+                this.speed = this.userSpeed;
+                if (this.onHighlightEnd) this.onHighlightEnd();
+                if (onComplete) onComplete();
+              }, 1300);
+            }, 600);
+          }
+        }
+      }, 1000);
+    }, 1100);
   }
 
   // Colocar a los equipos y balón para sacar del centro del campo tras un gol
@@ -3303,6 +3399,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       onGoal: (goalData) => handleGoalSequence(goalData),
       onHalfTime: (htState) => handleHalfTimeSequence(htState),
       onSubstitution: (subData) => handleSubstitutionChyron(subData),
+      onHighlightStart: (hlData) => handleHighlightStart(hlData),
+      onHighlightEnd: () => handleHighlightEnd(),
       onFinish: handleLiveMatchEnd
     });
 
@@ -3363,9 +3461,15 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             <canvas id="match-canvas" class="w-full h-full block cursor-pointer"></canvas>
 
             <!-- Banner de Replay (Repetición) -->
-            <div id="replay-badge" class="absolute top-2 left-2 flex items-center gap-1.5 px-2.5 py-1 bg-red-600/90 text-white font-mono font-black text-[10px] rounded-lg shadow-lg uppercase tracking-wider hidden animate-pulse z-20">
+            <div id="replay-badge" class="absolute top-2 left-2 flex items-center gap-1.5 px-2.5 py-1 bg-red-600/95 text-white font-mono font-black text-[10px] rounded-lg shadow-lg uppercase tracking-wider hidden animate-pulse z-20">
               <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
-              <span>📹 REPETICIÓN</span>
+              <span id="replay-badge-text">📹 REPETICIÓN</span>
+            </div>
+
+            <!-- Banner de Ocasión Clave (Highlight en directo) -->
+            <div id="highlight-badge" class="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 bg-amber-500/95 text-slate-950 font-black text-[10px] rounded-full shadow-2xl border border-amber-300 uppercase tracking-wider hidden animate-bounce z-20 whitespace-nowrap">
+              <span class="w-2 h-2 rounded-full bg-slate-950 animate-ping"></span>
+              <span id="highlight-badge-text">🔥 OCASIÓN CLAVE</span>
             </div>
 
             <!-- Banner de Saque de Centro -->
@@ -4412,15 +4516,36 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     }
 
     // ==========================================
-    // ESTADO DE REPETICIONES Y SAQUE DE CENTRO
+    // ESTADO DE JUGADAS CLAVE Y REPETICIONES
     // ==========================================
     const replayBuffer = [];
     let isReplaying = false;
     let replayFrames = [];
     let replayFrameIndex = 0;
     let isKickoffInProgress = false;
+    let currentHighlightStartFrame = null;
+
+    function handleHighlightStart(hlData) {
+      // Registrar el frame EXACTO donde arranca la jugada clave para la repetición
+      currentHighlightStartFrame = Math.max(0, replayBuffer.length - 12);
+
+      const hlBadge = container.querySelector("#highlight-badge");
+      const hlText = container.querySelector("#highlight-badge-text");
+      if (hlBadge && hlText) {
+        hlText.textContent = `🔥 OCASIÓN CLAVE · ${hlData.atkTeam.shortName}`;
+        hlBadge.classList.remove("hidden");
+      }
+
+      showMatchAlert({ text: `⚡ ¡Jugada de peligro de ${hlData.atkTeam.name}!` });
+    }
+
+    function handleHighlightEnd() {
+      const hlBadge = container.querySelector("#highlight-badge");
+      if (hlBadge) hlBadge.classList.add("hidden");
+    }
 
     function handleGoalSequence(goalData) {
+      handleHighlightEnd();
       // 1. Pausar la simulación para que el reloj no avance durante celebración y repetición
       simulator.pause();
 
@@ -4429,6 +4554,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       const elScore = container.querySelector("#goal-score-display");
       const elMinute = container.querySelector("#goal-minute-display");
       const replayBadge = container.querySelector("#replay-badge");
+      const replayText = container.querySelector("#replay-badge-text");
 
       if (elScorer) elScorer.textContent = `${goalData.shooter.name}`;
       if (elScore) elScore.textContent = goalData.score;
@@ -4440,8 +4566,14 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         elGoalOverlay.classList.add("opacity-100", "scale-100");
       }
 
-      // Guardar el clip previo al gol (últimos ~140 frames grabados)
-      const recordedClip = replayBuffer.slice(-140);
+      // Extraer el clip de la jugada clave EXACTA (desde el arranque de la ocasión de peligro)
+      const startIdx = (currentHighlightStartFrame !== null && currentHighlightStartFrame !== undefined)
+        ? currentHighlightStartFrame
+        : Math.max(0, replayBuffer.length - 130);
+
+      const recordedClip = replayBuffer.slice(startIdx);
+      const finalClip = recordedClip.length >= 35 ? recordedClip : replayBuffer.slice(-100);
+      currentHighlightStartFrame = null;
 
       setTimeout(() => {
         // Desvanecer overlay cinematográfico
@@ -4450,12 +4582,15 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           elGoalOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
         }
 
-        // Si tenemos suficientes frames, reproducir la repetición en cámara lenta
-        if (recordedClip.length > 25) {
+        // Si tenemos suficientes frames, reproducir la repetición de la jugada clave
+        if (finalClip.length > 20) {
           isReplaying = true;
-          replayFrames = recordedClip;
+          replayFrames = finalClip;
           replayFrameIndex = 0;
-          if (replayBadge) replayBadge.classList.remove("hidden");
+          if (replayBadge) {
+            if (replayText) replayText.textContent = `📹 REPETICIÓN: GOLAZO · ${goalData.shooter.name.toUpperCase()}`;
+            replayBadge.classList.remove("hidden");
+          }
 
           const pollReplay = setInterval(() => {
             if (!isReplaying) {
@@ -4804,7 +4939,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             })),
             ball: { x: simulator.ball.x, y: simulator.ball.y, z: simulator.ball.z || 0 }
           });
-          if (replayBuffer.length > 180) {
+          if (replayBuffer.length > 300) {
             replayBuffer.shift();
           }
         }

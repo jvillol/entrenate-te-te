@@ -491,6 +491,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       onGoal: (goalData) => handleGoalSequence(goalData),
       onHalfTime: (htState) => handleHalfTimeSequence(htState),
       onSubstitution: (subData) => handleSubstitutionChyron(subData),
+      onHighlightStart: (hlData) => handleHighlightStart(hlData),
+      onHighlightEnd: () => handleHighlightEnd(),
       onFinish: handleLiveMatchEnd
     });
 
@@ -551,9 +553,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <canvas id="match-canvas" class="w-full h-full block cursor-pointer"></canvas>
 
             <!-- Banner de Replay (Repetición) -->
-            <div id="replay-badge" class="absolute top-2 left-2 flex items-center gap-1.5 px-2.5 py-1 bg-red-600/90 text-white font-mono font-black text-[10px] rounded-lg shadow-lg uppercase tracking-wider hidden animate-pulse z-20">
+            <div id="replay-badge" class="absolute top-2 left-2 flex items-center gap-1.5 px-2.5 py-1 bg-red-600/95 text-white font-mono font-black text-[10px] rounded-lg shadow-lg uppercase tracking-wider hidden animate-pulse z-20">
               <span class="w-2 h-2 rounded-full bg-white animate-ping"></span>
-              <span>📹 REPETICIÓN</span>
+              <span id="replay-badge-text">📹 REPETICIÓN</span>
+            </div>
+
+            <!-- Banner de Ocasión Clave (Highlight en directo) -->
+            <div id="highlight-badge" class="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 bg-amber-500/95 text-slate-950 font-black text-[10px] rounded-full shadow-2xl border border-amber-300 uppercase tracking-wider hidden animate-bounce z-20 whitespace-nowrap">
+              <span class="w-2 h-2 rounded-full bg-slate-950 animate-ping"></span>
+              <span id="highlight-badge-text">🔥 OCASIÓN CLAVE</span>
             </div>
 
             <!-- Banner de Saque de Centro -->
@@ -1600,15 +1608,36 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     // ==========================================
-    // ESTADO DE REPETICIONES Y SAQUE DE CENTRO
+    // ESTADO DE JUGADAS CLAVE Y REPETICIONES
     // ==========================================
     const replayBuffer = [];
     let isReplaying = false;
     let replayFrames = [];
     let replayFrameIndex = 0;
     let isKickoffInProgress = false;
+    let currentHighlightStartFrame = null;
+
+    function handleHighlightStart(hlData) {
+      // Registrar el frame EXACTO donde arranca la jugada clave para la repetición
+      currentHighlightStartFrame = Math.max(0, replayBuffer.length - 12);
+
+      const hlBadge = container.querySelector("#highlight-badge");
+      const hlText = container.querySelector("#highlight-badge-text");
+      if (hlBadge && hlText) {
+        hlText.textContent = `🔥 OCASIÓN CLAVE · ${hlData.atkTeam.shortName}`;
+        hlBadge.classList.remove("hidden");
+      }
+
+      showMatchAlert({ text: `⚡ ¡Jugada de peligro de ${hlData.atkTeam.name}!` });
+    }
+
+    function handleHighlightEnd() {
+      const hlBadge = container.querySelector("#highlight-badge");
+      if (hlBadge) hlBadge.classList.add("hidden");
+    }
 
     function handleGoalSequence(goalData) {
+      handleHighlightEnd();
       // 1. Pausar la simulación para que el reloj no avance durante celebración y repetición
       simulator.pause();
 
@@ -1617,6 +1646,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const elScore = container.querySelector("#goal-score-display");
       const elMinute = container.querySelector("#goal-minute-display");
       const replayBadge = container.querySelector("#replay-badge");
+      const replayText = container.querySelector("#replay-badge-text");
 
       if (elScorer) elScorer.textContent = `${goalData.shooter.name}`;
       if (elScore) elScore.textContent = goalData.score;
@@ -1628,8 +1658,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         elGoalOverlay.classList.add("opacity-100", "scale-100");
       }
 
-      // Guardar el clip previo al gol (últimos ~140 frames grabados)
-      const recordedClip = replayBuffer.slice(-140);
+      // Extraer el clip de la jugada clave EXACTA (desde el arranque de la ocasión de peligro)
+      const startIdx = (currentHighlightStartFrame !== null && currentHighlightStartFrame !== undefined)
+        ? currentHighlightStartFrame
+        : Math.max(0, replayBuffer.length - 130);
+
+      const recordedClip = replayBuffer.slice(startIdx);
+      const finalClip = recordedClip.length >= 35 ? recordedClip : replayBuffer.slice(-100);
+      currentHighlightStartFrame = null;
 
       setTimeout(() => {
         // Desvanecer overlay cinematográfico
@@ -1638,12 +1674,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           elGoalOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
         }
 
-        // Si tenemos suficientes frames, reproducir la repetición en cámara lenta
-        if (recordedClip.length > 25) {
+        // Si tenemos suficientes frames, reproducir la repetición de la jugada clave
+        if (finalClip.length > 20) {
           isReplaying = true;
-          replayFrames = recordedClip;
+          replayFrames = finalClip;
           replayFrameIndex = 0;
-          if (replayBadge) replayBadge.classList.remove("hidden");
+          if (replayBadge) {
+            if (replayText) replayText.textContent = `📹 REPETICIÓN: GOLAZO · ${goalData.shooter.name.toUpperCase()}`;
+            replayBadge.classList.remove("hidden");
+          }
 
           const pollReplay = setInterval(() => {
             if (!isReplaying) {
@@ -1992,7 +2031,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             })),
             ball: { x: simulator.ball.x, y: simulator.ball.y, z: simulator.ball.z || 0 }
           });
-          if (replayBuffer.length > 180) {
+          if (replayBuffer.length > 300) {
             replayBuffer.shift();
           }
         }
