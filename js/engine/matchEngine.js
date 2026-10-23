@@ -1,5 +1,7 @@
 // Motor de simulación de partido 2D interactivo con cambios en vivo (sin comentarios de texto)
 
+import { FORMATIONS } from "./tactics.js";
+
 export class MatchSimulator {
   constructor(homeTeam, awayTeam, options = {}) {
     this.homeTeam = JSON.parse(JSON.stringify(homeTeam));
@@ -16,6 +18,9 @@ export class MatchSimulator {
 
     this.homeMentality = options.homeMentality || "balanced";
     this.awayMentality = options.awayMentality || "balanced";
+
+    this.homeFormation = options.homeFormation || "4-3-3";
+    this.awayFormation = options.awayFormation || "4-3-3";
 
     // Límite de 5 cambios oficiales
     this.homeSubsRemaining = 5;
@@ -63,32 +68,31 @@ export class MatchSimulator {
     this.halfTimeTriggered = false;
   }
 
+  getFormationCoords(formationKey, isHome) {
+    const form = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
+    return form.slots.map(s => {
+      const px = isHome 
+        ? 5 + ((88 - s.y) / 70) * 70 
+        : 100 - (5 + ((88 - s.y) / 70) * 70);
+      const py = isHome ? s.x : 100 - s.x;
+      return { x: px, y: py };
+    });
+  }
+
   init2DPositions() {
-    // Configurar posiciones base 3D en campo horizontal (0 = portería local, 100 = portería visitante)
-    const baseCoords = [
-      { x: 5, y: 50 },  // POR
-      { x: 22, y: 20 }, // LI
-      { x: 20, y: 40 }, // DFC
-      { x: 20, y: 60 }, // DFC
-      { x: 22, y: 80 }, // LD
-      { x: 38, y: 50 }, // MCD
-      { x: 48, y: 35 }, // MC
-      { x: 48, y: 65 }, // MC/MCO
-      { x: 68, y: 20 }, // EI
-      { x: 74, y: 50 }, // DC
-      { x: 68, y: 80 }  // ED
-    ];
+    const homeCoords = this.getFormationCoords(this.homeFormation, true);
+    const awayCoords = this.getFormationCoords(this.awayFormation, false);
 
     this.home2D = this.homePlayersOnPitch.map((p, idx) => ({
       player: p,
       number: p.number || (idx + 1),
       isKeeper: p.pos === "POR" || idx === 0,
-      baseX: baseCoords[idx]?.x || 25,
-      baseY: baseCoords[idx]?.y || 50,
-      curX: baseCoords[idx]?.x || 25,
-      curY: baseCoords[idx]?.y || 50,
-      targetX: baseCoords[idx]?.x || 25,
-      targetY: baseCoords[idx]?.y || 50,
+      baseX: homeCoords[idx]?.x || 25,
+      baseY: homeCoords[idx]?.y || 50,
+      curX: homeCoords[idx]?.x || 25,
+      curY: homeCoords[idx]?.y || 50,
+      targetX: homeCoords[idx]?.x || 25,
+      targetY: homeCoords[idx]?.y || 50,
       animPhase: Math.random() * Math.PI * 2,
       facingX: 1
     }));
@@ -97,12 +101,12 @@ export class MatchSimulator {
       player: p,
       number: p.number || (idx + 1),
       isKeeper: p.pos === "POR" || idx === 0,
-      baseX: 100 - (baseCoords[idx]?.x || 25),
-      baseY: 100 - (baseCoords[idx]?.y || 50),
-      curX: 100 - (baseCoords[idx]?.x || 25),
-      curY: 100 - (baseCoords[idx]?.y || 50),
-      targetX: 100 - (baseCoords[idx]?.x || 25),
-      targetY: 100 - (baseCoords[idx]?.y || 50),
+      baseX: awayCoords[idx]?.x || 75,
+      baseY: awayCoords[idx]?.y || 50,
+      curX: awayCoords[idx]?.x || 75,
+      curY: awayCoords[idx]?.y || 50,
+      targetX: awayCoords[idx]?.x || 75,
+      targetY: awayCoords[idx]?.y || 50,
       animPhase: Math.random() * Math.PI * 2,
       facingX: -1
     }));
@@ -161,6 +165,94 @@ export class MatchSimulator {
     this.triggerAlert("CAMBIO", `🔄 Cambio: entra ${inPlayer.name} por ${outPlayer.name}`, isHome ? "home" : "away");
 
     return { success: true, inPlayer, outPlayer };
+  }
+
+  // Aplicar ajustes tácticos completos (formación, mentalidad, cambios de puesto y sustituciones)
+  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds) {
+    const isHome = teamSide === "home";
+    const currentPitch = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const currentPitchIds = currentPitch.map(p => p.id);
+    const remaining = isHome ? this.homeSubsRemaining : this.awaySubsRemaining;
+
+    // Detectar qué futbolistas entran desde el banquillo
+    const subsInIds = newLineupPlayerIds.filter(id => !currentPitchIds.includes(id));
+    const subsOutIds = currentPitchIds.filter(id => !newLineupPlayerIds.includes(id));
+
+    if (subsInIds.length > remaining) {
+      return {
+        success: false,
+        reason: `Solo te quedan ${remaining} cambios permitidos (has intentado realizar ${subsInIds.length}).`
+      };
+    }
+
+    const allTeamPlayers = isHome 
+      ? [...this.homePlayersOnPitch, ...this.homeBench]
+      : [...this.awayPlayersOnPitch, ...this.awayBench];
+
+    const newPitch = newLineupPlayerIds.map(id => allTeamPlayers.find(p => p.id === id)).filter(Boolean);
+    const newBench = newBenchPlayerIds.map(id => allTeamPlayers.find(p => p.id === id)).filter(Boolean);
+
+    if (newPitch.length !== 11) {
+      return { success: false, reason: "La alineación debe contar exactamente con 11 futbolistas." };
+    }
+
+    // Registrar parejas de cambio para rótulos y estadísticas
+    const subsPairs = [];
+    for (let i = 0; i < subsInIds.length; i++) {
+      const inP = allTeamPlayers.find(p => p.id === subsInIds[i]);
+      const outP = allTeamPlayers.find(p => p.id === subsOutIds[i]);
+      if (inP && outP) {
+        subsPairs.push({ inPlayer: inP, outPlayer: outP });
+      }
+    }
+
+    // Actualizar estado del simulador
+    if (isHome) {
+      this.homeSubsRemaining -= subsInIds.length;
+      this.homePlayersOnPitch = newPitch;
+      this.homeBench = newBench;
+      if (newFormationKey) this.homeFormation = newFormationKey;
+      if (newMentality) this.homeMentality = newMentality;
+    } else {
+      this.awaySubsRemaining -= subsInIds.length;
+      this.awayPlayersOnPitch = newPitch;
+      this.awayBench = newBench;
+      if (newFormationKey) this.awayFormation = newFormationKey;
+      if (newMentality) this.awayMentality = newMentality;
+    }
+
+    // Reposicionar jugadores en 2D según el nuevo esquema táctico
+    const activeFormation = isHome ? this.homeFormation : this.awayFormation;
+    const newCoords = this.getFormationCoords(activeFormation, isHome);
+    const old2D = isHome ? this.home2D : this.away2D;
+
+    const updated2D = newPitch.map((p, idx) => {
+      const existing = old2D.find(item => item.player.id === p.id);
+      const coord = newCoords[idx] || { x: isHome ? 25 : 75, y: 50 };
+      return {
+        player: p,
+        number: p.number || (idx + 1),
+        isKeeper: p.pos === "POR" || idx === 0,
+        baseX: coord.x,
+        baseY: coord.y,
+        curX: existing ? existing.curX : coord.x,
+        curY: existing ? existing.curY : coord.y,
+        targetX: coord.x,
+        targetY: coord.y,
+        animPhase: existing ? existing.animPhase : (Math.random() * Math.PI * 2),
+        facingX: isHome ? 1 : -1
+      };
+    });
+
+    if (isHome) this.home2D = updated2D;
+    else this.away2D = updated2D;
+
+    return {
+      success: true,
+      subsCount: subsInIds.length,
+      subsPairs,
+      remaining: isHome ? this.homeSubsRemaining : this.awaySubsRemaining
+    };
   }
 
   // Comprobar y ejecutar sustituciones tácticas automáticas de la IA rival

@@ -482,6 +482,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
       speed: 1, // Ritmo fluido Football Manager por defecto
       userSide: isUserHome ? "home" : "away",
+      homeFormation: isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
+      awayFormation: !isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       homeMentality: isUserHome ? gameState.userTactics.mentality : "balanced",
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       onTick: updateMatchUI,
@@ -757,6 +759,78 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <span>➔</span>
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- Modal Táctico de Descanso (Estilo Elección de Alineación Oficial) -->
+        <div id="modal-halftime-tactics" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 hidden flex flex-col justify-between overflow-y-auto">
+          <div class="max-w-md w-full mx-auto flex flex-col min-h-screen text-white select-none pb-4">
+            <!-- Header Táctico de Descanso -->
+            <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 shadow-md flex items-center justify-between">
+              <div>
+                <span class="text-[10px] uppercase font-bold text-amber-400">Descanso (45') · Ajustes Tácticos</span>
+                <h2 class="text-sm font-extrabold text-white leading-tight">Pizarra Táctica y Cambios</h2>
+              </div>
+              <div id="ht-tactic-remaining-badge" class="px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400">
+                5 cambios rest.
+              </div>
+            </header>
+
+            <!-- Controles de Formación y Mentalidad -->
+            <div class="p-3 bg-slate-900/60 border-b border-slate-800 space-y-2">
+              <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+                <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Sistema:</span>
+                <div id="ht-formation-buttons" class="flex gap-1.5 overflow-x-auto no-scrollbar"></div>
+              </div>
+              <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+                <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Mentalidad:</span>
+                <div id="ht-mentality-buttons" class="flex gap-1.5 overflow-x-auto no-scrollbar"></div>
+              </div>
+            </div>
+
+            <!-- Terreno de Juego Táctico Interactivo -->
+            <div class="p-3 flex-1 flex flex-col justify-center">
+              <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+                <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
+                <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
+                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
+                <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
+                <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-12 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
+
+                <!-- Fichas de los 11 titulares -->
+                <div id="ht-pitch-slots" class="absolute inset-0"></div>
+              </div>
+            </div>
+
+            <!-- Indicación de Intercambio -->
+            <div class="px-4 text-center my-1">
+              <p id="ht-instruction-text" class="text-[11px] text-slate-400">
+                💡 Toca un futbolista para modificar su puesto o sustituirlo por un suplente.
+              </p>
+              <div id="ht-pending-subs-text" class="text-[10px] text-emerald-400 font-bold mt-0.5 hidden">
+                🔄 0 cambios seleccionados
+              </div>
+            </div>
+
+            <!-- Lista del Banquillo (Suplentes) -->
+            <div class="px-3 mb-3">
+              <div class="text-[10px] uppercase font-bold text-slate-400 mb-1.5 flex items-center justify-between">
+                <span>🪑 Suplentes disponibles</span>
+                <span class="text-slate-500 font-normal">Toca para poner de titular</span>
+              </div>
+              <div id="ht-bench-scroll" class="flex gap-1.5 overflow-x-auto pb-2 no-scrollbar"></div>
+            </div>
+
+            <!-- Botones de Acción al Pie -->
+            <footer class="px-3 flex gap-2">
+              <button id="btn-ht-tactic-cancel" class="py-3.5 px-4 bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-bold text-xs rounded-xl border border-slate-700 transition">
+                ✕ Descartar
+              </button>
+              <button id="btn-ht-tactic-confirm" class="flex-1 py-3.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-xs rounded-xl shadow-xl shadow-emerald-500/25 transition flex items-center justify-center gap-2">
+                <span>⚽ GUARDAR AJUSTES Y VOLVER</span>
+                <span>➔</span>
+              </button>
+            </footer>
           </div>
         </div>
 
@@ -2113,9 +2187,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     if (btnHtSubs) {
       btnHtSubs.onclick = () => {
-        renderMatchSubsModal();
-        if (modalHT) modalHT.classList.add("hidden");
-        modalSubs.classList.remove("hidden");
+        openHalfTimeTacticsModal();
       };
     }
 
@@ -2130,12 +2202,300 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     btnSubs.onclick = () => {
+      if (simulator.isHalfTime) {
+        openHalfTimeTacticsModal();
+        return;
+      }
       simulator.pause();
       iconPP.textContent = "▶";
       textPP.textContent = "Reanudar";
       renderMatchSubsModal();
       modalSubs.classList.remove("hidden");
     };
+
+    function openHalfTimeTacticsModal() {
+      if (modalHT) modalHT.classList.add("hidden");
+      const modalHTTactics = container.querySelector("#modal-halftime-tactics");
+      if (!modalHTTactics) return;
+
+      const teamSide = isUserHome ? "home" : "away";
+      let htFormationKey = isUserHome ? simulator.homeFormation : simulator.awayFormation;
+      let htMentality = isUserHome ? simulator.homeMentality : simulator.awayMentality;
+
+      const currentPitch = isUserHome ? simulator.homePlayersOnPitch : simulator.awayPlayersOnPitch;
+      const currentBench = isUserHome ? simulator.homeBench : simulator.awayBench;
+      const initialPitchIds = currentPitch.map(p => p.id);
+
+      let htLineupIds = [...initialPitchIds];
+      let htBenchIds = currentBench.map(p => p.id);
+      let htSelectedPlayerId = null;
+
+      const startRemaining = isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining;
+
+      function renderHTTactics() {
+        const formation = FORMATIONS[htFormationKey] || FORMATIONS["4-3-3"];
+        const allTeamPlayers = userTeam.players;
+        const getPlayer = (id) => allTeamPlayers.find(p => p.id === id);
+
+        const subsMadeCount = htLineupIds.filter(id => !initialPitchIds.includes(id)).length;
+        const curRemaining = startRemaining - subsMadeCount;
+
+        // Badge superior
+        const elBadge = modalHTTactics.querySelector("#ht-tactic-remaining-badge");
+        if (elBadge) {
+          elBadge.textContent = `${curRemaining} de 5 cambios rest.`;
+          elBadge.className = curRemaining > 0 
+            ? "px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400"
+            : "px-2.5 py-1 rounded-full bg-red-950/80 border border-red-500/50 text-xs font-mono font-bold text-red-400";
+        }
+
+        // Subtítulo con cambios pendientes
+        const elPending = modalHTTactics.querySelector("#ht-pending-subs-text");
+        if (elPending) {
+          if (subsMadeCount > 0) {
+            elPending.classList.remove("hidden");
+            elPending.textContent = `🔄 ${subsMadeCount} cambio${subsMadeCount > 1 ? 's' : ''} preparado${subsMadeCount > 1 ? 's' : ''} para la 2ª parte`;
+          } else {
+            elPending.classList.add("hidden");
+          }
+        }
+
+        // Formaciones
+        const containerForm = modalHTTactics.querySelector("#ht-formation-buttons");
+        if (containerForm) {
+          containerForm.innerHTML = Object.keys(FORMATIONS).map(fKey => `
+            <button class="btn-ht-form px-3 py-1 rounded-full font-bold transition whitespace-nowrap text-xs ${htFormationKey === fKey ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'bg-slate-800 text-slate-400 hover:text-white'}" data-formation="${fKey}">
+              ${fKey}
+            </button>
+          `).join('');
+
+          containerForm.querySelectorAll(".btn-ht-form").forEach(b => {
+            b.onclick = () => {
+              htFormationKey = b.dataset.formation;
+              renderHTTactics();
+            };
+          });
+        }
+
+        // Mentalidades
+        const containerMent = modalHTTactics.querySelector("#ht-mentality-buttons");
+        if (containerMent) {
+          containerMent.innerHTML = mentalities.map(m => `
+            <button class="btn-ht-ment px-2.5 py-0.5 rounded-lg text-[11px] font-semibold transition whitespace-nowrap ${htMentality === m.id ? 'bg-emerald-600 text-white border border-emerald-400' : 'bg-slate-800/80 text-slate-400 hover:text-white'}" data-mentality="${m.id}">
+              ${m.label}
+            </button>
+          `).join('');
+
+          containerMent.querySelectorAll(".btn-ht-ment").forEach(b => {
+            b.onclick = () => {
+              htMentality = b.dataset.mentality;
+              renderHTTactics();
+            };
+          });
+        }
+
+        // Texto de instrucciones
+        const elInstr = modalHTTactics.querySelector("#ht-instruction-text");
+        if (elInstr) {
+          if (htSelectedPlayerId) {
+            const selPlayer = getPlayer(htSelectedPlayerId);
+            elInstr.innerHTML = `<span class="text-amber-400 font-bold">👉 Seleccionado: ${selPlayer?.name}</span>. Toca otro futbolista para intercambiar puesto o sustituirlo.`;
+          } else {
+            elInstr.textContent = "💡 Toca un futbolista para modificar su puesto o sustituirlo por un suplente.";
+          }
+        }
+
+        // Terreno de juego táctico con slots
+        const pitchSlots = modalHTTactics.querySelector("#ht-pitch-slots");
+        if (pitchSlots) {
+          pitchSlots.innerHTML = formation.slots.map((slot, index) => {
+            const playerId = htLineupIds[index];
+            const player = getPlayer(playerId);
+            if (!player) return "";
+            const effRating = calculateEffectiveRating(player, slot.pos);
+            const isSelected = htSelectedPlayerId === player.id;
+            const isNewSub = !initialPitchIds.includes(player.id);
+
+            return `
+              <div class="slot-ht-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
+                   style="left: ${slot.x}%; top: ${slot.y}%;"
+                   data-player-id="${player.id}">
+                <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isNewSub ? 'border-emerald-400 bg-emerald-950 text-emerald-300 shadow-md ring-2 ring-emerald-500/50' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                  <span class="text-[9px] font-black leading-none">${effRating}</span>
+                  <span class="text-[7px] font-bold ${isNewSub ? 'text-emerald-400' : 'text-slate-300'} leading-none">${slot.label}</span>
+                  <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
+                    <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
+                  </div>
+                </div>
+                <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
+                  ${isNewSub ? '🔺 ' : ''}${player.name.split(' ').slice(-1)[0]}
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          pitchSlots.querySelectorAll(".slot-ht-player").forEach(el => {
+            el.onclick = () => {
+              handleHTPlayerTap(el.dataset.playerId);
+            };
+          });
+        }
+
+        // Banquillo de suplentes
+        const benchScroll = modalHTTactics.querySelector("#ht-bench-scroll");
+        if (benchScroll) {
+          const benchPlayers = htBenchIds.map(id => getPlayer(id)).filter(Boolean);
+          benchScroll.innerHTML = benchPlayers.map(p => {
+            const isSelected = htSelectedPlayerId === p.id;
+            const wasStarter = initialPitchIds.includes(p.id);
+
+            return `
+              <div class="bench-ht-card flex-shrink-0 bg-slate-900 border ${isSelected ? 'border-amber-400 bg-amber-500/20' : wasStarter ? 'border-red-500/50 bg-red-950/20' : 'border-slate-800'} p-2 rounded-xl text-center cursor-pointer active:scale-95 transition min-w-[76px]" data-player-id="${p.id}">
+                <div class="flex items-center justify-center gap-1">
+                  <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
+                  ${wasStarter ? '<span class="text-[8px] text-red-400">🔻</span>' : ''}
+                </div>
+                <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
+                <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
+                <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
+                  <div class="h-full bg-emerald-400" style="width: ${p.energy || 100}%;"></div>
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          benchScroll.querySelectorAll(".bench-ht-card").forEach(el => {
+            el.onclick = () => {
+              handleHTPlayerTap(el.dataset.playerId);
+            };
+          });
+        }
+      }
+
+      function handleHTPlayerTap(tappedId) {
+        if (!htSelectedPlayerId) {
+          htSelectedPlayerId = tappedId;
+          renderHTTactics();
+          return;
+        }
+
+        if (htSelectedPlayerId === tappedId) {
+          htSelectedPlayerId = null;
+          renderHTTactics();
+          return;
+        }
+
+        const inLineup1 = htLineupIds.indexOf(htSelectedPlayerId);
+        const inBench1 = htBenchIds.indexOf(htSelectedPlayerId);
+
+        const inLineup2 = htLineupIds.indexOf(tappedId);
+        const inBench2 = htBenchIds.indexOf(tappedId);
+
+        if (inLineup1 !== -1 && inLineup2 !== -1) {
+          // Ambos en el campo: intercambio posicional
+          const tmp = htLineupIds[inLineup1];
+          htLineupIds[inLineup1] = htLineupIds[inLineup2];
+          htLineupIds[inLineup2] = tmp;
+        } else if (inLineup1 !== -1 && inBench2 !== -1) {
+          // Titular sale por Suplente
+          const testLineup = [...htLineupIds];
+          testLineup[inLineup1] = tappedId;
+          const testSubsCount = testLineup.filter(id => !initialPitchIds.includes(id)).length;
+
+          if (testSubsCount > startRemaining) {
+            alert(`No puedes realizar más cambios. Límite de ${startRemaining} cambios disponibles alcanzado.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+
+          htLineupIds[inLineup1] = tappedId;
+          htBenchIds[inBench2] = htSelectedPlayerId;
+        } else if (inBench1 !== -1 && inLineup2 !== -1) {
+          // Suplente entra por Titular
+          const testLineup = [...htLineupIds];
+          testLineup[inLineup2] = htSelectedPlayerId;
+          const testSubsCount = testLineup.filter(id => !initialPitchIds.includes(id)).length;
+
+          if (testSubsCount > startRemaining) {
+            alert(`No puedes realizar más cambios. Límite de ${startRemaining} cambios disponibles alcanzado.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+
+          htBenchIds[inBench1] = tappedId;
+          htLineupIds[inLineup2] = htSelectedPlayerId;
+        } else if (inBench1 !== -1 && inBench2 !== -1) {
+          // Ambos en banquillo
+          const tmp = htBenchIds[inBench1];
+          htBenchIds[inBench1] = htBenchIds[inBench2];
+          htBenchIds[inBench2] = tmp;
+        }
+
+        htSelectedPlayerId = null;
+        renderHTTactics();
+      }
+
+      // Eventos de confirmación y cancelación
+      const btnConfirm = modalHTTactics.querySelector("#btn-ht-tactic-confirm");
+      const btnCancel = modalHTTactics.querySelector("#btn-ht-tactic-cancel");
+
+      btnCancel.onclick = () => {
+        modalHTTactics.classList.add("hidden");
+        if (modalHT) modalHT.classList.remove("hidden");
+      };
+
+      btnConfirm.onclick = () => {
+        const res = simulator.applyTacticalChanges(
+          teamSide,
+          htFormationKey,
+          htMentality,
+          htLineupIds,
+          htBenchIds
+        );
+
+        if (!res.success) {
+          alert(res.reason);
+          return;
+        }
+
+        gameState.userTactics.formation = htFormationKey;
+        gameState.userTactics.mentality = htMentality;
+        gameState.userTactics.lineup = [...htLineupIds];
+        gameState.userTactics.bench = [...htBenchIds];
+
+        if (mentLabel) {
+          mentLabel.textContent = mentalities.find(m => m.id === htMentality)?.label || "Equilibrada";
+        }
+
+        modalHTTactics.classList.add("hidden");
+
+        const htSubsBadge = container.querySelector("#ht-subs-badge");
+        if (htSubsBadge) htSubsBadge.textContent = `${res.remaining} rest.`;
+
+        const subsBadge = container.querySelector("#subs-count-badge");
+        if (subsBadge) subsBadge.textContent = `${res.remaining} rest.`;
+
+        if (res.subsCount > 0) {
+          showSubstitutionChyron({
+            teamSide: teamSide,
+            team: userTeam,
+            subs: res.subsPairs,
+            minute: 45,
+            remaining: res.remaining
+          }, () => {
+            if (modalHT) modalHT.classList.remove("hidden");
+          });
+        } else {
+          showMatchAlert({ text: "🎯 Esquema táctico actualizado para la 2ª parte" });
+          if (modalHT) modalHT.classList.remove("hidden");
+        }
+      };
+
+      modalHTTactics.classList.remove("hidden");
+      renderHTTactics();
+    }
 
     btnCloseSubs.onclick = () => {
       modalSubs.classList.add("hidden");
