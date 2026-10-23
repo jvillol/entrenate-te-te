@@ -3528,8 +3528,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     resizeCanvas();
 
     // ==========================================
-    // MOTOR GRÁFICO 3D (ESTADIO Y MONIGOTES)
+    // MOTOR GRÁFICO 3D ESTILO FOOTBALL MANAGER
     // ==========================================
+    let cameraPitchX = 50; // Posición de la cámara en el eje horizontal del campo (0 a 100)
+    let ballRotation = 0;  // Ángulo de giro del balón 3D
+
     function getKitColors() {
       const hPrimary = homeTeam.primaryColor || "#ffffff";
       const hSecondary = homeTeam.secondaryColor || "#1e293b";
@@ -3545,12 +3548,16 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         home: {
           jersey: hPrimary,
           shorts: hSecondary,
+          socks: hPrimary,
+          collar: hSecondary,
           keeper: "#10b981", // Verde neón
           number: homeTeam.textColor || "#ffffff"
         },
         away: {
           jersey: aPrimary,
           shorts: aSecondary,
+          socks: aPrimary,
+          collar: aSecondary,
           keeper: "#f59e0b", // Ámbar neón
           number: awayTeam.textColor || "#ffffff"
         }
@@ -3559,32 +3566,36 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
     const kits = getKitColors();
 
-    // Proyección de coordenadas 3D a pantalla con perspectiva isométrica
-    function toScreen3D(pitchX, pitchY, pitchZ = 0, w, h) {
-      const nx = Math.max(-5, Math.min(105, pitchX)) / 100;
-      const ny = Math.max(-5, Math.min(105, pitchY)) / 100;
+    // Proyección de coordenadas 3D a pantalla con perspectiva isométrica y cámara TV broadcast dinámica
+    function toScreen3D(pitchX, pitchY, pitchZ = 0, w, h, camX = cameraPitchX) {
+      // Panning horizontal suave de cámara estilo Football Manager
+      const camOffset = (camX - 50) * 0.28;
+      const relX = pitchX - camOffset;
 
-      // Inclinación vertical del terreno
-      const topY = h * 0.17;
-      const botY = h * 0.86;
+      const nx = relX / 100;
+      const ny = Math.max(-10, Math.min(110, pitchY)) / 100;
+
+      // Inclinación vertical del terreno (estilo grada de televisión Football Manager)
+      const topY = h * 0.20;
+      const botY = h * 0.88;
       const groundY = topY + ny * (botY - topY);
 
       // Perspectiva horizontal (trapecio: más estrecho al fondo, más ancho al frente)
-      const topXMin = w * 0.13;
-      const topXMax = w * 0.87;
-      const botXMin = w * 0.04;
-      const botXMax = w * 0.96;
+      const topXMin = w * 0.12;
+      const topXMax = w * 0.88;
+      const botXMin = w * 0.03;
+      const botXMax = w * 0.97;
 
       const leftX = topXMin + ny * (botXMin - topXMin);
       const rightX = topXMax + ny * (botXMax - topXMax);
       const groundX = leftX + nx * (rightX - leftX);
 
-      // Escala por profundidad (objetos al fondo son más pequeños)
-      const scale = 0.72 + ny * 0.52;
+      // Escala por profundidad adaptada al tamaño del canvas
+      const scale = (0.72 + ny * 0.52) * (w / 380);
 
       // Elevación vertical 3D (eje Z para balones altos)
       const screenX = groundX;
-      const screenY = groundY - (pitchZ * scale * 2.2);
+      const screenY = groundY - (pitchZ * scale * 2.3);
 
       return { groundX, groundY, screenX, screenY, scale };
     }
@@ -3604,29 +3615,55 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       ctx.stroke();
     }
 
+    // Portería 3D realista con postes cilíndricos, larguero y red con fondo
     function draw3DGoal(ctx, x, y1, y2, dir, w, h) {
       const gPost1 = toScreen3D(x, y1, 0, w, h);
       const gPost2 = toScreen3D(x, y2, 0, w, h);
-      const gTop1 = toScreen3D(x, y1, 11, w, h);
-      const gTop2 = toScreen3D(x, y2, 11, w, h);
+      const gTop1 = toScreen3D(x, y1, 10.5, w, h);
+      const gTop2 = toScreen3D(x, y2, 10.5, w, h);
 
-      const netBackX = x - dir * 4;
-      const tNet1 = toScreen3D(netBackX, y1, 9, w, h);
-      const tNet2 = toScreen3D(netBackX, y2, 9, w, h);
+      const netBackX = x - dir * 4.2;
+      const tNet1 = toScreen3D(netBackX, y1, 8.5, w, h);
+      const tNet2 = toScreen3D(netBackX, y2, 8.5, w, h);
+      const bNet1 = toScreen3D(netBackX, y1, 0, w, h);
+      const bNet2 = toScreen3D(netBackX, y2, 0, w, h);
 
-      // Malla de la red translúcida
+      // Red trasera y superior con textura y transparencia
+      ctx.fillStyle = "rgba(240, 249, 255, 0.18)";
       ctx.beginPath();
       ctx.moveTo(gTop1.screenX, gTop1.screenY);
       ctx.lineTo(gTop2.screenX, gTop2.screenY);
       ctx.lineTo(tNet2.screenX, tNet2.screenY);
       ctx.lineTo(tNet1.screenX, tNet1.screenY);
       ctx.closePath();
-      ctx.fillStyle = "rgba(255, 255, 255, 0.16)";
       ctx.fill();
 
-      // Postes y larguero 3D
+      // Red de fondo
+      ctx.fillStyle = "rgba(240, 249, 255, 0.12)";
+      ctx.beginPath();
+      ctx.moveTo(tNet1.screenX, tNet1.screenY);
+      ctx.lineTo(tNet2.screenX, tNet2.screenY);
+      ctx.lineTo(bNet2.groundX, bNet2.groundY);
+      ctx.lineTo(bNet1.groundX, bNet1.groundY);
+      ctx.closePath();
+      ctx.fill();
+
+      // Trama diagonal de la red
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(gTop1.screenX, gTop1.screenY);
+      ctx.lineTo(bNet1.groundX, bNet1.groundY);
+      ctx.moveTo(gTop2.screenX, gTop2.screenY);
+      ctx.lineTo(bNet2.groundX, bNet2.groundY);
+      ctx.moveTo(tNet1.screenX, tNet1.screenY);
+      ctx.lineTo(tNet2.screenX, tNet2.screenY);
+      ctx.stroke();
+
+      // Postes y larguero 3D blancos con sombra
       ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = 2.8;
+      ctx.lineCap = "round";
 
       ctx.beginPath();
       ctx.moveTo(gPost1.groundX, gPost1.groundY);
@@ -3634,18 +3671,125 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       ctx.lineTo(gTop2.screenX, gTop2.screenY);
       ctx.lineTo(gPost2.groundX, gPost2.groundY);
       ctx.stroke();
+
+      // Tirantes traseros de sujeción
+      ctx.strokeStyle = "rgba(226, 232, 240, 0.6)";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(gTop1.screenX, gTop1.screenY);
+      ctx.lineTo(tNet1.screenX, tNet1.screenY);
+      ctx.lineTo(bNet1.groundX, bNet1.groundY);
+      ctx.moveTo(gTop2.screenX, gTop2.screenY);
+      ctx.lineTo(tNet2.screenX, tNet2.screenY);
+      ctx.lineTo(bNet2.groundX, bNet2.groundY);
+      ctx.stroke();
     }
 
+    // Dibujo del Estadio 3D completo: Grada con público, focos de luz, vallas LED y césped segado
     function draw3DPitch(ctx, w, h) {
-      // Grada y noche de fondo
-      ctx.fillStyle = "#080c14";
+      // 1. Cielo nocturno y atmósfera de estadio
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.25);
+      skyGrad.addColorStop(0, "#030712");
+      skyGrad.addColorStop(0.7, "#0b132b");
+      skyGrad.addColorStop(1, "#1c2541");
+      ctx.fillStyle = skyGrad;
       ctx.fillRect(0, 0, w, h);
 
-      // Perímetro exterior del césped
-      const pTL = toScreen3D(-4, -4, 0, w, h);
-      const pTR = toScreen3D(104, -4, 0, w, h);
-      const pBR = toScreen3D(104, 104, 0, w, h);
-      const pBL = toScreen3D(-4, 104, 0, w, h);
+      // 2. Grada del Estadio con Público (Crowd Backdrop)
+      const standTopY = h * 0.02;
+      const standBotY = h * 0.19;
+      const numRows = 7;
+      for (let r = 0; r < numRows; r++) {
+        const rowY = standTopY + (r / numRows) * (standBotY - standTopY);
+        const rowH = (standBotY - standTopY) / numRows;
+
+        // Base de gradas de hormigón
+        ctx.fillStyle = r % 2 === 0 ? "#111827" : "#1f2937";
+        ctx.fillRect(0, rowY, w, rowH);
+
+        // Espectadores animados / mosaico de hinchas
+        const dots = Math.floor(w / 7.5);
+        for (let d = 0; d < dots; d++) {
+          const dx = d * 7.5 + (r % 2 === 0 ? 3 : 0);
+          const colorSeed = (d * 17 + r * 31) % 10;
+          let fanColor = "#334155";
+          if (colorSeed < 3) fanColor = homeTeam.primaryColor || "#38bdf8";
+          else if (colorSeed < 5) fanColor = awayTeam.primaryColor || "#f59e0b";
+          else if (colorSeed < 7) fanColor = "#f8fafc";
+          else if (colorSeed < 9) fanColor = "#64748b";
+
+          ctx.fillStyle = fanColor;
+          ctx.beginPath();
+          ctx.arc(dx, rowY + rowH * 0.6, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // 3. Focos del estadio (Torres de Iluminación en esquinas superiores)
+      const floodlights = [
+        { x: w * 0.08, y: h * 0.04 },
+        { x: w * 0.92, y: h * 0.04 }
+      ];
+
+      floodlights.forEach(fl => {
+        // Haz de luz volumétrico sobre el campo
+        const beam = ctx.createRadialGradient(fl.x, fl.y, 4, fl.x, fl.y + h * 0.35, w * 0.45);
+        beam.addColorStop(0, "rgba(255, 255, 255, 0.45)");
+        beam.addColorStop(0.2, "rgba(224, 242, 254, 0.18)");
+        beam.addColorStop(1, "rgba(224, 242, 254, 0)");
+        ctx.fillStyle = beam;
+        ctx.beginPath();
+        ctx.moveTo(fl.x - 12, fl.y);
+        ctx.lineTo(fl.x - w * 0.35, h * 0.85);
+        ctx.lineTo(fl.x + w * 0.35, h * 0.85);
+        ctx.lineTo(fl.x + 12, fl.y);
+        ctx.closePath();
+        ctx.fill();
+
+        // Bombillas LED del foco
+        ctx.fillStyle = "#ffffff";
+        for (let bx = -6; bx <= 6; bx += 4) {
+          for (let by = -3; by <= 3; by += 3) {
+            ctx.beginPath();
+            ctx.arc(fl.x + bx, fl.y + by, 1.3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      });
+
+      // 4. Vallas publicitarias LED dinámicas en la banda superior
+      const adL = toScreen3D(0, -1.8, 0, w, h);
+      const adR = toScreen3D(100, -1.8, 0, w, h);
+      const adPitchL = toScreen3D(0, 0, 0, w, h);
+      const adPitchR = toScreen3D(100, 0, 0, w, h);
+
+      ctx.beginPath();
+      ctx.moveTo(adL.groundX, adL.groundY - 10);
+      ctx.lineTo(adR.groundX, adR.groundY - 10);
+      ctx.lineTo(adPitchR.groundX, adPitchR.groundY);
+      ctx.lineTo(adPitchL.groundX, adPitchL.groundY);
+      ctx.closePath();
+      ctx.fillStyle = "#090d16";
+      ctx.fill();
+
+      // Borde LED luminoso
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.8)";
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // Texto publicitario LED LaLiga EA Sports
+      const adMid = toScreen3D(50, -1, 0, w, h);
+      ctx.fillStyle = "#38bdf8";
+      ctx.font = `bold ${Math.max(8, Math.round(w * 0.024))}px monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("⚽ LALIGA EA SPORTS · ENTRENATE-TE-TE · EA SPORTS FC ⚽", adMid.groundX, adL.groundY - 3);
+
+      // 5. Perímetro exterior del césped (moqueta técnica de desahogo)
+      const pTL = toScreen3D(-6, -4, 0, w, h);
+      const pTR = toScreen3D(106, -4, 0, w, h);
+      const pBR = toScreen3D(106, 105, 0, w, h);
+      const pBL = toScreen3D(-6, 105, 0, w, h);
 
       ctx.beginPath();
       ctx.moveTo(pTL.groundX, pTL.groundY);
@@ -3656,8 +3800,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       ctx.fillStyle = "#14532d";
       ctx.fill();
 
-      // Bandas de césped cortado en perspectiva 3D
-      const numStripes = 10;
+      // 6. Franjas segadas de césped cortado en perspectiva 3D (12 franjas estilo FM)
+      const numStripes = 12;
       for (let i = 0; i < numStripes; i++) {
         const x1 = (i / numStripes) * 100;
         const x2 = ((i + 1) / numStripes) * 100;
@@ -3672,40 +3816,43 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         ctx.lineTo(sBR.groundX, sBR.groundY);
         ctx.lineTo(sBL.groundX, sBL.groundY);
         ctx.closePath();
+
+        // Tonalidad de césped con brillo y contraste Football Manager
         ctx.fillStyle = i % 2 === 0 ? "#15803d" : "#16a34a";
         ctx.fill();
       }
 
-      // Valla publicitaria de fondo
-      const adL = toScreen3D(0, 0, 0, w, h);
-      const adR = toScreen3D(100, 0, 0, w, h);
+      // Brillo sutil de luz cenital en el centro del césped
+      const pitchCenter = toScreen3D(50, 50, 0, w, h);
+      const pitchSheen = ctx.createRadialGradient(
+        pitchCenter.groundX, pitchCenter.groundY, 10,
+        pitchCenter.groundX, pitchCenter.groundY, w * 0.45
+      );
+      pitchSheen.addColorStop(0, "rgba(255, 255, 255, 0.08)");
+      pitchSheen.addColorStop(1, "rgba(0, 0, 0, 0.08)");
+      ctx.fillStyle = pitchSheen;
       ctx.beginPath();
-      ctx.moveTo(adL.groundX, adL.groundY - 14);
-      ctx.lineTo(adR.groundX, adR.groundY - 14);
-      ctx.lineTo(adR.groundX, adR.groundY);
-      ctx.lineTo(adL.groundX, adL.groundY);
+      const pC1 = toScreen3D(0, 0, 0, w, h);
+      const pC2 = toScreen3D(100, 0, 0, w, h);
+      const pC3 = toScreen3D(100, 100, 0, w, h);
+      const pC4 = toScreen3D(0, 100, 0, w, h);
+      ctx.moveTo(pC1.groundX, pC1.groundY);
+      ctx.lineTo(pC2.groundX, pC2.groundY);
+      ctx.lineTo(pC3.groundX, pC3.groundY);
+      ctx.lineTo(pC4.groundX, pC4.groundY);
       ctx.closePath();
-      ctx.fillStyle = "#1e293b";
       ctx.fill();
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.45)";
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
 
-      // Líneas blancas del terreno de juego
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-      ctx.lineWidth = 1.8;
+      // 7. Líneas blancas del terreno de juego
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.88)";
+      ctx.lineWidth = 1.9;
 
       // Líneas de banda y fondo
-      const cTL = toScreen3D(0, 0, 0, w, h);
-      const cTR = toScreen3D(100, 0, 0, w, h);
-      const cBR = toScreen3D(100, 100, 0, w, h);
-      const cBL = toScreen3D(0, 100, 0, w, h);
-
       ctx.beginPath();
-      ctx.moveTo(cTL.groundX, cTL.groundY);
-      ctx.lineTo(cTR.groundX, cTR.groundY);
-      ctx.lineTo(cBR.groundX, cBR.groundY);
-      ctx.lineTo(cBL.groundX, cBL.groundY);
+      ctx.moveTo(pC1.groundX, pC1.groundY);
+      ctx.lineTo(pC2.groundX, pC2.groundY);
+      ctx.lineTo(pC3.groundX, pC3.groundY);
+      ctx.lineTo(pC4.groundX, pC4.groundY);
       ctx.closePath();
       ctx.stroke();
 
@@ -3717,11 +3864,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       ctx.lineTo(midB.groundX, midB.groundY);
       ctx.stroke();
 
-      // Círculo central 3D elíptico
+      // Círculo central 3D elíptico (radio oficial 9.15m)
       ctx.beginPath();
-      for (let a = 0; a <= Math.PI * 2 + 0.1; a += 0.2) {
-        const cx = 50 + Math.cos(a) * 9.15;
-        const cy = 50 + Math.sin(a) * 9.15;
+      for (let a = 0; a <= Math.PI * 2 + 0.1; a += 0.15) {
+        const cx = 50 + Math.cos(a) * 8.8;
+        const cy = 50 + Math.sin(a) * 13.5;
         const pt = toScreen3D(cx, cy, 0, w, h);
         if (a === 0) ctx.moveTo(pt.groundX, pt.groundY);
         else ctx.lineTo(pt.groundX, pt.groundY);
@@ -3731,160 +3878,373 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       // Punto central
       const centerDot = toScreen3D(50, 50, 0, w, h);
       ctx.beginPath();
-      ctx.arc(centerDot.groundX, centerDot.groundY, 2.5, 0, Math.PI * 2);
+      ctx.arc(centerDot.groundX, centerDot.groundY, 2.8, 0, Math.PI * 2);
       ctx.fillStyle = "#ffffff";
       ctx.fill();
 
-      // Áreas Locales
-      draw3DBox(ctx, 0, 18, 16, 82, w, h);
-      draw3DBox(ctx, 0, 36, 6, 64, w, h);
+      // Áreas de Penalti y de Meta (Locales)
+      draw3DBox(ctx, 0, 20.5, 15.8, 79.5, w, h); // Área grande
+      draw3DBox(ctx, 0, 36.5, 5.3, 63.5, w, h);  // Área pequeña
 
-      // Áreas Visitantes
-      draw3DBox(ctx, 84, 18, 100, 82, w, h);
-      draw3DBox(ctx, 94, 36, 100, 64, w, h);
+      // Punto de penalti local (11m)
+      const penDotH = toScreen3D(10.5, 50, 0, w, h);
+      ctx.beginPath();
+      ctx.arc(penDotH.groundX, penDotH.groundY, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
 
-      // Porterías 3D
-      draw3DGoal(ctx, 0, 44, 56, -1, w, h);
-      draw3DGoal(ctx, 100, 44, 56, 1, w, h);
+      // Arco del área local (D-box)
+      ctx.beginPath();
+      for (let a = -0.68; a <= 0.68; a += 0.12) {
+        const ax = 10.5 + Math.cos(a) * 8.8;
+        const ay = 50 + Math.sin(a) * 13.5;
+        const pt = toScreen3D(ax, ay, 0, w, h);
+        if (a === -0.68) ctx.moveTo(pt.groundX, pt.groundY);
+        else ctx.lineTo(pt.groundX, pt.groundY);
+      }
+      ctx.stroke();
+
+      // Áreas de Penalti y de Meta (Visitantes)
+      draw3DBox(ctx, 84.2, 20.5, 100, 79.5, w, h); // Área grande
+      draw3DBox(ctx, 94.7, 36.5, 100, 63.5, w, h); // Área pequeña
+
+      // Punto de penalti visitante (11m)
+      const penDotA = toScreen3D(89.5, 50, 0, w, h);
+      ctx.beginPath();
+      ctx.arc(penDotA.groundX, penDotA.groundY, 2.2, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+
+      // Arco del área visitante (D-box)
+      ctx.beginPath();
+      for (let a = Math.PI - 0.68; a <= Math.PI + 0.68; a += 0.12) {
+        const ax = 89.5 + Math.cos(a) * 8.8;
+        const ay = 50 + Math.sin(a) * 13.5;
+        const pt = toScreen3D(ax, ay, 0, w, h);
+        if (a === Math.PI - 0.68) ctx.moveTo(pt.groundX, pt.groundY);
+        else ctx.lineTo(pt.groundX, pt.groundY);
+      }
+      ctx.stroke();
+
+      // Arcos de córner en las 4 esquinas
+      const corners = [
+        { x: 0, y: 0, a1: 0, a2: Math.PI / 2 },
+        { x: 100, y: 0, a1: Math.PI / 2, a2: Math.PI },
+        { x: 100, y: 100, a1: Math.PI, a2: (3 * Math.PI) / 2 },
+        { x: 0, y: 100, a1: (3 * Math.PI) / 2, a2: Math.PI * 2 }
+      ];
+
+      corners.forEach(cn => {
+        ctx.beginPath();
+        for (let a = cn.a1; a <= cn.a2 + 0.05; a += 0.2) {
+          const pt = toScreen3D(cn.x + Math.cos(a) * 1.5, cn.y + Math.sin(a) * 2.2, 0, w, h);
+          if (a === cn.a1) ctx.moveTo(pt.groundX, pt.groundY);
+          else ctx.lineTo(pt.groundX, pt.groundY);
+        }
+        ctx.stroke();
+
+        // Banderín de córner 3D (Mástil y bandera)
+        const bBase = toScreen3D(cn.x, cn.y, 0, w, h);
+        const bTop = toScreen3D(cn.x, cn.y, 4.5, w, h);
+        ctx.strokeStyle = "#fef08a";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(bBase.groundX, bBase.groundY);
+        ctx.lineTo(bTop.screenX, bTop.screenY);
+        ctx.stroke();
+
+        // Bandera ondeando
+        ctx.fillStyle = "#ef4444";
+        ctx.beginPath();
+        ctx.moveTo(bTop.screenX, bTop.screenY);
+        ctx.lineTo(bTop.screenX + (cn.x === 0 ? 5 : -5), bTop.screenY + 2);
+        ctx.lineTo(bTop.screenX, bTop.screenY + 4);
+        ctx.closePath();
+        ctx.fill();
+      });
+
+      // Porterías 3D oficiales
+      draw3DGoal(ctx, 0, 44.5, 55.5, -1, w, h);
+      draw3DGoal(ctx, 100, 44.5, 55.5, 1, w, h);
     }
 
-    // Dibujo del monigote 3D con equipación y animación de carrera
+    // Dibujo del monigote 3D articulado estilo Football Manager con rótulo televisivo
     function drawMonigote3D(ctx, item) {
-      const { groundX, groundY, scale, facingX, animPhase, side, isKeeper, number } = item;
+      const { groundX, groundY, scale, facingX, animPhase, side, isKeeper, number, name, isCarrier } = item;
       const kit = side === "home" ? kits.home : kits.away;
       const jerseyColor = isKeeper ? kit.keeper : kit.jersey;
       const shortsColor = kit.shorts;
+      const socksColor = kit.socks || jerseyColor;
 
       const sc = scale;
 
-      // 1. Sombra ovalada suave bajo los pies
+      // 1. Sombra de contacto suave proyectada en el césped
       ctx.beginPath();
-      ctx.ellipse(groundX, groundY, 7.5 * sc, 3.2 * sc, 0, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+      ctx.ellipse(groundX, groundY, 8.5 * sc, 3.8 * sc, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.42)";
       ctx.fill();
 
-      const hipY = groundY - 11 * sc;
-      const neckY = groundY - 22 * sc;
-      const headY = groundY - 26 * sc;
+      // Sombra central más densa
+      ctx.beginPath();
+      ctx.ellipse(groundX, groundY, 4.8 * sc, 2.2 * sc, 0, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+      ctx.fill();
 
-      // Ciclo de carrera
-      const legStride = Math.sin(animPhase) * 5 * sc * facingX;
-      const armStride = Math.cos(animPhase) * 4 * sc * facingX;
+      const hipY = groundY - 11.5 * sc;
+      const neckY = groundY - 23 * sc;
+      const headY = groundY - 27.5 * sc;
 
-      // 2. Piernas
+      // Cálculo de zancada de carrera (articulación de rodillas y pies)
+      const legCycle = Math.sin(animPhase);
+      const legStrideBack = -legCycle * 5.2 * sc * facingX;
+      const legStrideFront = legCycle * 5.2 * sc * facingX;
+      const kneeBendBack = Math.max(0, -legCycle) * 2.2 * sc;
+      const kneeBendFront = Math.max(0, legCycle) * 2.2 * sc;
+
+      const armCycle = Math.cos(animPhase);
+      const armStrideBack = -armCycle * 4.2 * sc * facingX;
+      const armStrideFront = armCycle * 4.2 * sc * facingX;
+
+      // 2. Pierna trasera
+      // Muslo (Pantalón)
       ctx.strokeStyle = shortsColor;
-      ctx.lineWidth = 2.2 * sc;
+      ctx.lineWidth = 2.6 * sc;
       ctx.lineCap = "round";
-
-      // Pierna trasera
       ctx.beginPath();
-      ctx.moveTo(groundX - 2 * sc, hipY);
-      ctx.lineTo(groundX - 2 * sc - legStride, groundY);
+      ctx.moveTo(groundX - 2.2 * sc, hipY);
+      ctx.lineTo(groundX - 2.2 * sc + legStrideBack * 0.5, hipY + 5.5 * sc - kneeBendBack);
       ctx.stroke();
 
-      // Bota trasera
-      ctx.fillStyle = "#0f172a";
-      ctx.fillRect(groundX - 3 * sc - legStride, groundY - 2 * sc, 4 * sc * facingX, 2.5 * sc);
-
-      // Pierna delantera
+      // Media / Calceta
+      ctx.strokeStyle = socksColor;
+      ctx.lineWidth = 2.2 * sc;
       ctx.beginPath();
-      ctx.moveTo(groundX + 2 * sc, hipY);
-      ctx.lineTo(groundX + 2 * sc + legStride, groundY);
+      ctx.moveTo(groundX - 2.2 * sc + legStrideBack * 0.5, hipY + 5.5 * sc - kneeBendBack);
+      ctx.lineTo(groundX - 2.2 * sc + legStrideBack, groundY);
       ctx.stroke();
 
-      // Bota delantera
+      // Bota trasera con suela
       ctx.fillStyle = "#0f172a";
-      ctx.fillRect(groundX + 1 * sc + legStride, groundY - 2 * sc, 4 * sc * facingX, 2.5 * sc);
+      ctx.fillRect(groundX - 3.2 * sc + legStrideBack, groundY - 2.2 * sc, 4.4 * sc * facingX, 2.4 * sc);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(groundX - 3.2 * sc + legStrideBack, groundY - 0.7 * sc, 4.4 * sc * facingX, 0.8 * sc);
 
       // 3. Brazo trasero
       ctx.strokeStyle = jerseyColor;
-      ctx.lineWidth = 2 * sc;
+      ctx.lineWidth = 2.2 * sc;
       ctx.beginPath();
-      ctx.moveTo(groundX, neckY + 3 * sc);
-      ctx.lineTo(groundX - armStride, hipY);
+      ctx.moveTo(groundX, neckY + 3.5 * sc);
+      ctx.lineTo(groundX + armStrideBack, hipY);
       ctx.stroke();
 
-      // 4. Torso con camiseta oficial
-      const torsoW = 8.5 * sc;
-      const torsoH = 10 * sc;
-      ctx.fillStyle = jerseyColor;
+      // Mano o guante trasero
+      ctx.fillStyle = isKeeper ? "#ffffff" : "#fcd34d";
       ctx.beginPath();
-      ctx.roundRect(groundX - torsoW / 2, neckY, torsoW, torsoH, 2 * sc);
+      ctx.arc(groundX + armStrideBack, hipY + 0.8 * sc, 1.4 * sc, 0, Math.PI * 2);
       ctx.fill();
 
+      // 4. Pierna delantera
+      // Muslo (Pantalón)
+      ctx.strokeStyle = shortsColor;
+      ctx.lineWidth = 2.6 * sc;
+      ctx.beginPath();
+      ctx.moveTo(groundX + 2.2 * sc, hipY);
+      ctx.lineTo(groundX + 2.2 * sc + legStrideFront * 0.5, hipY + 5.5 * sc - kneeBendFront);
+      ctx.stroke();
+
+      // Media / Calceta
+      ctx.strokeStyle = socksColor;
+      ctx.lineWidth = 2.2 * sc;
+      ctx.beginPath();
+      ctx.moveTo(groundX + 2.2 * sc + legStrideFront * 0.5, hipY + 5.5 * sc - kneeBendFront);
+      ctx.lineTo(groundX + 2.2 * sc + legStrideFront, groundY);
+      ctx.stroke();
+
+      // Bota delantera con suela
+      ctx.fillStyle = "#0f172a";
+      ctx.fillRect(groundX + 1.2 * sc + legStrideFront, groundY - 2.2 * sc, 4.4 * sc * facingX, 2.4 * sc);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(groundX + 1.2 * sc + legStrideFront, groundY - 0.7 * sc, 4.4 * sc * facingX, 0.8 * sc);
+
+      // 5. Torso con Camiseta Oficial 3D
+      const torsoW = 9.2 * sc;
+      const torsoH = 11 * sc;
+
+      ctx.fillStyle = jerseyColor;
+      ctx.beginPath();
+      ctx.roundRect(groundX - torsoW / 2, neckY, torsoW, torsoH, 2.5 * sc);
+      ctx.fill();
+
+      // Detalle de cuello / ribete
+      ctx.fillStyle = kit.collar || "#ffffff";
+      ctx.beginPath();
+      ctx.ellipse(groundX, neckY + 1 * sc, 2.5 * sc, 1.2 * sc, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Relieve y sombra del torso
+      ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+
+      // Dorsal en la espalda de la camiseta
+      ctx.fillStyle = kit.number;
+      ctx.font = `900 ${Math.round(6.8 * sc)}px monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(`${number}`, groundX, neckY + torsoH * 0.55);
+
+      // 6. Brazo delantero
+      ctx.strokeStyle = jerseyColor;
+      ctx.lineWidth = 2.2 * sc;
+      ctx.beginPath();
+      ctx.moveTo(groundX, neckY + 3.5 * sc);
+      ctx.lineTo(groundX + armStrideFront, hipY);
+      ctx.stroke();
+
+      // Guante de portero o mano
+      if (isKeeper) {
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(groundX + armStrideFront, hipY + 0.8 * sc, 2.4 * sc, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = "#fcd34d";
+        ctx.beginPath();
+        ctx.arc(groundX + armStrideFront, hipY + 0.8 * sc, 1.4 * sc, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 7. Cabeza y Pelo 3D
+      const headR = 4.1 * sc;
+      ctx.beginPath();
+      ctx.arc(groundX, headY, headR, 0, Math.PI * 2);
+      ctx.fillStyle = "#fcd34d"; // Tono de piel
+      ctx.fill();
       ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
       ctx.lineWidth = 0.8;
       ctx.stroke();
 
-      // Dorsal en la camiseta
-      ctx.fillStyle = kit.number;
-      ctx.font = `bold ${Math.round(6.5 * sc)}px monospace`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(`${number}`, groundX, neckY + torsoH / 2);
-
-      // 5. Brazo delantero
-      ctx.strokeStyle = jerseyColor;
-      ctx.lineWidth = 2 * sc;
+      // Pelo estilizado 3D en la parte superior
       ctx.beginPath();
-      ctx.moveTo(groundX, neckY + 3 * sc);
-      ctx.lineTo(groundX + armStride, hipY);
-      ctx.stroke();
-
-      // Guantes del portero
-      if (isKeeper) {
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(groundX + armStride, hipY, 2.2 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // 6. Cabeza del monigote 3D
-      const headR = 3.8 * sc;
-      ctx.beginPath();
-      ctx.arc(groundX, headY, headR, 0, Math.PI * 2);
-      ctx.fillStyle = "#fcd34d"; // Tono de piel estilizado
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.2)";
-      ctx.lineWidth = 0.8;
-      ctx.stroke();
-
-      // Pelo / silueta superior
-      ctx.beginPath();
-      ctx.arc(groundX, headY - 1 * sc, headR * 0.9, Math.PI, 0);
+      ctx.arc(groundX, headY - 1.2 * sc, headR * 0.92, Math.PI, 0);
       ctx.fillStyle = "#1e293b";
       ctx.fill();
+
+      // 8. Rótulo Televisivo estilo Football Manager (FM Broadcast Tag)
+      const lastName = name ? name.split(' ').slice(-1)[0].toUpperCase() : `${number}`;
+      const tagY = headY - headR - (isCarrier ? 11 * sc : 7 * sc);
+
+      if (isCarrier) {
+        // Indicador de portador de balón (Rombo / Flecha de posesión en directo)
+        ctx.fillStyle = "#38bdf8";
+        ctx.beginPath();
+        ctx.moveTo(groundX, headY - headR - 3 * sc);
+        ctx.lineTo(groundX - 3 * sc, headY - headR - 6.5 * sc);
+        ctx.lineTo(groundX + 3 * sc, headY - headR - 6.5 * sc);
+        ctx.closePath();
+        ctx.fill();
+
+        // Rótulo destacado de transmisión
+        const tagText = `${number} ${lastName}`;
+        ctx.font = `900 ${Math.max(9, Math.round(9.5 * sc))}px system-ui, sans-serif`;
+        const textW = ctx.measureText(tagText).width;
+        const pillW = textW + 14 * sc;
+        const pillH = 12 * sc;
+
+        // Fondo oscuro brillante de la píldora
+        ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+        ctx.beginPath();
+        ctx.roundRect(groundX - pillW / 2, tagY - pillH / 2, pillW, pillH, pillH / 2);
+        ctx.fill();
+        ctx.strokeStyle = kit.jersey;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        // Texto del futbolista
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(tagText, groundX, tagY + 0.5);
+      } else {
+        // Rótulo discreto estilo Football Manager para futbolistas en el campo
+        const tagText = lastName;
+        ctx.font = `bold ${Math.max(7, Math.round(7.2 * sc))}px system-ui, sans-serif`;
+        const textW = ctx.measureText(tagText).width;
+        const pillW = textW + 8 * sc;
+        const pillH = 9 * sc;
+
+        ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
+        ctx.beginPath();
+        ctx.roundRect(groundX - pillW / 2, tagY - pillH / 2, pillW, pillH, pillH / 2);
+        ctx.fill();
+
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(tagText, groundX, tagY);
+      }
     }
 
-    // Dibujo del balón 3D con sombra y altura en el aire
+    // Dibujo del balón 3D con rotación continua, paneles pentagonales y sombra de altura
     function drawBall3D(ctx, item) {
       const { groundX, groundY, screenX, screenY, scale, z } = item;
 
-      // Sombra en el césped que se achica con la elevación Z
-      const shadowR = Math.max(2, 4.8 * scale - (z || 0) * 0.1);
-      const shadowAlpha = Math.max(0.12, 0.42 - (z || 0) * 0.015);
+      // Sombra en el césped que se achica y difumina con la elevación Z
+      const shadowR = Math.max(2.2, 5.2 * scale - (z || 0) * 0.12);
+      const shadowAlpha = Math.max(0.14, 0.45 - (z || 0) * 0.018);
       ctx.beginPath();
-      ctx.ellipse(groundX, groundY, shadowR * 1.3, shadowR * 0.7, 0, 0, Math.PI * 2);
+      ctx.ellipse(groundX, groundY, shadowR * 1.35, shadowR * 0.75, 0, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
       ctx.fill();
 
-      // Esfera del balón 3D
-      const ballR = 4.2 * scale;
+      // Esfera del balón 3D con luz radial de los focos
+      const ballR = 4.4 * scale;
       ctx.beginPath();
       ctx.arc(screenX, screenY, ballR, 0, Math.PI * 2);
 
       const grad = ctx.createRadialGradient(
-        screenX - ballR * 0.35, screenY - ballR * 0.35, ballR * 0.1,
+        screenX - ballR * 0.4, screenY - ballR * 0.4, ballR * 0.1,
         screenX, screenY, ballR
       );
       grad.addColorStop(0, "#ffffff");
-      grad.addColorStop(0.7, "#e2e8f0");
-      grad.addColorStop(1, "#64748b");
+      grad.addColorStop(0.65, "#f1f5f9");
+      grad.addColorStop(1, "#475569");
       ctx.fillStyle = grad;
       ctx.fill();
+
       ctx.strokeStyle = "#0f172a";
       ctx.lineWidth = 1;
       ctx.stroke();
+
+      // Paneles y diseño de balón oficial LaLiga / Football Manager rotando
+      ctx.save();
+      ctx.translate(screenX, screenY);
+      ctx.rotate(ballRotation);
+
+      // Pentágono central
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      for (let p = 0; p < 5; p++) {
+        const pa = (p * Math.PI * 2) / 5;
+        const px = Math.cos(pa) * (ballR * 0.42);
+        const py = Math.sin(pa) * (ballR * 0.42);
+        if (p === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Detalles aerodinámicos de color LaLiga (naranja / rojo flúor)
+      ctx.strokeStyle = "#f97316";
+      ctx.lineWidth = 1.2 * scale;
+      ctx.beginPath();
+      ctx.arc(0, 0, ballR * 0.72, 0.2, 1.4);
+      ctx.stroke();
+
+      ctx.restore();
     }
 
     // ==========================================
@@ -4068,14 +4428,34 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       subChyronTimeout = setTimeout(closeChyron, 3200);
     }
 
-    // Bucle principal de renderizado 3D a 60 FPS
+    // Bucle principal de renderizado 3D a 60 FPS estilo Football Manager
+    let lastBallX = 50;
+    let lastBallY = 50;
+
     function drawPitch() {
       if (!ctx || !canvas) return;
       resizeCanvas();
       const w = canvas.width;
       const h = canvas.height;
 
-      // 1. Dibujar terreno de juego en perspectiva 3D
+      // 1. Seguimiento cinemático de cámara TV Broadcast
+      const activeBallX = (isReplaying && replayFrames.length > 0 && replayFrames[Math.floor(replayFrameIndex)])
+        ? (replayFrames[Math.floor(replayFrameIndex)].ball?.x || 50)
+        : (simulator.ball?.x || 50);
+      const activeBallY = (isReplaying && replayFrames.length > 0 && replayFrames[Math.floor(replayFrameIndex)])
+        ? (replayFrames[Math.floor(replayFrameIndex)].ball?.y || 50)
+        : (simulator.ball?.y || 50);
+
+      const targetCamX = Math.max(28, Math.min(72, activeBallX));
+      cameraPitchX += (targetCamX - cameraPitchX) * 0.055;
+
+      // Actualizar giro de rotación del balón
+      const bMoveDist = Math.hypot(activeBallX - lastBallX, activeBallY - lastBallY);
+      ballRotation += (bMoveDist * 0.38) + 0.03;
+      lastBallX = activeBallX;
+      lastBallY = activeBallY;
+
+      // 2. Dibujar estadio, gradas, focos, vallas y terreno de juego en perspectiva 3D
       draw3DPitch(ctx, w, h);
 
       const entities = [];
@@ -4084,15 +4464,28 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         // MODO REPETICIÓN A CÁMARA LENTA (0.65x)
         const frame = replayFrames[Math.floor(replayFrameIndex)];
         if (frame) {
+          // Identificar portador más cercano al balón en repetición
+          let closestReplayP = null;
+          let minReplayDist = 999;
+          [...frame.home, ...frame.away].forEach(p => {
+            const d = Math.hypot(p.curX - frame.ball.x, p.curY - frame.ball.y);
+            if (d < minReplayDist) {
+              minReplayDist = d;
+              closestReplayP = p;
+            }
+          });
+
           frame.home.forEach(p => {
             const pt = toScreen3D(p.curX, p.curY, 0, w, h);
             entities.push({
               type: "player",
               side: "home",
               number: p.number,
+              name: p.name,
               isKeeper: p.isKeeper,
               animPhase: p.animPhase || 0,
               facingX: p.facingX || 1,
+              isCarrier: (p === closestReplayP && minReplayDist < 5.5),
               groundX: pt.groundX,
               groundY: pt.groundY,
               scale: pt.scale
@@ -4105,9 +4498,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               type: "player",
               side: "away",
               number: p.number,
+              name: p.name,
               isKeeper: p.isKeeper,
               animPhase: p.animPhase || 0,
               facingX: p.facingX || -1,
+              isCarrier: (p === closestReplayP && minReplayDist < 5.5),
               groundX: pt.groundX,
               groundY: pt.groundY,
               scale: pt.scale
@@ -4144,6 +4539,17 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           simulator.ball.z = 0;
         }
 
+        // Buscar al futbolista que conduce o disputa el balón
+        let closestLiveP = null;
+        let minLiveDist = 999;
+        [...simulator.home2D, ...simulator.away2D].forEach(p => {
+          const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+          if (d < minLiveDist) {
+            minLiveDist = d;
+            closestLiveP = p;
+          }
+        });
+
         // Interpolación y animación de carrera suave para jugadores locales
         simulator.home2D.forEach(p => {
           const dx = p.targetX - p.curX;
@@ -4161,9 +4567,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             type: "player",
             side: "home",
             number: p.number,
+            name: p.player?.name,
             isKeeper: p.isKeeper,
             animPhase: p.animPhase,
             facingX: p.facingX,
+            isCarrier: (p === closestLiveP && minLiveDist < 5.5),
             groundX: pt.groundX,
             groundY: pt.groundY,
             scale: pt.scale
@@ -4187,9 +4595,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             type: "player",
             side: "away",
             number: p.number,
+            name: p.player?.name,
             isKeeper: p.isKeeper,
             animPhase: p.animPhase,
             facingX: p.facingX,
+            isCarrier: (p === closestLiveP && minLiveDist < 5.5),
             groundX: pt.groundX,
             groundY: pt.groundY,
             scale: pt.scale
@@ -4216,6 +4626,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               animPhase: p.animPhase,
               facingX: p.facingX,
               number: p.number,
+              name: p.player?.name,
               isKeeper: p.isKeeper
             })),
             away: simulator.away2D.map(p => ({
@@ -4224,6 +4635,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               animPhase: p.animPhase,
               facingX: p.facingX,
               number: p.number,
+              name: p.player?.name,
               isKeeper: p.isKeeper
             })),
             ball: { x: simulator.ball.x, y: simulator.ball.y, z: simulator.ball.z || 0 }
