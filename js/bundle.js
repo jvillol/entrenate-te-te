@@ -838,7 +838,8 @@ function getPositionAffinity(playerPos, slotPos) {
 // Calcula la media efectiva de un jugador colocado en una posición concreta
 function calculateEffectiveRating(player, slotPos) {
   const affinity = getPositionAffinity(player.pos, slotPos);
-  const energyFactor = 0.5 + (player.energy / 100) * 0.5; // La energía baja reduce rendimiento
+  const curEnergy = player.energy !== undefined ? player.energy : 100;
+  const energyFactor = 0.5 + (curEnergy / 100) * 0.5; // La energía baja reduce rendimiento
   return Math.round(player.ovr * affinity * energyFactor);
 }
 
@@ -1139,6 +1140,18 @@ function simulateAIParties(match, teamsMap) {
       minute: Math.floor(Math.random() * 88) + 2
     });
   }
+
+  // Desgaste físico del partido para los futbolistas titulares de ambos equipos de la IA
+  [homeTeam, awayTeam].forEach(team => {
+    (team.players || []).forEach((p, idx) => {
+      if (idx < 11) {
+        const isGK = p.pos === "POR";
+        const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
+        const drain = isGK ? (6 + Math.random() * 3) : ((31 * phyFactor) + (Math.random() * 4 - 2));
+        p.energy = Math.max(25, Math.round((p.energy !== undefined ? p.energy : 100) - drain));
+      }
+    });
+  });
 
   // Mutar y devolver el objeto match para asegurar persistencia y evitar null-null
   match.played = true;
@@ -1693,21 +1706,32 @@ class MatchSimulator {
       return true;
     }
 
-    // Desgaste físico gradual
-    this.homePlayersOnPitch.forEach(p => { p.energy = Math.max(30, (p.energy || 100) - 0.4); });
-    this.awayPlayersOnPitch.forEach(p => { p.energy = Math.max(30, (p.energy || 100) - 0.4); });
-
-    // Modificadores de mentalidad
+    // Modificadores de mentalidad y desgaste físico
     const mentMods = {
-      very_defensive: { atk: 0.65, def: 1.35 },
-      defensive: { atk: 0.85, def: 1.15 },
-      balanced: { atk: 1.0, def: 1.0 },
-      offensive: { atk: 1.25, def: 0.85 },
-      very_offensive: { atk: 1.45, def: 0.70 }
+      very_defensive: { atk: 0.65, def: 1.35, drain: 0.85 },
+      defensive: { atk: 0.85, def: 1.15, drain: 0.92 },
+      balanced: { atk: 1.0, def: 1.0, drain: 1.0 },
+      offensive: { atk: 1.25, def: 0.85, drain: 1.10 },
+      very_offensive: { atk: 1.45, def: 0.70, drain: 1.20 }
     };
 
     const homeMod = mentMods[this.homeMentality] || mentMods.balanced;
     const awayMod = mentMods[this.awayMentality] || mentMods.balanced;
+
+    // Desgaste físico gradual según atributos físicos (PHY), posición y mentalidad táctica
+    this.homePlayersOnPitch.forEach(p => {
+      const isGK = p.pos === "POR";
+      const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
+      const rate = isGK ? 0.08 : (0.42 * phyFactor * homeMod.drain);
+      p.energy = Math.max(25, (p.energy || 100) - rate);
+    });
+
+    this.awayPlayersOnPitch.forEach(p => {
+      const isGK = p.pos === "POR";
+      const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
+      const rate = isGK ? 0.08 : (0.42 * phyFactor * awayMod.drain);
+      p.energy = Math.max(25, (p.energy || 100) - rate);
+    });
 
     const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk") + 2) * homeMod.atk;
     const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def") + 2) * homeMod.def;
@@ -2417,9 +2441,15 @@ class MatchSimulator {
   resumeSecondHalf() {
     this.isHalfTime = false;
     this.minute = 45; // El reloj de la 2ª parte comienza reglamentariamente en el minuto 45
-    // Ligera recuperación energética por los 15 minutos de descanso
-    this.homePlayersOnPitch.forEach(p => { p.energy = Math.min(100, (p.energy || 100) + 5); });
-    this.awayPlayersOnPitch.forEach(p => { p.energy = Math.min(100, (p.energy || 100) + 5); });
+    // Recuperación energética por los 15 minutos de descanso según físico
+    this.homePlayersOnPitch.forEach(p => { 
+      const htRecovery = 3 + ((p.phy || 70) / 22);
+      p.energy = Math.min(100, (p.energy || 100) + htRecovery); 
+    });
+    this.awayPlayersOnPitch.forEach(p => { 
+      const htRecovery = 3 + ((p.phy || 70) / 22);
+      p.energy = Math.min(100, (p.energy || 100) + htRecovery); 
+    });
 
     // Saque de centro para la 2ª mitad
     this.resetKickoff(this.userSide === "home" ? "away" : "home");
@@ -2787,8 +2817,9 @@ function renderTacticsView(container, gameState, onSaveTactics) {
                     <span class="text-xs font-bold text-slate-200">${p.name}</span>
                   </div>
                   <div class="flex items-center gap-2">
-                    <div class="w-12 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div class="h-full bg-emerald-400" style="width: ${p.energy}%;"></div>
+                    <span class="text-[10px] font-mono ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} font-bold">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
+                    <div class="w-10 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy !== undefined ? p.energy : 100}%;"></div>
                     </div>
                     <span class="text-xs font-black text-amber-400 px-1.5 py-0.5 bg-slate-800/80 rounded">${p.ovr}</span>
                   </div>
@@ -2883,7 +2914,9 @@ function renderTacticsView(container, gameState, onSaveTactics) {
   function autoAlignLineup() {
     const formationKey = tactics.formation;
     const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    const allPlayers = [...team.players].sort((a, b) => b.ovr - a.ovr);
+    // Considerar tanto la media del jugador como su estado físico actual para rotar si está fatigado
+    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
+    const allPlayers = [...team.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const newLineup = [];
 
@@ -2982,8 +3015,9 @@ function renderSquadView(container, gameState) {
                 <div>
                   <h4 class="text-xs font-bold text-white leading-tight">${p.name}</h4>
                   <div class="flex items-center gap-2 mt-1">
-                    <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0} goles</span>
-                    <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy || 100)}%</span>
+                    <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0}</span>
+                    <span class="text-[10px] font-mono ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400 font-bold'}">⚡ ${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
+                    <span class="text-[9px] text-slate-500 font-mono">FIS ${p.phy || 70}</span>
                   </div>
                 </div>
               </div>
@@ -3086,7 +3120,8 @@ function renderSquadView(container, gameState) {
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
               <span class="text-[10px] text-slate-500 font-bold uppercase">Condición</span>
-              <div class="text-base font-black text-emerald-400">${Math.round(p.energy || 100)}%</div>
+              <div class="text-base font-black ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'}">${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
+              <div class="text-[9px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold">${(p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
               <span class="text-[10px] text-slate-500 font-bold uppercase">Moral</span>
@@ -3399,7 +3434,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   function getOpponentLineup(oppTeam) {
     const formationKey = oppTeam.defaultFormation || "4-3-3";
     const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    const allPlayers = [...oppTeam.players].sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+    // El rival también gestiona la energía rotando si tiene titulares agotados
+    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
+    const allPlayers = [...oppTeam.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const lineup = [];
 
@@ -3524,6 +3561,20 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             </div>
           </div>
 
+          <!-- Banner Alerta de Fatiga si hay titulares cansados -->
+          ${(() => {
+            const tiredCount = lineupPlayers.filter(p => (p.energy !== undefined ? p.energy : 100) < 78).length;
+            if (tiredCount === 0) return "";
+            return `
+              <div class="mx-3 mt-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-2 text-[11px] text-amber-300">
+                <span class="text-sm flex-shrink-0">⚠️</span>
+                <div class="leading-tight">
+                  <span class="font-bold text-amber-400">Fatiga acumulada:</span> ${tiredCount} titular${tiredCount > 1 ? 'es tienen' : ' tiene'} &lt;78% de energía. Da descanso o rota con suplentes.
+                </div>
+              </div>
+            `;
+          })()}
+
           <!-- Terreno de Juego Táctico Interactivo Usuario -->
           <div class="p-3 flex-1 flex flex-col justify-center">
             <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
@@ -3548,7 +3599,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                       <span class="text-[9px] font-black leading-none">${effRating}</span>
                       <span class="text-[7px] font-bold text-slate-300 leading-none">${slot.label}</span>
                       <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
-                        <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy}%;"></div>
+                        <div class="h-full ${(player.energy || 100) >= 80 ? 'bg-emerald-400' : (player.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                       </div>
                     </div>
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
@@ -3581,8 +3632,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                     <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                     <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
                     <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
-                    <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
-                      <div class="h-full bg-emerald-400" style="width: ${p.energy}%;"></div>
+                    <div class="text-[9px] font-mono font-bold ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} mt-0.5">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
+                    <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-0.5 overflow-hidden">
+                      <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy || 100}%;"></div>
                     </div>
                   </div>
                 `;
@@ -3664,8 +3716,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                   <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                   <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
                   <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
-                  <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
-                    <div class="h-full bg-emerald-400" style="width: ${p.energy || 100}%;"></div>
+                  <div class="text-[9px] font-mono font-bold ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} mt-0.5">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
+                  <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-0.5 overflow-hidden">
+                    <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy || 100}%;"></div>
                   </div>
                 </div>
               `).join('')}
@@ -3799,7 +3852,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   function autoAlignLineup() {
     const tactics = gameState.userTactics;
     const formation = FORMATIONS[tactics.formation] || FORMATIONS["4-3-3"];
-    const allPlayers = [...userTeam.players].sort((a, b) => b.ovr - a.ovr);
+    // Ponderar media con condición física para dar rotación a jugadores agotados
+    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
+    const allPlayers = [...userTeam.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const newLineup = [];
 
@@ -7207,13 +7262,33 @@ class GameManager {
     }
   }
 
-  // Recuperación física de los futbolistas entre jornadas
+  // Recuperación física de los futbolistas entre jornadas en función de su Físico (PHY) y Media (OVR)
   recoverPlayersEnergy() {
     if (!this.state || !this.state.teams) return;
     this.state.teams.forEach(team => {
-      team.players.forEach(p => {
-        // Recuperan 25-35 puntos de energía por semana de descanso
-        p.energy = Math.min(100, (p.energy || 100) + 30);
+      (team.players || []).forEach(p => {
+        const curEnergy = p.energy !== undefined ? p.energy : 100;
+
+        // Si ya está prácticamente descansado (suplente o apenas participó), recupera al 100%
+        if (curEnergy >= 94) {
+          p.energy = 100;
+          return;
+        }
+
+        // 1. Base semanal de recuperación
+        const baseRecovery = 18;
+
+        // 2. Bonificación por Físico (PHY): mayor fondo físico y velocidad de regeneración celular
+        const phyBonus = Math.max(0, ((p.phy || 70) - 50) * 0.40);
+
+        // 3. Bonificación por Media (OVR): profesionalismo, fisioterapia de élite y nutrición
+        const ovrBonus = Math.max(0, ((p.ovr || 70) - 60) * 0.22);
+
+        // 4. Bonificación extra para jugadores de banquillo o que no jugaron el partido completo
+        const restBonus = curEnergy > 78 ? 10 : 0;
+
+        const totalRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
+        p.energy = Math.min(100, Math.round(curEnergy + totalRecovery));
       });
     });
   }

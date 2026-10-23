@@ -33,7 +33,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   function getOpponentLineup(oppTeam) {
     const formationKey = oppTeam.defaultFormation || "4-3-3";
     const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    const allPlayers = [...oppTeam.players].sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+    // El rival también gestiona la energía rotando si tiene titulares agotados
+    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
+    const allPlayers = [...oppTeam.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const lineup = [];
 
@@ -158,6 +160,20 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
           </div>
 
+          <!-- Banner Alerta de Fatiga si hay titulares cansados -->
+          ${(() => {
+            const tiredCount = lineupPlayers.filter(p => (p.energy !== undefined ? p.energy : 100) < 78).length;
+            if (tiredCount === 0) return "";
+            return `
+              <div class="mx-3 mt-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center gap-2 text-[11px] text-amber-300">
+                <span class="text-sm flex-shrink-0">⚠️</span>
+                <div class="leading-tight">
+                  <span class="font-bold text-amber-400">Fatiga acumulada:</span> ${tiredCount} titular${tiredCount > 1 ? 'es tienen' : ' tiene'} &lt;78% de energía. Da descanso o rota con suplentes.
+                </div>
+              </div>
+            `;
+          })()}
+
           <!-- Terreno de Juego Táctico Interactivo Usuario -->
           <div class="p-3 flex-1 flex flex-col justify-center">
             <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
@@ -182,7 +198,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                       <span class="text-[9px] font-black leading-none">${effRating}</span>
                       <span class="text-[7px] font-bold text-slate-300 leading-none">${slot.label}</span>
                       <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
-                        <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy}%;"></div>
+                        <div class="h-full ${(player.energy || 100) >= 80 ? 'bg-emerald-400' : (player.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                       </div>
                     </div>
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
@@ -215,8 +231,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                     <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                     <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
                     <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
-                    <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
-                      <div class="h-full bg-emerald-400" style="width: ${p.energy}%;"></div>
+                    <div class="text-[9px] font-mono font-bold ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} mt-0.5">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
+                    <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-0.5 overflow-hidden">
+                      <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy || 100}%;"></div>
                     </div>
                   </div>
                 `;
@@ -298,8 +315,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                   <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-slate-800 ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
                   <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
                   <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
-                  <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
-                    <div class="h-full bg-emerald-400" style="width: ${p.energy || 100}%;"></div>
+                  <div class="text-[9px] font-mono font-bold ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} mt-0.5">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
+                  <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-0.5 overflow-hidden">
+                    <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy || 100}%;"></div>
                   </div>
                 </div>
               `).join('')}
@@ -433,7 +451,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   function autoAlignLineup() {
     const tactics = gameState.userTactics;
     const formation = FORMATIONS[tactics.formation] || FORMATIONS["4-3-3"];
-    const allPlayers = [...userTeam.players].sort((a, b) => b.ovr - a.ovr);
+    // Ponderar media con condición física para dar rotación a jugadores agotados
+    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
+    const allPlayers = [...userTeam.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const newLineup = [];
 

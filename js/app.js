@@ -107,13 +107,33 @@ class GameManager {
     }
   }
 
-  // Recuperación física de los futbolistas entre jornadas
+  // Recuperación física de los futbolistas entre jornadas en función de su Físico (PHY) y Media (OVR)
   recoverPlayersEnergy() {
     if (!this.state || !this.state.teams) return;
     this.state.teams.forEach(team => {
-      team.players.forEach(p => {
-        // Recuperan 25-35 puntos de energía por semana de descanso
-        p.energy = Math.min(100, (p.energy || 100) + 30);
+      (team.players || []).forEach(p => {
+        const curEnergy = p.energy !== undefined ? p.energy : 100;
+
+        // Si ya está prácticamente descansado (suplente o apenas participó), recupera al 100%
+        if (curEnergy >= 94) {
+          p.energy = 100;
+          return;
+        }
+
+        // 1. Base semanal de recuperación
+        const baseRecovery = 18;
+
+        // 2. Bonificación por Físico (PHY): mayor fondo físico y velocidad de regeneración celular
+        const phyBonus = Math.max(0, ((p.phy || 70) - 50) * 0.40);
+
+        // 3. Bonificación por Media (OVR): profesionalismo, fisioterapia de élite y nutrición
+        const ovrBonus = Math.max(0, ((p.ovr || 70) - 60) * 0.22);
+
+        // 4. Bonificación extra para jugadores de banquillo o que no jugaron el partido completo
+        const restBonus = curEnergy > 78 ? 10 : 0;
+
+        const totalRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
+        p.energy = Math.min(100, Math.round(curEnergy + totalRecovery));
       });
     });
   }

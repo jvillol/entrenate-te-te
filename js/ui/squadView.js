@@ -59,8 +59,9 @@ export function renderSquadView(container, gameState) {
                 <div>
                   <h4 class="text-xs font-bold text-white leading-tight">${p.name}</h4>
                   <div class="flex items-center gap-2 mt-1">
-                    <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0} goles</span>
-                    <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy || 100)}%</span>
+                    <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0}</span>
+                    <span class="text-[10px] font-mono ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400 font-bold'}">⚡ ${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
+                    <span class="text-[9px] text-slate-500 font-mono">FIS ${p.phy || 70}</span>
                   </div>
                 </div>
               </div>
@@ -163,7 +164,8 @@ export function renderSquadView(container, gameState) {
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
               <span class="text-[10px] text-slate-500 font-bold uppercase">Condición</span>
-              <div class="text-base font-black text-emerald-400">${Math.round(p.energy || 100)}%</div>
+              <div class="text-base font-black ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'}">${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
+              <div class="text-[9px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold">${(p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
               <span class="text-[10px] text-slate-500 font-bold uppercase">Moral</span>

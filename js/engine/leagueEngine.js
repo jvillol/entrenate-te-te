@@ -254,6 +254,18 @@ export function simulateAIParties(match, teamsMap) {
     });
   }
 
+  // Desgaste físico del partido para los futbolistas titulares de ambos equipos de la IA
+  [homeTeam, awayTeam].forEach(team => {
+    (team.players || []).forEach((p, idx) => {
+      if (idx < 11) {
+        const isGK = p.pos === "POR";
+        const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
+        const drain = isGK ? (6 + Math.random() * 3) : ((31 * phyFactor) + (Math.random() * 4 - 2));
+        p.energy = Math.max(25, Math.round((p.energy !== undefined ? p.energy : 100) - drain));
+      }
+    });
+  });
+
   // Mutar y devolver el objeto match para asegurar persistencia y evitar null-null
   match.played = true;
   match.homeScore = homeScore;

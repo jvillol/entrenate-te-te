@@ -127,7 +127,8 @@ export function getPositionAffinity(playerPos, slotPos) {
 // Calcula la media efectiva de un jugador colocado en una posición concreta
 export function calculateEffectiveRating(player, slotPos) {
   const affinity = getPositionAffinity(player.pos, slotPos);
-  const energyFactor = 0.5 + (player.energy / 100) * 0.5; // La energía baja reduce rendimiento
+  const curEnergy = player.energy !== undefined ? player.energy : 100;
+  const energyFactor = 0.5 + (curEnergy / 100) * 0.5; // La energía baja reduce rendimiento
   return Math.round(player.ovr * affinity * energyFactor);
 }
 

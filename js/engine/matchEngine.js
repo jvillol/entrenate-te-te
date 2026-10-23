@@ -439,21 +439,32 @@ export class MatchSimulator {
       return true;
     }
 
-    // Desgaste físico gradual
-    this.homePlayersOnPitch.forEach(p => { p.energy = Math.max(30, (p.energy || 100) - 0.4); });
-    this.awayPlayersOnPitch.forEach(p => { p.energy = Math.max(30, (p.energy || 100) - 0.4); });
-
-    // Modificadores de mentalidad
+    // Modificadores de mentalidad y desgaste físico
     const mentMods = {
-      very_defensive: { atk: 0.65, def: 1.35 },
-      defensive: { atk: 0.85, def: 1.15 },
-      balanced: { atk: 1.0, def: 1.0 },
-      offensive: { atk: 1.25, def: 0.85 },
-      very_offensive: { atk: 1.45, def: 0.70 }
+      very_defensive: { atk: 0.65, def: 1.35, drain: 0.85 },
+      defensive: { atk: 0.85, def: 1.15, drain: 0.92 },
+      balanced: { atk: 1.0, def: 1.0, drain: 1.0 },
+      offensive: { atk: 1.25, def: 0.85, drain: 1.10 },
+      very_offensive: { atk: 1.45, def: 0.70, drain: 1.20 }
     };
 
     const homeMod = mentMods[this.homeMentality] || mentMods.balanced;
     const awayMod = mentMods[this.awayMentality] || mentMods.balanced;
+
+    // Desgaste físico gradual según atributos físicos (PHY), posición y mentalidad táctica
+    this.homePlayersOnPitch.forEach(p => {
+      const isGK = p.pos === "POR";
+      const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
+      const rate = isGK ? 0.08 : (0.42 * phyFactor * homeMod.drain);
+      p.energy = Math.max(25, (p.energy || 100) - rate);
+    });
+
+    this.awayPlayersOnPitch.forEach(p => {
+      const isGK = p.pos === "POR";
+      const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
+      const rate = isGK ? 0.08 : (0.42 * phyFactor * awayMod.drain);
+      p.energy = Math.max(25, (p.energy || 100) - rate);
+    });
 
     const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk") + 2) * homeMod.atk;
     const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def") + 2) * homeMod.def;
@@ -1163,9 +1174,15 @@ export class MatchSimulator {
   resumeSecondHalf() {
     this.isHalfTime = false;
     this.minute = 45; // El reloj de la 2ª parte comienza reglamentariamente en el minuto 45
-    // Ligera recuperación energética por los 15 minutos de descanso
-    this.homePlayersOnPitch.forEach(p => { p.energy = Math.min(100, (p.energy || 100) + 5); });
-    this.awayPlayersOnPitch.forEach(p => { p.energy = Math.min(100, (p.energy || 100) + 5); });
+    // Recuperación energética por los 15 minutos de descanso según físico
+    this.homePlayersOnPitch.forEach(p => { 
+      const htRecovery = 3 + ((p.phy || 70) / 22);
+      p.energy = Math.min(100, (p.energy || 100) + htRecovery); 
+    });
+    this.awayPlayersOnPitch.forEach(p => { 
+      const htRecovery = 3 + ((p.phy || 70) / 22);
+      p.energy = Math.min(100, (p.energy || 100) + htRecovery); 
+    });
 
     // Saque de centro para la 2ª mitad
     this.resetKickoff(this.userSide === "home" ? "away" : "home");

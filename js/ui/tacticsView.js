@@ -134,8 +134,9 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                     <span class="text-xs font-bold text-slate-200">${p.name}</span>
                   </div>
                   <div class="flex items-center gap-2">
-                    <div class="w-12 h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                      <div class="h-full bg-emerald-400" style="width: ${p.energy}%;"></div>
+                    <span class="text-[10px] font-mono ${(p.energy || 100) >= 80 ? 'text-emerald-400' : (p.energy || 100) >= 65 ? 'text-amber-400' : 'text-rose-400'} font-bold">⚡${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
+                    <div class="w-10 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div class="h-full ${(p.energy || 100) >= 80 ? 'bg-emerald-400' : (p.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${p.energy !== undefined ? p.energy : 100}%;"></div>
                     </div>
                     <span class="text-xs font-black text-amber-400 px-1.5 py-0.5 bg-slate-800/80 rounded">${p.ovr}</span>
                   </div>
@@ -230,7 +231,9 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
   function autoAlignLineup() {
     const formationKey = tactics.formation;
     const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    const allPlayers = [...team.players].sort((a, b) => b.ovr - a.ovr);
+    // Considerar tanto la media del jugador como su estado físico actual para rotar si está fatigado
+    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
+    const allPlayers = [...team.players].sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
     const used = new Set();
     const newLineup = [];
 
