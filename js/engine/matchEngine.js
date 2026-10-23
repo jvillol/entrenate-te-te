@@ -29,9 +29,11 @@ export class MatchSimulator {
     this.homeFormation = options.homeFormation || "4-3-3";
     this.awayFormation = options.awayFormation || "4-3-3";
 
-    // Límite de 5 cambios oficiales
+    // Límite de 5 cambios oficiales en 3 ventanas durante el partido (el descanso no consume ventana)
     this.homeSubsRemaining = 5;
     this.awaySubsRemaining = 5;
+    this.homeWindowsRemaining = 3;
+    this.awayWindowsRemaining = 3;
 
     // Estadísticas en tiempo real
     this.stats = {
@@ -146,13 +148,15 @@ export class MatchSimulator {
   }
 
   // Realizar sustitución en vivo
-  makeSubstitution(teamSide, pitchPlayerId, benchPlayerId) {
+  makeSubstitution(teamSide, pitchPlayerId, benchPlayerId, isHalfTime = false) {
     const isHome = teamSide === "home";
     const onPitchList = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const benchList = isHome ? this.homeBench : this.awayBench;
     const remaining = isHome ? this.homeSubsRemaining : this.awaySubsRemaining;
+    const remainingWindows = isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining;
 
     if (remaining <= 0) return { success: false, reason: "Ya se han realizado los 5 cambios permitidos" };
+    if (!isHalfTime && remainingWindows <= 0) return { success: false, reason: "Ya se han agotado las 3 ventanas de cambios permitidas en juego" };
 
     const pitchIndex = onPitchList.findIndex(p => p.id === pitchPlayerId);
     const benchIndex = benchList.findIndex(p => p.id === benchPlayerId);
@@ -171,33 +175,52 @@ export class MatchSimulator {
 
     if (isHome) {
       this.homeSubsRemaining--;
+      if (!isHalfTime) this.homeWindowsRemaining--;
       this.home2D[pitchIndex].player = inPlayer;
     } else {
       this.awaySubsRemaining--;
+      if (!isHalfTime) this.awayWindowsRemaining--;
       this.away2D[pitchIndex].player = inPlayer;
     }
 
     this.triggerAlert("CAMBIO", `🔄 Cambio: entra ${inPlayer.name} por ${outPlayer.name}`, isHome ? "home" : "away");
 
-    return { success: true, inPlayer, outPlayer };
+    return {
+      success: true,
+      inPlayer,
+      outPlayer,
+      remaining: isHome ? this.homeSubsRemaining : this.awaySubsRemaining,
+      windowsRemaining: isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining
+    };
   }
 
   // Aplicar ajustes tácticos completos (formación, mentalidad, cambios de puesto y sustituciones)
-  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds) {
+  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false) {
     const isHome = teamSide === "home";
     const currentPitch = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const currentPitchIds = currentPitch.map(p => p.id);
     const remaining = isHome ? this.homeSubsRemaining : this.awaySubsRemaining;
+    const remainingWindows = isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining;
 
     // Detectar qué futbolistas entran desde el banquillo
     const subsInIds = newLineupPlayerIds.filter(id => !currentPitchIds.includes(id));
     const subsOutIds = currentPitchIds.filter(id => !newLineupPlayerIds.includes(id));
 
-    if (subsInIds.length > remaining) {
-      return {
-        success: false,
-        reason: `Solo te quedan ${remaining} cambios permitidos (has intentado realizar ${subsInIds.length}).`
-      };
+    if (subsInIds.length > 0) {
+      if (subsInIds.length > remaining) {
+        return {
+          success: false,
+          reason: `Solo te quedan ${remaining} cambios permitidos (has intentado realizar ${subsInIds.length}).`
+        };
+      }
+
+      // Si no es el descanso, verificar ventanas de cambios disponibles (máximo 3 ventanas en juego)
+      if (!isHalfTime && remainingWindows <= 0) {
+        return {
+          success: false,
+          reason: "Ya has agotado las 3 ventanas de cambios permitidas en el partido. En el descanso no cuentan, pero durante el juego ya no puedes hacer más cambios."
+        };
+      }
     }
 
     const allTeamPlayers = isHome 
@@ -224,12 +247,18 @@ export class MatchSimulator {
     // Actualizar estado del simulador
     if (isHome) {
       this.homeSubsRemaining -= subsInIds.length;
+      if (!isHalfTime && subsInIds.length > 0) {
+        this.homeWindowsRemaining--;
+      }
       this.homePlayersOnPitch = newPitch;
       this.homeBench = newBench;
       if (newFormationKey) this.homeFormation = newFormationKey;
       if (newMentality) this.homeMentality = newMentality;
     } else {
       this.awaySubsRemaining -= subsInIds.length;
+      if (!isHalfTime && subsInIds.length > 0) {
+        this.awayWindowsRemaining--;
+      }
       this.awayPlayersOnPitch = newPitch;
       this.awayBench = newBench;
       if (newFormationKey) this.awayFormation = newFormationKey;
@@ -266,7 +295,8 @@ export class MatchSimulator {
       success: true,
       subsCount: subsInIds.length,
       subsPairs,
-      remaining: isHome ? this.homeSubsRemaining : this.awaySubsRemaining
+      remaining: isHome ? this.homeSubsRemaining : this.awaySubsRemaining,
+      windowsRemaining: isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining
     };
   }
 
@@ -274,7 +304,8 @@ export class MatchSimulator {
   checkAISubstitutions() {
     if (this.isHalfTime || this.isFinished || !this.isRunning) return;
     const aiSubsRemaining = this.aiSide === "home" ? this.homeSubsRemaining : this.awaySubsRemaining;
-    if (aiSubsRemaining <= 0) return;
+    const aiWindowsRemaining = this.aiSide === "home" ? this.homeWindowsRemaining : this.awayWindowsRemaining;
+    if (aiSubsRemaining <= 0 || aiWindowsRemaining <= 0) return;
 
     // La IA realiza cambios realistas entre el minuto 56 y el 86
     if (this.minute < 56 || this.minute > 86) return;
@@ -1175,6 +1206,8 @@ export class MatchSimulator {
       events: this.events,
       homeSubsRemaining: this.homeSubsRemaining,
       awaySubsRemaining: this.awaySubsRemaining,
+      homeWindowsRemaining: this.homeWindowsRemaining,
+      awayWindowsRemaining: this.awayWindowsRemaining,
       homePlayersOnPitch: this.homePlayersOnPitch,
       homeBench: this.homeBench,
       awayPlayersOnPitch: this.awayPlayersOnPitch,

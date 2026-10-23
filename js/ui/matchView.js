@@ -687,7 +687,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           <div class="flex items-center gap-2">
             <button id="btn-subs" class="flex-1 py-3 bg-gradient-to-r from-emerald-600 to-teal-600 active:scale-98 text-white font-extrabold text-xs rounded-xl shadow-lg flex items-center justify-center gap-2">
               <span>📋 TÁCTICA Y CAMBIOS</span>
-              <span id="subs-count-badge" class="px-2 py-0.5 rounded-full bg-black/40 text-[10px] font-mono">5 rest.</span>
+              <span id="subs-count-badge" class="px-2 py-0.5 rounded-full bg-black/40 text-[10px] font-mono">5 rest. (3 vent.)</span>
             </button>
 
             <button id="btn-cycle-mentality" class="py-3 px-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-sky-400 font-bold text-xs rounded-xl border border-slate-700 whitespace-nowrap">
@@ -2033,7 +2033,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (dot) dot.style.backgroundColor = team.primaryColor || "#38bdf8";
       if (title) title.textContent = count > 1 ? `DOBLE CAMBIO EN ${team.name.toUpperCase()}` : `CAMBIO EN ${team.name.toUpperCase()}`;
       if (minBadge) minBadge.textContent = `${subData.minute || simulator.minute}'`;
-      if (remText) remText.textContent = `${subData.remaining} cambios restantes`;
+      if (remText) {
+        if (subData.isHalfTime || simulator.isHalfTime) {
+          remText.textContent = `${subData.remaining} cambios restantes · Descanso (no gasta ventana)`;
+        } else if (subData.windowsRemaining !== undefined) {
+          remText.textContent = `${subData.remaining} cambios restantes · ${subData.windowsRemaining} ventanas restantes`;
+        } else {
+          remText.textContent = `${subData.remaining} cambios restantes`;
+        }
+      }
 
       containerPlayers.innerHTML = (subData.subs || []).map(pair => `
         <div class="flex items-center justify-between bg-slate-900/95 border border-slate-700/80 rounded-xl p-2 shadow-xl">
@@ -2429,7 +2437,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       const subsBadge = container.querySelector("#subs-count-badge");
       const remaining = isUserHome ? state.homeSubsRemaining : state.awaySubsRemaining;
-      if (subsBadge) subsBadge.textContent = `${remaining} rest.`;
+      const windows = isUserHome ? state.homeWindowsRemaining : state.awayWindowsRemaining;
+      if (subsBadge) {
+        subsBadge.textContent = `${remaining} rest. (${windows} vent.)`;
+        if (windows <= 0 || remaining <= 0) {
+          subsBadge.className = "px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 text-[10px] font-mono";
+        } else {
+          subsBadge.className = "px-2 py-0.5 rounded-full bg-black/40 text-[10px] font-mono";
+        }
+      }
     }
 
     function handleHalfTimeSequence(htState) {
@@ -2462,7 +2478,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (htTargetA) htTargetA.textContent = htState.stats.shotsOnTarget.away;
 
       const remainingSubs = isUserHome ? htState.homeSubsRemaining : htState.awaySubsRemaining;
-      if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest.`;
+      if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest. (Descanso: no gasta ventana)`;
 
       const elTimer = container.querySelector("#match-timer");
       if (elTimer) {
@@ -2625,6 +2641,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       let htSelectedPlayerId = null;
 
       const startRemaining = isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining;
+      const startWindows = isUserHome ? simulator.homeWindowsRemaining : simulator.awayWindowsRemaining;
 
       function renderHTTactics() {
         const formation = FORMATIONS[htFormationKey] || FORMATIONS["4-3-3"];
@@ -2637,10 +2654,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         // Badge superior
         const elBadge = modalHTTactics.querySelector("#ht-tactic-remaining-badge");
         if (elBadge) {
-          elBadge.textContent = `${curRemaining} de 5 cambios rest.`;
-          elBadge.className = curRemaining > 0 
-            ? "px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400"
-            : "px-2.5 py-1 rounded-full bg-red-950/80 border border-red-500/50 text-xs font-mono font-bold text-red-400";
+          if (!isLive) {
+            elBadge.textContent = `${curRemaining} de 5 cambios · ⏸️ Descanso (no gasta ventana)`;
+            elBadge.className = "px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-emerald-400";
+          } else {
+            elBadge.textContent = `${curRemaining} de 5 cambios · 🪟 ${startWindows} vent. rest.`;
+            elBadge.className = startWindows > 0 && curRemaining > 0
+              ? "px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400"
+              : "px-2.5 py-1 rounded-full bg-red-950/80 border border-red-500/50 text-xs font-mono font-bold text-red-400";
+          }
         }
 
         // Subtítulo con cambios pendientes
@@ -2794,6 +2816,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           htLineupIds[inLineup2] = tmp;
         } else if (inLineup1 !== -1 && inBench2 !== -1) {
           // Titular sale por Suplente
+          if (isLive && startWindows <= 0) {
+            alert("Has agotado las 3 ventanas de cambios permitidas en el partido. Los cambios en el descanso no consumen ventana, pero en juego ya no puedes hacer más cambios.");
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
           const testLineup = [...htLineupIds];
           testLineup[inLineup1] = tappedId;
           const testSubsCount = testLineup.filter(id => !initialPitchIds.includes(id)).length;
@@ -2809,6 +2837,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           htBenchIds[inBench2] = htSelectedPlayerId;
         } else if (inBench1 !== -1 && inLineup2 !== -1) {
           // Suplente entra por Titular
+          if (isLive && startWindows <= 0) {
+            alert("Has agotado las 3 ventanas de cambios permitidas en el partido. Los cambios en el descanso no consumen ventana, pero en juego ya no puedes hacer más cambios.");
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
           const testLineup = [...htLineupIds];
           testLineup[inLineup2] = htSelectedPlayerId;
           const testSubsCount = testLineup.filter(id => !initialPitchIds.includes(id)).length;
@@ -2856,7 +2890,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           htFormationKey,
           htMentality,
           htLineupIds,
-          htBenchIds
+          htBenchIds,
+          !isLive
         );
 
         if (!res.success) {
@@ -2876,10 +2911,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         modalHTTactics.classList.add("hidden");
 
         const htSubsBadge = container.querySelector("#ht-subs-badge");
-        if (htSubsBadge) htSubsBadge.textContent = `${res.remaining} rest.`;
+        if (htSubsBadge) htSubsBadge.textContent = `${res.remaining} rest. (Descanso: no gasta ventana)`;
 
         const subsBadge = container.querySelector("#subs-count-badge");
-        if (subsBadge) subsBadge.textContent = `${res.remaining} rest.`;
+        if (subsBadge) {
+          subsBadge.textContent = `${res.remaining} rest. (${res.windowsRemaining} vent.)`;
+          if (res.windowsRemaining <= 0 || res.remaining <= 0) {
+            subsBadge.className = "px-2 py-0.5 rounded-full bg-red-900/60 text-red-300 text-[10px] font-mono";
+          }
+        }
 
         if (isLive) {
           if (res.subsCount > 0) {
@@ -2888,7 +2928,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               team: userTeam,
               subs: res.subsPairs,
               minute: simulator.minute,
-              remaining: res.remaining
+              remaining: res.remaining,
+              windowsRemaining: res.windowsRemaining,
+              isHalfTime: false
             }, () => {
               if (wasRunning && !simulator.isFinished && !simulator.isHalfTime) {
                 simulator.start();
@@ -2911,7 +2953,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               team: userTeam,
               subs: res.subsPairs,
               minute: 45,
-              remaining: res.remaining
+              remaining: res.remaining,
+              windowsRemaining: res.windowsRemaining,
+              isHalfTime: true
             }, () => {
               if (modalHT) modalHT.classList.remove("hidden");
             });
@@ -3255,7 +3299,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         if (modalHT) {
           const htSubsBadge = container.querySelector("#ht-subs-badge");
           const remainingSubs = isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining;
-          if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest.`;
+          if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest. (Descanso)`;
           modalHT.classList.remove("hidden");
         }
         if (pendingUserSubs.length > 0) {
@@ -3264,7 +3308,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             team: userTeam,
             subs: [...pendingUserSubs],
             minute: 45,
-            remaining: isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining
+            remaining: isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining,
+            windowsRemaining: isUserHome ? simulator.homeWindowsRemaining : simulator.awayWindowsRemaining,
+            isHalfTime: true
           }, () => {
             if (modalHT) modalHT.classList.remove("hidden");
           });
@@ -3277,7 +3323,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             team: userTeam,
             subs: [...pendingUserSubs],
             minute: simulator.minute,
-            remaining: isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining
+            remaining: isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining,
+            windowsRemaining: isUserHome ? simulator.homeWindowsRemaining : simulator.awayWindowsRemaining,
+            isHalfTime: false
           }, () => {
             if (!simulator.isFinished && !simulator.isHalfTime) {
               simulator.start();
@@ -3340,7 +3388,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             return;
           }
           const benchId = item.dataset.id;
-          const res = simulator.makeSubstitution(isUserHome ? "home" : "away", subSelectedPitchId, benchId);
+          const res = simulator.makeSubstitution(isUserHome ? "home" : "away", subSelectedPitchId, benchId, simulator.isHalfTime);
           if (res.success) {
             pendingUserSubs.push({ outPlayer: res.outPlayer, inPlayer: res.inPlayer });
             subSelectedPitchId = null;
