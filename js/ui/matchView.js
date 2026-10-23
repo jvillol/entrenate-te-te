@@ -3,6 +3,7 @@
 import { MatchSimulator } from "../engine/matchEngine.js";
 import { simulateAIParties, updateStandings } from "../engine/leagueEngine.js";
 import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating } from "../engine/tactics.js";
+import { SaveManager } from "../engine/saveManager.js";
 
 export function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   const currentRoundData = gameState.schedule[gameState.currentRound - 1];
@@ -29,6 +30,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
   let preMatchTab = "USER"; // "USER" o "OPPONENT"
   let selectedPreMatchPlayerId = null;
+  let preMatchSaveFeedback = null;
+  let masterTacticsForNextMatches = null;
 
   function getOpponentLineup(oppTeam) {
     const formationKey = oppTeam.defaultFormation || "4-3-3";
@@ -174,6 +177,17 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             `;
           })()}
 
+          <!-- Banner de Confirmación de Guardado de Táctica -->
+          ${preMatchSaveFeedback ? `
+            <div id="pre-save-feedback" class="mx-3 mt-2 p-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/50 flex items-center justify-between text-xs text-emerald-300 shadow-md transition-all">
+              <div class="flex items-center gap-2">
+                <span class="text-base flex-shrink-0">💾</span>
+                <span class="font-bold">${preMatchSaveFeedback}</span>
+              </div>
+              <span class="text-[10px] text-emerald-400 font-mono bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/40 font-bold">Guardada</span>
+            </div>
+          ` : ''}
+
           <!-- Terreno de Juego Táctico Interactivo Usuario -->
           <div class="p-3 flex-1 flex flex-col justify-center">
             <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
@@ -241,8 +255,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
           </div>
 
-          <!-- Botón de Confirmación y Saltar al Campo -->
-          <footer class="px-3">
+          <!-- Botón de Confirmación y Saltar al Campo con Guardado -->
+          <footer class="px-3 space-y-2">
+            <button id="btn-pre-save-tactics" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-98 text-sky-400 hover:text-sky-300 border border-sky-500/40 hover:border-sky-400 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
+              <span class="text-sm">💾</span>
+              <span>Guardar formación y 11 para siguientes partidos</span>
+            </button>
             <button id="btn-start-match-confirmed" class="w-full py-4 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-sm rounded-2xl shadow-xl shadow-emerald-500/25 transition-all flex items-center justify-center gap-2">
               <span>⚽ ¡CONFIRMAR 11 Y SALTAR AL CAMPO!</span>
               <span>➔</span>
@@ -340,6 +358,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     // Eventos Pre-Partido
     container.querySelector("#btn-pre-back")?.addEventListener("click", () => {
+      SaveManager.saveGame(gameState);
       if (onBackToHub) onBackToHub();
     });
 
@@ -369,6 +388,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     });
 
     container.querySelector("#btn-start-match-from-rival")?.addEventListener("click", () => {
+      SaveManager.saveGame(gameState);
       startLiveSimulation();
     });
 
@@ -376,6 +396,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     if (btnAuto) {
       btnAuto.onclick = () => {
         autoAlignLineup();
+        SaveManager.saveGame(gameState);
+        preMatchSaveFeedback = `¡Alineación automática generada y guardada para los siguientes partidos!`;
         renderPreMatch();
       };
     }
@@ -383,6 +405,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     container.querySelectorAll(".btn-pre-formation").forEach(b => {
       b.onclick = () => {
         tactics.formation = b.dataset.formation;
+        SaveManager.saveGame(gameState);
         renderPreMatch();
       };
     });
@@ -390,6 +413,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     container.querySelectorAll(".btn-pre-mentality").forEach(b => {
       b.onclick = () => {
         tactics.mentality = b.dataset.mentality;
+        SaveManager.saveGame(gameState);
         renderPreMatch();
       };
     });
@@ -400,9 +424,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     });
 
+    const btnSaveTactics = container.querySelector("#btn-pre-save-tactics");
+    if (btnSaveTactics) {
+      btnSaveTactics.onclick = () => {
+        SaveManager.saveGame(gameState);
+        preMatchSaveFeedback = `¡Formación (${tactics.formation}) y alineación guardadas para futuros partidos!`;
+        renderPreMatch();
+      };
+    }
+
     const btnConfirm = container.querySelector("#btn-start-match-confirmed");
     if (btnConfirm) {
       btnConfirm.onclick = () => {
+        SaveManager.saveGame(gameState);
         startLiveSimulation();
       };
     }
@@ -445,6 +479,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     selectedPreMatchPlayerId = null;
+    SaveManager.saveGame(gameState);
     renderPreMatch();
   }
 
@@ -477,12 +512,17 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     tactics.lineup = newLineup;
     tactics.bench = allPlayers.filter(p => !used.has(p.id)).map(p => p.id);
+    SaveManager.saveGame(gameState);
   }
 
   // ==========================================
   // FASE 2: SIMULACIÓN EN VIVO (PARTIDO)
   // ==========================================
   function startLiveSimulation() {
+    // Guardar la configuración táctica oficial pre-partido para los siguientes partidos
+    masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+    SaveManager.saveGame(gameState);
+
     // Aplicar alineaciones oficiales de ambos equipos
     const oppLineupData = getOpponentLineup(opponentTeam);
     if (isUserHome) {
@@ -3488,6 +3528,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (modalEnd) modalEnd.classList.remove("hidden");
 
       container.querySelector("#btn-finish-match-continue").onclick = () => {
+        // Asegurar que la formación y alineación guardadas se preserven para los siguientes partidos
+        if (masterTacticsForNextMatches) {
+          gameState.userTactics = JSON.parse(JSON.stringify(masterTacticsForNextMatches));
+        }
+        SaveManager.saveGame(gameState);
         onMatchFinished();
       };
     }
