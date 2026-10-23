@@ -2303,20 +2303,20 @@ class MatchSimulator {
             this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO");
           } else if (isPost) {
             this.triggerAlert("AL PALO", `🥅 ¡Al palo el lanzamiento de ${taker.name}!`, attackingSide, 3000);
-            this.finishSetPiecePlay(onDone);
+            this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
           } else if (isSave) {
             this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name}!`, isHome ? "away" : "home", 3000);
-            this.finishSetPiecePlay(onDone);
+            this.finishSetPiecePlay("SAVE", attackingSide, onDone);
           } else {
             this.triggerAlert("FUERA", `⚠️ ¡El tiro de ${taker.name} se marcha alto!`, attackingSide, 2500);
-            this.finishSetPiecePlay(onDone);
+            this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
           }
         } else {
           const targetPlayer = placements[targetStrategy] || placements["PENALTY_SPOT"] || placements["NEAR_POST"];
 
           if (!targetPlayer) {
             this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
-            this.finishSetPiecePlay(onDone);
+            this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
             return;
           }
 
@@ -2330,19 +2330,20 @@ class MatchSimulator {
 
           if (kickQuality < 56) {
             this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
-            this.finishSetPiecePlay(onDone);
+            this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
           } else if (remateScore > gkScore + 5) {
             this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "JUGADA ENSAYADA");
           } else if (remateScore > gkScore - 4) {
             if (Math.random() < 0.3) {
               this.triggerAlert("AL PALO", `🥅 ¡Al palo el cabezazo de ${targetPlayer.name}!`, attackingSide, 3000);
+              this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
             } else {
               this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name}!`, isHome ? "away" : "home", 3000);
+              this.finishSetPiecePlay("SAVE", attackingSide, onDone);
             }
-            this.finishSetPiecePlay(onDone);
           } else {
             this.triggerAlert("FUERA", `⚠️ ¡Remate desviado de ${targetPlayer.name}!`, attackingSide, 2500);
-            this.finishSetPiecePlay(onDone);
+            this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
           }
         }
       }, 1400);
@@ -2392,28 +2393,84 @@ class MatchSimulator {
     });
   }
 
-  finishSetPiecePlay(onDone) {
+  finishSetPiecePlay(outcome = "GOAL_KICK", attackingSide = "home", onDone = null) {
+    const isHome = attackingSide === "home";
+    const defSide = isHome ? "away" : "home";
+    const defTeam = isHome ? this.awayTeam : this.homeTeam;
+
     setTimeout(() => {
-      this.isSetPieceRunning = false;
-      this.speed = this.userSpeed;
+      // 1. Ejecutar saque de puerta reglamentario o posesión del equipo defensor
+      if (outcome === "GOAL_KICK") {
+        this.triggerAlert("SAQUE DE PUERTA", `🧤 Saque de puerta para ${defTeam.shortName}`, defSide, 2200);
 
-      // Volver a colocar posiciones dinámicas del juego
-      this.update2DPositions();
+        // Posicionar el balón en el área de meta para el saque de puerta
+        const gkX = isHome ? 94 : 6;
+        const gkY = 50;
+        this.ball.x = gkX;
+        this.ball.y = gkY;
+        this.ball.z = 0;
+        this.ball.targetX = gkX;
+        this.ball.targetY = gkY;
+        this.ball.targetZ = 0;
+        this.ball.possession = defSide;
 
-      if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
-        this.halfTimeTriggered = true;
-        this.isHalfTime = true;
-        this.pause();
-        this.onHalfTime(this.getState());
-        return;
+        // Posicionar al portero defensor junto al balón
+        const def2D = isHome ? this.away2D : this.home2D;
+        const gkItem = def2D.find(p => p.isKeeper) || def2D[0];
+        if (gkItem) {
+          gkItem.curX = gkX;
+          gkItem.curY = gkY;
+          gkItem.targetX = gkX;
+          gkItem.targetY = gkY;
+        }
+
+        // El portero efectúa el saque de puerta por alto hacia el centro del campo
+        setTimeout(() => {
+          this.ball.targetX = isHome ? 54 - Math.random() * 12 : 46 + Math.random() * 12;
+          this.ball.targetY = 32 + Math.random() * 36;
+          this.ball.targetZ = 7 + Math.random() * 4;
+          this.update2DPositions();
+        }, 700);
+      } else {
+        // Despeje o parada: el equipo defensor se hace con la posesión y juega en corto
+        this.ball.possession = defSide;
+        this.ball.targetX = isHome ? 70 - Math.random() * 12 : 30 + Math.random() * 12;
+        this.ball.targetY = 30 + Math.random() * 40;
+        this.ball.targetZ = 0;
+        this.update2DPositions();
       }
 
-      if (this.minute >= this.maxMinutes) {
-        this.finish();
-        return;
-      }
+      // 2. Transición y reanudación automática de la simulación
+      setTimeout(() => {
+        this.isSetPieceRunning = false;
+        this.speed = this.userSpeed;
 
-      if (onDone) onDone();
+        // Reposicionar a los 22 futbolistas a sus posiciones dinámicas de juego
+        this.update2DPositions();
+
+        // Comprobar descanso reglamentario
+        if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+          this.halfTimeTriggered = true;
+          this.isHalfTime = true;
+          this.pause();
+          this.onHalfTime(this.getState());
+          return;
+        }
+
+        // Comprobar final de partido
+        if (this.minute >= this.maxMinutes) {
+          this.finish();
+          return;
+        }
+
+        if (onDone) onDone();
+
+        // Reanudar la simulación activa para que el partido continúe con total fluidez
+        if (!this.isFinished && !this.isHalfTime) {
+          this.isRunning = true;
+          this.loop();
+        }
+      }, outcome === "GOAL_KICK" ? 1600 : 1100);
     }, 1000);
   }
 
@@ -7137,6 +7194,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           const stratObj = strategies.find(s => s.id === currentStrategy);
           showMatchAlert({ text: `⚽ ¡${currentTaker.name} listo para ejecutar! Estrategia: ${stratObj?.label || 'Balón al área'}` });
 
+          if (iconPP) iconPP.textContent = "⏸";
+          if (textPP) textPP.textContent = "Pausar";
+
           simulator.executeSetPiece({
             type: spInfo.type,
             attackingSide: spInfo.attackingSide,
@@ -7145,9 +7205,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             targetStrategy: currentStrategy,
             placements: resolvedPlacements
           }, () => {
-            if (!simulator.isFinished && !simulator.isHalfTime && simulator.isRunning) {
-              iconPP.textContent = "⏸";
-              textPP.textContent = "Pausar";
+            if (!simulator.isFinished && !simulator.isHalfTime) {
+              if (iconPP) iconPP.textContent = "⏸";
+              if (textPP) textPP.textContent = "Pausar";
             }
           });
         };

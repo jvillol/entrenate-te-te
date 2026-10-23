@@ -3474,6 +3474,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           const stratObj = strategies.find(s => s.id === currentStrategy);
           showMatchAlert({ text: `⚽ ¡${currentTaker.name} listo para ejecutar! Estrategia: ${stratObj?.label || 'Balón al área'}` });
 
+          if (iconPP) iconPP.textContent = "⏸";
+          if (textPP) textPP.textContent = "Pausar";
+
           simulator.executeSetPiece({
             type: spInfo.type,
             attackingSide: spInfo.attackingSide,
@@ -3482,9 +3485,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             targetStrategy: currentStrategy,
             placements: resolvedPlacements
           }, () => {
-            if (!simulator.isFinished && !simulator.isHalfTime && simulator.isRunning) {
-              iconPP.textContent = "⏸";
-              textPP.textContent = "Pausar";
+            if (!simulator.isFinished && !simulator.isHalfTime) {
+              if (iconPP) iconPP.textContent = "⏸";
+              if (textPP) textPP.textContent = "Pausar";
             }
           });
         };
