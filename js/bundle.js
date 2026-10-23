@@ -1327,6 +1327,9 @@ class MatchSimulator {
     this.aiSide = this.userSide === "home" ? "away" : "home";
     this.lastAISubMinute = 0;
 
+    this.onSetPiece = options.onSetPiece || (() => {});
+    this.isSetPieceRunning = false;
+
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
   }
@@ -1722,11 +1725,11 @@ class MatchSimulator {
           }
         });
         return true;
-      } else if (chanceRoll < attackScore + 0.05) {
-        // Córner o falta colgada al área
-        this.ball.targetZ = 18;
-        this.stats.corners.home++;
-        this.triggerAlert("CÓRNER", `🚩 Córner para ${this.homeTeam.shortName}`, "home");
+      } else if (chanceRoll < attackScore + 0.055) {
+        // Balón parado (Córner o Falta peligrosa)
+        const isCorner = Math.random() < 0.65;
+        this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK");
+        return true;
       } else {
         // Pase o centro medio
         this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
@@ -1751,23 +1754,31 @@ class MatchSimulator {
           }
         });
         return true;
-      } else if (chanceRoll < attackScore + 0.05) {
-        this.ball.targetZ = 18;
-        this.stats.corners.away++;
-        this.triggerAlert("CÓRNER", `🚩 Córner para ${this.awayTeam.shortName}`, "away");
+      } else if (chanceRoll < attackScore + 0.055) {
+        // Balón parado (Córner o Falta peligrosa)
+        const isCorner = Math.random() < 0.65;
+        this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK");
+        return true;
       } else {
         this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
       }
     }
 
-    // Posibles faltas y tarjetas (independientes del ataque)
-    if (Math.random() < 0.06) {
+    // Posibles faltas y tarjetas (con opción de falta peligrosa a balón parado)
+    if (Math.random() < 0.065) {
       const foulTeam = Math.random() > 0.5 ? "home" : "away";
       this.stats.fouls[foulTeam]++;
+      const victimTeam = foulTeam === "home" ? "away" : "home";
+
       if (Math.random() < 0.22) {
         this.stats.yellowCards[foulTeam]++;
         const teamName = foulTeam === "home" ? this.homeTeam.shortName : this.awayTeam.shortName;
         this.triggerAlert("TARJETA", `🟨 Tarjeta amarilla para ${teamName}`, foulTeam);
+      }
+
+      if (Math.random() < 0.40 && !this.isHighlightRunning && !this.isSetPieceRunning) {
+        this.triggerSetPiece(victimTeam, "FREE_KICK");
+        return true;
       }
     }
 
@@ -1958,6 +1969,313 @@ class MatchSimulator {
         }
       }, 1000);
     }, 1100);
+  }
+
+  // Activar jugada a balón parado (Córner o Falta peligrosa)
+  triggerSetPiece(attackingSide, type = "CORNER") {
+    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return;
+    this.isSetPieceRunning = true;
+
+    const isHome = attackingSide === "home";
+    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
+    const defTeam = isHome ? this.awayTeam : this.homeTeam;
+    const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
+
+    let spotX, spotY;
+    if (type === "CORNER") {
+      spotX = isHome ? 99.5 : 0.5;
+      spotY = Math.random() < 0.5 ? 0.8 : 99.2;
+    } else {
+      spotX = isHome ? (73 + Math.random() * 8) : (27 - Math.random() * 8);
+      spotY = 30 + Math.random() * 40;
+    }
+
+    const setPieceInfo = {
+      type,
+      attackingSide,
+      atkTeam,
+      defTeam,
+      atkPlayers,
+      defPlayers,
+      spot: { x: spotX, y: spotY },
+      minute: this.minute
+    };
+
+    if (attackingSide === this.userSide) {
+      // El usuario ataca a balón parado: pausar y abrir la pizarra táctica interactiva
+      this.pause();
+      this.onSetPiece(setPieceInfo);
+    } else {
+      // La IA rival ejecuta su jugada automáticamente en 3D
+      const aiSetup = this.buildAISetPieceSetup(setPieceInfo);
+      this.executeSetPiece(aiSetup, () => {
+        this.isSetPieceRunning = false;
+        if (!this.isFinished && !this.isHalfTime && this.isRunning) {
+          this.loop();
+        }
+      });
+    }
+  }
+
+  // Generar configuración automática para la IA rival en balón parado
+  buildAISetPieceSetup(info) {
+    const outfield = info.atkPlayers.filter(p => p.pos !== "POR");
+    const sortedKickers = [...outfield].sort((a, b) => ((b.pas || 70) + (b.sho || 70)) - ((a.pas || 70) + (a.sho || 70)));
+    const taker = sortedKickers[0] || outfield[0];
+
+    const nonTakers = outfield.filter(p => p.id !== taker.id);
+    const strategies = info.type === "FREE_KICK"
+      ? ["DIRECT_SHOT", "NEAR_POST", "PENALTY_SPOT", "FAR_POST", "SHORT_PASS"]
+      : ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "SHORT_PASS"];
+    const targetStrategy = strategies[Math.floor(Math.random() * strategies.length)];
+
+    const zones = ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "EDGE_BOX", "SHORT_OPTION", "STAY_BACK"];
+    const placements = {};
+    zones.forEach((z, idx) => {
+      if (nonTakers[idx]) {
+        placements[z] = nonTakers[idx];
+      }
+    });
+
+    return {
+      type: info.type,
+      attackingSide: info.attackingSide,
+      spot: info.spot,
+      taker,
+      targetStrategy,
+      placements
+    };
+  }
+
+  // Ejecución física y cinemática 3D de la jugada a balón parado con Azar + Estadísticas
+  executeSetPiece(setup, onDone) {
+    this.isSetPieceRunning = true;
+    this.speed = 1;
+
+    const { type, attackingSide, spot, taker, targetStrategy, placements } = setup;
+    const isHome = attackingSide === "home";
+    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
+    const defTeam = isHome ? this.awayTeam : this.homeTeam;
+    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
+    const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
+
+    if (type === "CORNER") {
+      this.stats.corners[attackingSide]++;
+    }
+
+    // FASE 1: Colocar balón, lanzador y rematadores en el área
+    this.ball.targetX = spot.x;
+    this.ball.targetY = spot.y;
+    this.ball.targetZ = 0;
+
+    const kickerObj = (isHome ? this.home2D : this.away2D).find(p => p.player?.id === taker.id);
+    if (kickerObj) {
+      kickerObj.curX = spot.x + (isHome ? -1.8 : 1.8);
+      kickerObj.curY = spot.y + (spot.y < 50 ? 1.5 : -1.5);
+      kickerObj.targetX = kickerObj.curX;
+      kickerObj.targetY = kickerObj.curY;
+      kickerObj.facingX = isHome ? 1 : -1;
+    }
+
+    const zoneCoords = {
+      NEAR_POST: { x: isHome ? 93 : 7, y: spot.y < 50 ? 44 : 56 },
+      PENALTY_SPOT: { x: isHome ? 89 : 11, y: 50 },
+      FAR_POST: { x: isHome ? 94 : 6, y: spot.y < 50 ? 56 : 44 },
+      EDGE_BOX: { x: isHome ? 81 : 19, y: 50 },
+      SHORT_OPTION: { x: isHome ? spot.x - 7 : spot.x + 7, y: spot.y < 50 ? 18 : 82 },
+      STAY_BACK: { x: isHome ? 46 : 54, y: 50 }
+    };
+
+    Object.keys(placements || {}).forEach(zone => {
+      const p = placements[zone];
+      if (!p) return;
+      const p2D = (isHome ? this.home2D : this.away2D).find(item => item.player?.id === p.id);
+      const coord = zoneCoords[zone];
+      if (p2D && coord) {
+        p2D.curX = coord.x + (Math.random() * 2 - 1);
+        p2D.curY = coord.y + (Math.random() * 2 - 1);
+        p2D.targetX = p2D.curX;
+        p2D.targetY = p2D.curY;
+      }
+    });
+
+    // Colocar defensores marcando en el área y formando barrera si es falta
+    const def2D = isHome ? this.away2D : this.home2D;
+    def2D.forEach((dp, idx) => {
+      if (dp.isKeeper) {
+        dp.curX = isHome ? 99 : 1;
+        dp.curY = 50;
+        dp.targetX = dp.curX;
+        dp.targetY = dp.curY;
+      } else if (type === "FREE_KICK" && idx < 4) {
+        const dirX = isHome ? 1 : -1;
+        dp.curX = spot.x + dirX * 9.5;
+        dp.curY = spot.y + (idx - 1.5) * 2.2;
+        dp.targetX = dp.curX;
+        dp.targetY = dp.curY;
+      } else {
+        dp.curX = (isHome ? 91 : 9) + (Math.random() * 4 - 2);
+        dp.curY = 40 + Math.random() * 20;
+        dp.targetX = dp.curX;
+        dp.targetY = dp.curY;
+      }
+    });
+
+    this.triggerAlert("BALÓN PARADO", `⚽ ${type === "CORNER" ? "Córner" : "Falta"} de ${atkTeam.shortName}`, attackingSide, 2600);
+
+    // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos
+    setTimeout(() => {
+      const baseStat = targetStrategy === "DIRECT_SHOT" ? (taker.sho || 75) : (taker.pas || 75);
+      const azarLanzamiento = (Math.random() * 44 - 22);
+      const kickQuality = baseStat + azarLanzamiento;
+
+      let destX, destY, destZ;
+      if (targetStrategy === "DIRECT_SHOT") {
+        destX = isHome ? 99 : 1;
+        destY = Math.random() < 0.5 ? 46.5 : 53.5;
+        destZ = 7 + Math.random() * 4;
+      } else if (targetStrategy === "SHORT_PASS") {
+        const shortCoord = zoneCoords.SHORT_OPTION || zoneCoords.EDGE_BOX;
+        destX = shortCoord.x;
+        destY = shortCoord.y;
+        destZ = 0.5;
+      } else {
+        const zoneCoord = zoneCoords[targetStrategy] || zoneCoords.PENALTY_SPOT;
+        destX = zoneCoord.x + (Math.random() * 3 - 1.5);
+        destY = zoneCoord.y + (Math.random() * 3 - 1.5);
+        destZ = 9 + Math.random() * 5;
+      }
+
+      this.ball.targetX = destX;
+      this.ball.targetY = destY;
+      this.ball.targetZ = destZ;
+
+      // FASE 3: Remate, despeje, palo, parada o GOL
+      setTimeout(() => {
+        this.stats.shots[attackingSide]++;
+
+        if (targetStrategy === "DIRECT_SHOT") {
+          const isSave = kickQuality < 80;
+          const isGoal = kickQuality >= 80 && Math.random() < 0.65;
+          const isPost = !isGoal && kickQuality >= 72 && Math.random() < 0.5;
+
+          if (isGoal) {
+            this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO");
+          } else if (isPost) {
+            this.triggerAlert("AL PALO", `🥅 ¡Al palo el lanzamiento de ${taker.name}!`, attackingSide, 3000);
+            this.finishSetPiecePlay(onDone);
+          } else if (isSave) {
+            this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name}!`, isHome ? "away" : "home", 3000);
+            this.finishSetPiecePlay(onDone);
+          } else {
+            this.triggerAlert("FUERA", `⚠️ ¡El tiro de ${taker.name} se marcha alto!`, attackingSide, 2500);
+            this.finishSetPiecePlay(onDone);
+          }
+        } else {
+          const targetPlayer = placements[targetStrategy] || placements["PENALTY_SPOT"] || placements["NEAR_POST"];
+
+          if (!targetPlayer) {
+            this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
+            this.finishSetPiecePlay(onDone);
+            return;
+          }
+
+          const remateStat = (targetPlayer.sho || 75);
+          const azarRemate = (Math.random() * 38 - 19);
+          const remateScore = remateStat + azarRemate;
+
+          const gkStat = (goalkeeper.ovr || 78);
+          const azarGK = (Math.random() * 30 - 15);
+          const gkScore = gkStat + azarGK;
+
+          if (kickQuality < 56) {
+            this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
+            this.finishSetPiecePlay(onDone);
+          } else if (remateScore > gkScore + 5) {
+            this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "JUGADA ENSAYADA");
+          } else if (remateScore > gkScore - 4) {
+            if (Math.random() < 0.3) {
+              this.triggerAlert("AL PALO", `🥅 ¡Al palo el cabezazo de ${targetPlayer.name}!`, attackingSide, 3000);
+            } else {
+              this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name}!`, isHome ? "away" : "home", 3000);
+            }
+            this.finishSetPiecePlay(onDone);
+          } else {
+            this.triggerAlert("FUERA", `⚠️ ¡Remate desviado de ${targetPlayer.name}!`, attackingSide, 2500);
+            this.finishSetPiecePlay(onDone);
+          }
+        }
+      }, 1400);
+    }, 1500);
+  }
+
+  handleSetPieceGoal(attackingSide, scorer, assister, style) {
+    const isHome = attackingSide === "home";
+    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
+    const defTeam = isHome ? this.awayTeam : this.homeTeam;
+
+    if (isHome) this.homeScore++;
+    else this.awayScore++;
+
+    scorer.goals = (scorer.goals || 0) + 1;
+
+    this.ball.targetX = isHome ? 99.5 : 0.5;
+    this.ball.targetY = 47 + Math.random() * 6;
+    this.ball.targetZ = 5 + Math.random() * 4;
+
+    const event = {
+      type: "GOAL",
+      minute: this.minute,
+      teamSide: attackingSide,
+      teamId: atkTeam.id,
+      teamName: atkTeam.shortName,
+      playerName: scorer.name,
+      currentScore: `${this.homeScore} - ${this.awayScore}`
+    };
+    this.events.push(event);
+
+    this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${scorer.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
+
+    this.isSetPieceRunning = false;
+    this.speed = this.userSpeed;
+
+    this.onGoal({
+      shooter: scorer,
+      passer: assister,
+      attackingSide,
+      concedingSide: isHome ? "away" : "home",
+      atkTeam,
+      defTeam,
+      minute: this.minute,
+      formattedMinute: this.getFormattedMinute(),
+      score: `${this.homeScore} - ${this.awayScore}`
+    });
+  }
+
+  finishSetPiecePlay(onDone) {
+    setTimeout(() => {
+      this.isSetPieceRunning = false;
+      this.speed = this.userSpeed;
+
+      // Volver a colocar posiciones dinámicas del juego
+      this.update2DPositions();
+
+      if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+        this.halfTimeTriggered = true;
+        this.isHalfTime = true;
+        this.pause();
+        this.onHalfTime(this.getState());
+        return;
+      }
+
+      if (this.minute >= this.maxMinutes) {
+        this.finish();
+        return;
+      }
+
+      if (onDone) onDone();
+    }, 1000);
   }
 
   // Colocar a los equipos y balón para sacar del centro del campo tras un gol
@@ -3508,6 +3826,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       onSubstitution: (subData) => handleSubstitutionChyron(subData),
       onHighlightStart: (hlData) => handleHighlightStart(hlData),
       onHighlightEnd: () => handleHighlightEnd(),
+      onSetPiece: (spInfo) => openSetPieceModal(spInfo),
       onFinish: handleLiveMatchEnd
     });
 
@@ -3789,6 +4108,83 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 <span>➔</span>
               </button>
             </div>
+          </div>
+        </div>
+
+        <!-- Modal Táctico de Balón Parado (Pizarra de Córners y Faltas Peligrosas) -->
+        <div id="modal-setpiece" class="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 hidden flex flex-col justify-between overflow-y-auto">
+          <div class="max-w-md w-full mx-auto flex flex-col min-h-screen text-white select-none pb-4">
+            <!-- Header Balón Parado -->
+            <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 shadow-md flex items-center justify-between">
+              <div>
+                <span id="setpiece-badge-type" class="text-[10px] uppercase font-black text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2 py-0.5 rounded-full">🚩 CÓRNER A FAVOR</span>
+                <h2 id="setpiece-title" class="text-sm font-extrabold text-white leading-tight mt-0.5">Pizarra de Balón Parado</h2>
+              </div>
+              <button id="btn-setpiece-auto" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-bold text-sky-400 active:scale-95 transition">
+                ⚡ Auto
+              </button>
+            </header>
+
+            <!-- Selector de Lanzador y Estrategia -->
+            <div class="p-3 bg-slate-900/60 border-b border-slate-800 space-y-2">
+              <div class="flex items-center justify-between gap-2">
+                <span class="text-[10px] uppercase font-bold text-slate-400 flex-shrink-0">🎯 Lanzador:</span>
+                <select id="setpiece-taker-select" class="flex-1 bg-slate-800 border border-slate-700 text-white font-bold text-xs rounded-xl px-2 py-1.5 outline-none truncate">
+                </select>
+              </div>
+
+              <div>
+                <span class="text-[10px] uppercase font-bold text-slate-400 block mb-1">📐 Tipo de Envío / Remate:</span>
+                <div id="setpiece-strategy-chips" class="grid grid-cols-2 gap-1.5 text-xs">
+                </div>
+              </div>
+            </div>
+
+            <!-- Terreno de Juego: Pizarra del Área y Zonas de Remate -->
+            <div class="p-3 flex-1 flex flex-col justify-center">
+              <div class="relative w-full aspect-[4/3] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+                <!-- Portería y líneas del área -->
+                <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
+                <div class="absolute top-2 left-1/2 -translate-x-1/2 w-44 h-24 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
+                <div class="absolute top-2 left-1/2 -translate-x-1/2 w-24 h-10 border-b-2 border-x-2 border-white/40 pointer-events-none"></div>
+                <!-- Punto de penalti -->
+                <div class="absolute top-20 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-white pointer-events-none"></div>
+                <!-- Portería blanca -->
+                <div class="absolute top-0 left-1/2 -translate-x-1/2 w-28 h-2 bg-white/90 rounded-b shadow pointer-events-none"></div>
+
+                <!-- Punto de balón / saque -->
+                <div id="setpiece-ball-spot" class="absolute w-5 h-5 rounded-full bg-amber-400 border-2 border-white shadow-lg animate-pulse flex items-center justify-center text-[10px] z-20">
+                  ⚽
+                </div>
+
+                <!-- Zonas interactivas de colocación de rematadores -->
+                <div id="setpiece-interactive-zones" class="absolute inset-0"></div>
+              </div>
+
+              <!-- Indicación de asignación -->
+              <div class="text-center mt-2 px-2">
+                <p id="setpiece-hint-text" class="text-[11px] text-slate-400">
+                  💡 Toca un futbolista y luego una zona del área para ubicarlo en la jugada ensayada.
+                </p>
+              </div>
+            </div>
+
+            <!-- Fichas de futbolistas de campo para asignar -->
+            <div class="px-3 mb-2">
+              <div class="text-[10px] uppercase font-bold text-slate-400 mb-1.5 flex items-center justify-between">
+                <span>🏃 Tus futbolistas en el área</span>
+                <span class="text-slate-500 font-normal">Toca para seleccionar</span>
+              </div>
+              <div id="setpiece-players-pool" class="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar"></div>
+            </div>
+
+            <!-- Botones de Acción -->
+            <footer class="px-3 flex gap-2">
+              <button id="btn-setpiece-confirm" class="w-full py-3.5 bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 hover:from-emerald-400 active:scale-98 text-white font-extrabold text-xs rounded-xl shadow-xl shadow-emerald-500/25 transition flex items-center justify-center gap-2">
+                <span>⚽ EJECUTAR JUGADA ENSAYADA</span>
+                <span>➔</span>
+              </button>
+            </footer>
           </div>
         </div>
 
@@ -5861,6 +6257,328 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       modalHTTactics.classList.remove("hidden");
       renderHTTactics();
+    }
+
+    function openSetPieceModal(spInfo) {
+      simulator.pause();
+      const iconPP = container.querySelector("#play-pause-icon");
+      const textPP = container.querySelector("#play-pause-text");
+      if (iconPP) iconPP.textContent = "▶";
+      if (textPP) textPP.textContent = "Reanudar";
+
+      const modalSP = container.querySelector("#modal-setpiece");
+      if (!modalSP) return;
+
+      const badgeType = modalSP.querySelector("#setpiece-badge-type");
+      const title = modalSP.querySelector("#setpiece-title");
+      const btnAuto = modalSP.querySelector("#btn-setpiece-auto");
+      const takerSelect = modalSP.querySelector("#setpiece-taker-select");
+      const chipsContainer = modalSP.querySelector("#setpiece-strategy-chips");
+      const ballSpot = modalSP.querySelector("#setpiece-ball-spot");
+      const zonesContainer = modalSP.querySelector("#setpiece-interactive-zones");
+      const poolContainer = modalSP.querySelector("#setpiece-players-pool");
+      const btnConfirm = modalSP.querySelector("#btn-setpiece-confirm");
+      const hintText = modalSP.querySelector("#setpiece-hint-text");
+
+      const isCorner = spInfo.type === "CORNER";
+      const isHome = spInfo.attackingSide === "home";
+
+      if (badgeType) {
+        badgeType.textContent = isCorner 
+          ? `🚩 CÓRNER A FAVOR (${spInfo.minute}')` 
+          : `🎯 FALTA PELIGROSA A FAVOR (${spInfo.minute}')`;
+        badgeType.className = isCorner
+          ? "text-[10px] uppercase font-black text-sky-400 bg-sky-400/10 border border-sky-400/30 px-2.5 py-0.5 rounded-full"
+          : "text-[10px] uppercase font-black text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2.5 py-0.5 rounded-full";
+      }
+      if (title) {
+        title.textContent = isCorner ? "Pizarra Táctica · Saque de Esquina" : "Pizarra Táctica · Falta Peligrosa";
+      }
+
+      // Ubicación física del balón en la mini pizarra del área
+      if (ballSpot) {
+        if (isCorner) {
+          const isLeft = spInfo.spot.y < 50;
+          ballSpot.style.left = isLeft ? "12px" : "calc(100% - 24px)";
+          ballSpot.style.top = "10px";
+        } else {
+          const pctY = Math.max(16, Math.min(84, spInfo.spot.y));
+          ballSpot.style.left = `${pctY}%`;
+          ballSpot.style.top = "76%";
+        }
+      }
+
+      const atkPlayers = isHome ? simulator.homePlayersOnPitch : simulator.awayPlayersOnPitch;
+      const outfield = atkPlayers.filter(p => p.pos !== "POR");
+
+      // Ordenar lanzadores sugeridos por stats (PAS y SHO)
+      const sortedTakers = [...outfield].sort((a, b) => {
+        const scoreA = isCorner ? ((a.pas || 70) * 1.3 + (a.sho || 70) * 0.7) : ((a.sho || 70) * 1.3 + (a.pas || 70) * 0.7);
+        const scoreB = isCorner ? ((b.pas || 70) * 1.3 + (b.sho || 70) * 0.7) : ((b.sho || 70) * 1.3 + (b.pas || 70) * 0.7);
+        return scoreB - scoreA;
+      });
+
+      let selectedTakerId = sortedTakers[0]?.id || outfield[0]?.id;
+
+      if (takerSelect) {
+        takerSelect.innerHTML = outfield.map(p => {
+          const statText = isCorner ? `PAS ${p.pas || 70} · OVR ${p.ovr}` : `SHO ${p.sho || 70} · PAS ${p.pas || 70}`;
+          return `<option value="${p.id}" ${p.id === selectedTakerId ? 'selected' : ''}>${p.name} (${p.pos}) — ${statText}</option>`;
+        }).join('');
+      }
+
+      const strategies = isCorner ? [
+        { id: "PENALTY_SPOT", label: "🎯 Al Punto de Penalti", desc: "Balón colgado al centro del área" },
+        { id: "NEAR_POST", label: "📐 Al Primer Palo", desc: "Envío tenso con rosca para prolongar" },
+        { id: "FAR_POST", label: "📐 Al Segundo Palo", desc: "Balón templado al palo largo" },
+        { id: "SHORT_PASS", label: "🤝 Saque en Corto", desc: "Pase en corto para abrir ángulo" }
+      ] : [
+        { id: "DIRECT_SHOT", label: "💥 Disparo Directo", desc: "Tiro a la escuadra o palo del portero" },
+        { id: "PENALTY_SPOT", label: "🎯 Al Punto de Penalti", desc: "Centro bombeado al corazón del área" },
+        { id: "NEAR_POST", label: "📐 Al Primer Palo", desc: "Centro cerrado buscando desvío" },
+        { id: "FAR_POST", label: "📐 Al Segundo Palo", desc: "Balón colgado al segundo poste" },
+        { id: "SHORT_PASS", label: "🤝 Pase en Corto", desc: "Pase a la frontal del área para remate" }
+      ];
+
+      let currentStrategy = isCorner ? "PENALTY_SPOT" : "DIRECT_SHOT";
+
+      const zoneDefs = [
+        { id: "NEAR_POST", name: "1er Palo", x: 26, y: 24, desc: "Anticipación", color: "text-amber-300" },
+        { id: "PENALTY_SPOT", name: "Pto. Penalti", x: 50, y: 40, desc: "Rematador principal", color: "text-emerald-300" },
+        { id: "FAR_POST", name: "2º Palo", x: 74, y: 24, desc: "Llegada desde atrás", color: "text-amber-300" },
+        { id: "EDGE_BOX", name: "Frontal", x: 50, y: 64, desc: "Tiro de rechace", color: "text-sky-300" },
+        { id: "SHORT_OPTION", name: "En Corto", x: (spInfo.spot.y < 50 ? 18 : 82), y: isCorner ? 26 : 58, desc: "Apoyo para pase", color: "text-indigo-300" },
+        { id: "STAY_BACK", name: "Cierre", x: 50, y: 84, desc: "Contención defensiva", color: "text-slate-300" }
+      ];
+
+      let placements = {};
+      let selectedPoolPlayerId = null;
+
+      function autoAssignPlacements() {
+        placements = {};
+        const pool = outfield.filter(p => p.id !== selectedTakerId);
+
+        const poolByHeadingSho = [...pool].sort((a, b) => ((b.sho || 70) * 1.2 + (b.ovr || 70)) - ((a.sho || 70) * 1.2 + (a.ovr || 70)));
+        const pPen = poolByHeadingSho[0];
+        if (pPen) placements["PENALTY_SPOT"] = pPen.id;
+
+        const rem1 = pool.filter(p => p.id !== pPen?.id);
+        const pNear = rem1.sort((a, b) => ((b.sho || 70) + (b.pac || 70)) - ((a.sho || 70) + (a.pac || 70)))[0];
+        if (pNear) placements["NEAR_POST"] = pNear.id;
+
+        const rem2 = rem1.filter(p => p.id !== pNear?.id);
+        const pFar = rem2.sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0];
+        if (pFar) placements["FAR_POST"] = pFar.id;
+
+        const rem3 = rem2.filter(p => p.id !== pFar?.id);
+        const pEdge = rem3.sort((a, b) => ((b.sho || 70) + (b.pas || 70)) - ((a.sho || 70) + (a.pas || 70)))[0];
+        if (pEdge) placements["EDGE_BOX"] = pEdge.id;
+
+        const rem4 = rem3.filter(p => p.id !== pEdge?.id);
+        const pShort = rem4.sort((a, b) => (b.pas || 70) - (a.pas || 70))[0];
+        if (pShort) placements["SHORT_OPTION"] = pShort.id;
+
+        const rem5 = rem4.filter(p => p.id !== pShort?.id);
+        const pBack = rem5.sort((a, b) => (b.def || 70) - (a.def || 70))[0];
+        if (pBack) placements["STAY_BACK"] = pBack.id;
+      }
+      autoAssignPlacements();
+
+      function renderSetPieceBoard() {
+        // 1. Renderizar opciones / chips de estrategia
+        if (chipsContainer) {
+          chipsContainer.innerHTML = strategies.map(st => {
+            const isActive = st.id === currentStrategy;
+            return `
+              <button class="sp-strategy-btn p-2 rounded-xl border text-left transition flex flex-col justify-center ${isActive ? 'bg-gradient-to-r from-emerald-600 to-teal-600 border-emerald-400 text-white shadow-lg ring-2 ring-emerald-400/40' : 'bg-slate-800/80 border-slate-700 text-slate-300 hover:border-slate-500'}" data-strategy="${st.id}">
+                <div class="font-extrabold text-[11px] truncate flex items-center justify-between">
+                  <span>${st.label}</span>
+                  ${isActive ? '<span class="text-xs">✔</span>' : ''}
+                </div>
+                <div class="text-[9px] ${isActive ? 'text-emerald-100' : 'text-slate-400'} truncate">${st.desc}</div>
+              </button>
+            `;
+          }).join('');
+
+          chipsContainer.querySelectorAll(".sp-strategy-btn").forEach(btn => {
+            btn.onclick = () => {
+              currentStrategy = btn.dataset.strategy;
+              renderSetPieceBoard();
+            };
+          });
+        }
+
+        // 2. Renderizar Zonas en la pizarra táctica del área
+        if (zonesContainer) {
+          zonesContainer.innerHTML = zoneDefs.map(zone => {
+            const isTarget = (zone.id === currentStrategy) || (currentStrategy === "DIRECT_SHOT" && zone.id === "PENALTY_SPOT");
+            const assignedPId = placements[zone.id];
+            const assignedPlayer = assignedPId ? outfield.find(p => p.id === assignedPId) : null;
+
+            return `
+              <div class="sp-zone-slot absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer transition-transform active:scale-95" style="left: ${zone.x}%; top: ${zone.y}%;" data-zone="${zone.id}">
+                <div class="flex flex-col items-center">
+                  <div class="px-2 py-1 rounded-xl text-center border backdrop-blur-md shadow-md min-w-[72px] transition ${isTarget ? 'bg-amber-500/25 border-amber-400 ring-2 ring-amber-400/60 shadow-amber-500/30' : (assignedPlayer ? 'bg-slate-900/90 border-emerald-500/80 shadow-emerald-500/10' : 'bg-slate-900/80 border-slate-600/70 hover:border-slate-400')}">
+                    <div class="flex items-center justify-between gap-1 text-[8px] font-black uppercase ${isTarget ? 'text-amber-300 font-extrabold' : 'text-slate-400'}">
+                      <span class="truncate">${zone.name}</span>
+                      ${isTarget ? '<span class="text-[8px] bg-amber-400 text-slate-950 font-black px-1 rounded">OBJ</span>' : ''}
+                    </div>
+                    ${assignedPlayer ? `
+                      <div class="font-extrabold text-[10px] text-white truncate max-w-[80px]">${assignedPlayer.name}</div>
+                      <div class="text-[8px] text-emerald-400 font-mono">${assignedPlayer.pos} · ${assignedPlayer.ovr}</div>
+                    ` : `
+                      <div class="text-[9px] text-slate-500 italic py-0.5">+ Colocar</div>
+                    `}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          zonesContainer.querySelectorAll(".sp-zone-slot").forEach(slot => {
+            slot.onclick = () => {
+              const zoneId = slot.dataset.zone;
+              if (selectedPoolPlayerId) {
+                // Si el jugador ya estaba en otra zona, liberarla
+                Object.keys(placements).forEach(z => {
+                  if (placements[z] === selectedPoolPlayerId) {
+                    delete placements[z];
+                  }
+                });
+                placements[zoneId] = selectedPoolPlayerId;
+                selectedPoolPlayerId = null;
+                renderSetPieceBoard();
+              } else if (placements[zoneId]) {
+                // Desasignar jugador de la zona al tocarla
+                delete placements[zoneId];
+                renderSetPieceBoard();
+              }
+            };
+          });
+        }
+
+        // 3. Renderizar Pool de futbolistas de campo disponibles
+        if (poolContainer) {
+          const pool = outfield.filter(p => p.id !== selectedTakerId);
+          poolContainer.innerHTML = pool.map(p => {
+            const isSelected = selectedPoolPlayerId === p.id;
+            let assignedZoneName = null;
+            Object.keys(placements).forEach(zId => {
+              if (placements[zId] === p.id) {
+                const zDef = zoneDefs.find(zd => zd.id === zId);
+                assignedZoneName = zDef ? zDef.name : zId;
+              }
+            });
+
+            return `
+              <div class="sp-pool-item flex-shrink-0 p-2 rounded-xl border cursor-pointer select-none transition min-w-[104px] ${isSelected ? 'bg-cyan-500/25 border-cyan-400 ring-2 ring-cyan-400/50 shadow-lg' : (assignedZoneName ? 'bg-slate-900/90 border-slate-700' : 'bg-slate-950/80 border-slate-800 hover:border-slate-600')}" data-id="${p.id}">
+                <div class="flex items-center justify-between gap-1 mb-1">
+                  <span class="px-1.5 py-0.2 rounded bg-slate-800 text-[9px] font-bold text-sky-400">${p.pos}</span>
+                  <span class="text-[9px] font-mono font-bold text-amber-400">${p.ovr}</span>
+                </div>
+                <div class="font-extrabold text-[11px] text-white truncate max-w-[94px]">${p.name}</div>
+                <div class="flex justify-between text-[8px] text-slate-400 mt-1">
+                  <span>REM: <b>${p.sho || 70}</b></span>
+                  <span>PAS: <b>${p.pas || 70}</b></span>
+                </div>
+                <div class="mt-1">
+                  ${assignedZoneName ? `
+                    <span class="inline-block text-[8px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded font-bold truncate max-w-full">
+                      📍 ${assignedZoneName}
+                    </span>
+                  ` : `
+                    <span class="inline-block text-[8px] bg-slate-800 text-slate-400 px-1.5 py-0.2 rounded">
+                      Disponible
+                    </span>
+                  `}
+                </div>
+              </div>
+            `;
+          }).join('');
+
+          poolContainer.querySelectorAll(".sp-pool-item").forEach(item => {
+            item.onclick = () => {
+              const pId = item.dataset.id;
+              if (selectedPoolPlayerId === pId) {
+                selectedPoolPlayerId = null;
+              } else {
+                selectedPoolPlayerId = pId;
+              }
+              renderSetPieceBoard();
+            };
+          });
+        }
+
+        // 4. Actualizar texto de instrucción dinámica
+        if (hintText) {
+          if (selectedPoolPlayerId) {
+            const selP = outfield.find(p => p.id === selectedPoolPlayerId);
+            hintText.innerHTML = `👉 <b class="text-cyan-400">${selP?.name}</b> seleccionado. Ahora <b>toca una zona del área</b> para ubicarlo allí.`;
+          } else {
+            hintText.innerHTML = `💡 Toca un futbolista y luego una zona del área para ubicarlo en la jugada ensayada.`;
+          }
+        }
+      }
+
+      if (takerSelect) {
+        takerSelect.onchange = () => {
+          selectedTakerId = takerSelect.value;
+          // Si el lanzador estaba asignado a alguna zona, retirarlo
+          Object.keys(placements).forEach(zId => {
+            if (placements[zId] === selectedTakerId) {
+              delete placements[zId];
+            }
+          });
+          if (selectedPoolPlayerId === selectedTakerId) {
+            selectedPoolPlayerId = null;
+          }
+          renderSetPieceBoard();
+        };
+      }
+
+      if (btnAuto) {
+        btnAuto.onclick = () => {
+          selectedTakerId = sortedTakers[0]?.id || outfield[0]?.id;
+          if (takerSelect) takerSelect.value = selectedTakerId;
+          autoAssignPlacements();
+          renderSetPieceBoard();
+          showMatchAlert({ text: "⚡ Pizarra táctica de balón parado optimizada automáticamente" });
+        };
+      }
+
+      if (btnConfirm) {
+        btnConfirm.onclick = () => {
+          const currentTaker = outfield.find(p => p.id === selectedTakerId) || outfield[0];
+          const resolvedPlacements = {};
+          Object.keys(placements).forEach(zId => {
+            const pId = placements[zId];
+            const pObj = outfield.find(p => p.id === pId);
+            if (pObj) resolvedPlacements[zId] = pObj;
+          });
+
+          modalSP.classList.add("hidden");
+
+          const stratObj = strategies.find(s => s.id === currentStrategy);
+          showMatchAlert({ text: `⚽ ¡${currentTaker.name} listo para ejecutar! Estrategia: ${stratObj?.label || 'Balón al área'}` });
+
+          simulator.executeSetPiece({
+            type: spInfo.type,
+            attackingSide: spInfo.attackingSide,
+            spot: spInfo.spot,
+            taker: currentTaker,
+            targetStrategy: currentStrategy,
+            placements: resolvedPlacements
+          }, () => {
+            if (!simulator.isFinished && !simulator.isHalfTime && simulator.isRunning) {
+              iconPP.textContent = "⏸";
+              textPP.textContent = "Pausar";
+            }
+          });
+        };
+      }
+
+      modalSP.classList.remove("hidden");
+      renderSetPieceBoard();
     }
 
     btnCloseSubs.onclick = () => {

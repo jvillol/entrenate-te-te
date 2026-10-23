@@ -73,6 +73,9 @@ export class MatchSimulator {
     this.aiSide = this.userSide === "home" ? "away" : "home";
     this.lastAISubMinute = 0;
 
+    this.onSetPiece = options.onSetPiece || (() => {});
+    this.isSetPieceRunning = false;
+
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
   }
@@ -468,11 +471,11 @@ export class MatchSimulator {
           }
         });
         return true;
-      } else if (chanceRoll < attackScore + 0.05) {
-        // Córner o falta colgada al área
-        this.ball.targetZ = 18;
-        this.stats.corners.home++;
-        this.triggerAlert("CÓRNER", `🚩 Córner para ${this.homeTeam.shortName}`, "home");
+      } else if (chanceRoll < attackScore + 0.055) {
+        // Balón parado (Córner o Falta peligrosa)
+        const isCorner = Math.random() < 0.65;
+        this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK");
+        return true;
       } else {
         // Pase o centro medio
         this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
@@ -497,23 +500,31 @@ export class MatchSimulator {
           }
         });
         return true;
-      } else if (chanceRoll < attackScore + 0.05) {
-        this.ball.targetZ = 18;
-        this.stats.corners.away++;
-        this.triggerAlert("CÓRNER", `🚩 Córner para ${this.awayTeam.shortName}`, "away");
+      } else if (chanceRoll < attackScore + 0.055) {
+        // Balón parado (Córner o Falta peligrosa)
+        const isCorner = Math.random() < 0.65;
+        this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK");
+        return true;
       } else {
         this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
       }
     }
 
-    // Posibles faltas y tarjetas (independientes del ataque)
-    if (Math.random() < 0.06) {
+    // Posibles faltas y tarjetas (con opción de falta peligrosa a balón parado)
+    if (Math.random() < 0.065) {
       const foulTeam = Math.random() > 0.5 ? "home" : "away";
       this.stats.fouls[foulTeam]++;
+      const victimTeam = foulTeam === "home" ? "away" : "home";
+
       if (Math.random() < 0.22) {
         this.stats.yellowCards[foulTeam]++;
         const teamName = foulTeam === "home" ? this.homeTeam.shortName : this.awayTeam.shortName;
         this.triggerAlert("TARJETA", `🟨 Tarjeta amarilla para ${teamName}`, foulTeam);
+      }
+
+      if (Math.random() < 0.40 && !this.isHighlightRunning && !this.isSetPieceRunning) {
+        this.triggerSetPiece(victimTeam, "FREE_KICK");
+        return true;
       }
     }
 
@@ -704,6 +715,313 @@ export class MatchSimulator {
         }
       }, 1000);
     }, 1100);
+  }
+
+  // Activar jugada a balón parado (Córner o Falta peligrosa)
+  triggerSetPiece(attackingSide, type = "CORNER") {
+    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return;
+    this.isSetPieceRunning = true;
+
+    const isHome = attackingSide === "home";
+    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
+    const defTeam = isHome ? this.awayTeam : this.homeTeam;
+    const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
+
+    let spotX, spotY;
+    if (type === "CORNER") {
+      spotX = isHome ? 99.5 : 0.5;
+      spotY = Math.random() < 0.5 ? 0.8 : 99.2;
+    } else {
+      spotX = isHome ? (73 + Math.random() * 8) : (27 - Math.random() * 8);
+      spotY = 30 + Math.random() * 40;
+    }
+
+    const setPieceInfo = {
+      type,
+      attackingSide,
+      atkTeam,
+      defTeam,
+      atkPlayers,
+      defPlayers,
+      spot: { x: spotX, y: spotY },
+      minute: this.minute
+    };
+
+    if (attackingSide === this.userSide) {
+      // El usuario ataca a balón parado: pausar y abrir la pizarra táctica interactiva
+      this.pause();
+      this.onSetPiece(setPieceInfo);
+    } else {
+      // La IA rival ejecuta su jugada automáticamente en 3D
+      const aiSetup = this.buildAISetPieceSetup(setPieceInfo);
+      this.executeSetPiece(aiSetup, () => {
+        this.isSetPieceRunning = false;
+        if (!this.isFinished && !this.isHalfTime && this.isRunning) {
+          this.loop();
+        }
+      });
+    }
+  }
+
+  // Generar configuración automática para la IA rival en balón parado
+  buildAISetPieceSetup(info) {
+    const outfield = info.atkPlayers.filter(p => p.pos !== "POR");
+    const sortedKickers = [...outfield].sort((a, b) => ((b.pas || 70) + (b.sho || 70)) - ((a.pas || 70) + (a.sho || 70)));
+    const taker = sortedKickers[0] || outfield[0];
+
+    const nonTakers = outfield.filter(p => p.id !== taker.id);
+    const strategies = info.type === "FREE_KICK"
+      ? ["DIRECT_SHOT", "NEAR_POST", "PENALTY_SPOT", "FAR_POST", "SHORT_PASS"]
+      : ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "SHORT_PASS"];
+    const targetStrategy = strategies[Math.floor(Math.random() * strategies.length)];
+
+    const zones = ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "EDGE_BOX", "SHORT_OPTION", "STAY_BACK"];
+    const placements = {};
+    zones.forEach((z, idx) => {
+      if (nonTakers[idx]) {
+        placements[z] = nonTakers[idx];
+      }
+    });
+
+    return {
+      type: info.type,
+      attackingSide: info.attackingSide,
+      spot: info.spot,
+      taker,
+      targetStrategy,
+      placements
+    };
+  }
+
+  // Ejecución física y cinemática 3D de la jugada a balón parado con Azar + Estadísticas
+  executeSetPiece(setup, onDone) {
+    this.isSetPieceRunning = true;
+    this.speed = 1;
+
+    const { type, attackingSide, spot, taker, targetStrategy, placements } = setup;
+    const isHome = attackingSide === "home";
+    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
+    const defTeam = isHome ? this.awayTeam : this.homeTeam;
+    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
+    const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
+
+    if (type === "CORNER") {
+      this.stats.corners[attackingSide]++;
+    }
+
+    // FASE 1: Colocar balón, lanzador y rematadores en el área
+    this.ball.targetX = spot.x;
+    this.ball.targetY = spot.y;
+    this.ball.targetZ = 0;
+
+    const kickerObj = (isHome ? this.home2D : this.away2D).find(p => p.player?.id === taker.id);
+    if (kickerObj) {
+      kickerObj.curX = spot.x + (isHome ? -1.8 : 1.8);
+      kickerObj.curY = spot.y + (spot.y < 50 ? 1.5 : -1.5);
+      kickerObj.targetX = kickerObj.curX;
+      kickerObj.targetY = kickerObj.curY;
+      kickerObj.facingX = isHome ? 1 : -1;
+    }
+
+    const zoneCoords = {
+      NEAR_POST: { x: isHome ? 93 : 7, y: spot.y < 50 ? 44 : 56 },
+      PENALTY_SPOT: { x: isHome ? 89 : 11, y: 50 },
+      FAR_POST: { x: isHome ? 94 : 6, y: spot.y < 50 ? 56 : 44 },
+      EDGE_BOX: { x: isHome ? 81 : 19, y: 50 },
+      SHORT_OPTION: { x: isHome ? spot.x - 7 : spot.x + 7, y: spot.y < 50 ? 18 : 82 },
+      STAY_BACK: { x: isHome ? 46 : 54, y: 50 }
+    };
+
+    Object.keys(placements || {}).forEach(zone => {
+      const p = placements[zone];
+      if (!p) return;
+      const p2D = (isHome ? this.home2D : this.away2D).find(item => item.player?.id === p.id);
+      const coord = zoneCoords[zone];
+      if (p2D && coord) {
+        p2D.curX = coord.x + (Math.random() * 2 - 1);
+        p2D.curY = coord.y + (Math.random() * 2 - 1);
+        p2D.targetX = p2D.curX;
+        p2D.targetY = p2D.curY;
+      }
+    });
+
+    // Colocar defensores marcando en el área y formando barrera si es falta
+    const def2D = isHome ? this.away2D : this.home2D;
+    def2D.forEach((dp, idx) => {
+      if (dp.isKeeper) {
+        dp.curX = isHome ? 99 : 1;
+        dp.curY = 50;
+        dp.targetX = dp.curX;
+        dp.targetY = dp.curY;
+      } else if (type === "FREE_KICK" && idx < 4) {
+        const dirX = isHome ? 1 : -1;
+        dp.curX = spot.x + dirX * 9.5;
+        dp.curY = spot.y + (idx - 1.5) * 2.2;
+        dp.targetX = dp.curX;
+        dp.targetY = dp.curY;
+      } else {
+        dp.curX = (isHome ? 91 : 9) + (Math.random() * 4 - 2);
+        dp.curY = 40 + Math.random() * 20;
+        dp.targetX = dp.curX;
+        dp.targetY = dp.curY;
+      }
+    });
+
+    this.triggerAlert("BALÓN PARADO", `⚽ ${type === "CORNER" ? "Córner" : "Falta"} de ${atkTeam.shortName}`, attackingSide, 2600);
+
+    // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos
+    setTimeout(() => {
+      const baseStat = targetStrategy === "DIRECT_SHOT" ? (taker.sho || 75) : (taker.pas || 75);
+      const azarLanzamiento = (Math.random() * 44 - 22);
+      const kickQuality = baseStat + azarLanzamiento;
+
+      let destX, destY, destZ;
+      if (targetStrategy === "DIRECT_SHOT") {
+        destX = isHome ? 99 : 1;
+        destY = Math.random() < 0.5 ? 46.5 : 53.5;
+        destZ = 7 + Math.random() * 4;
+      } else if (targetStrategy === "SHORT_PASS") {
+        const shortCoord = zoneCoords.SHORT_OPTION || zoneCoords.EDGE_BOX;
+        destX = shortCoord.x;
+        destY = shortCoord.y;
+        destZ = 0.5;
+      } else {
+        const zoneCoord = zoneCoords[targetStrategy] || zoneCoords.PENALTY_SPOT;
+        destX = zoneCoord.x + (Math.random() * 3 - 1.5);
+        destY = zoneCoord.y + (Math.random() * 3 - 1.5);
+        destZ = 9 + Math.random() * 5;
+      }
+
+      this.ball.targetX = destX;
+      this.ball.targetY = destY;
+      this.ball.targetZ = destZ;
+
+      // FASE 3: Remate, despeje, palo, parada o GOL
+      setTimeout(() => {
+        this.stats.shots[attackingSide]++;
+
+        if (targetStrategy === "DIRECT_SHOT") {
+          const isSave = kickQuality < 80;
+          const isGoal = kickQuality >= 80 && Math.random() < 0.65;
+          const isPost = !isGoal && kickQuality >= 72 && Math.random() < 0.5;
+
+          if (isGoal) {
+            this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO");
+          } else if (isPost) {
+            this.triggerAlert("AL PALO", `🥅 ¡Al palo el lanzamiento de ${taker.name}!`, attackingSide, 3000);
+            this.finishSetPiecePlay(onDone);
+          } else if (isSave) {
+            this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name}!`, isHome ? "away" : "home", 3000);
+            this.finishSetPiecePlay(onDone);
+          } else {
+            this.triggerAlert("FUERA", `⚠️ ¡El tiro de ${taker.name} se marcha alto!`, attackingSide, 2500);
+            this.finishSetPiecePlay(onDone);
+          }
+        } else {
+          const targetPlayer = placements[targetStrategy] || placements["PENALTY_SPOT"] || placements["NEAR_POST"];
+
+          if (!targetPlayer) {
+            this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
+            this.finishSetPiecePlay(onDone);
+            return;
+          }
+
+          const remateStat = (targetPlayer.sho || 75);
+          const azarRemate = (Math.random() * 38 - 19);
+          const remateScore = remateStat + azarRemate;
+
+          const gkStat = (goalkeeper.ovr || 78);
+          const azarGK = (Math.random() * 30 - 15);
+          const gkScore = gkStat + azarGK;
+
+          if (kickQuality < 56) {
+            this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
+            this.finishSetPiecePlay(onDone);
+          } else if (remateScore > gkScore + 5) {
+            this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "JUGADA ENSAYADA");
+          } else if (remateScore > gkScore - 4) {
+            if (Math.random() < 0.3) {
+              this.triggerAlert("AL PALO", `🥅 ¡Al palo el cabezazo de ${targetPlayer.name}!`, attackingSide, 3000);
+            } else {
+              this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name}!`, isHome ? "away" : "home", 3000);
+            }
+            this.finishSetPiecePlay(onDone);
+          } else {
+            this.triggerAlert("FUERA", `⚠️ ¡Remate desviado de ${targetPlayer.name}!`, attackingSide, 2500);
+            this.finishSetPiecePlay(onDone);
+          }
+        }
+      }, 1400);
+    }, 1500);
+  }
+
+  handleSetPieceGoal(attackingSide, scorer, assister, style) {
+    const isHome = attackingSide === "home";
+    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
+    const defTeam = isHome ? this.awayTeam : this.homeTeam;
+
+    if (isHome) this.homeScore++;
+    else this.awayScore++;
+
+    scorer.goals = (scorer.goals || 0) + 1;
+
+    this.ball.targetX = isHome ? 99.5 : 0.5;
+    this.ball.targetY = 47 + Math.random() * 6;
+    this.ball.targetZ = 5 + Math.random() * 4;
+
+    const event = {
+      type: "GOAL",
+      minute: this.minute,
+      teamSide: attackingSide,
+      teamId: atkTeam.id,
+      teamName: atkTeam.shortName,
+      playerName: scorer.name,
+      currentScore: `${this.homeScore} - ${this.awayScore}`
+    };
+    this.events.push(event);
+
+    this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${scorer.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
+
+    this.isSetPieceRunning = false;
+    this.speed = this.userSpeed;
+
+    this.onGoal({
+      shooter: scorer,
+      passer: assister,
+      attackingSide,
+      concedingSide: isHome ? "away" : "home",
+      atkTeam,
+      defTeam,
+      minute: this.minute,
+      formattedMinute: this.getFormattedMinute(),
+      score: `${this.homeScore} - ${this.awayScore}`
+    });
+  }
+
+  finishSetPiecePlay(onDone) {
+    setTimeout(() => {
+      this.isSetPieceRunning = false;
+      this.speed = this.userSpeed;
+
+      // Volver a colocar posiciones dinámicas del juego
+      this.update2DPositions();
+
+      if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+        this.halfTimeTriggered = true;
+        this.isHalfTime = true;
+        this.pause();
+        this.onHalfTime(this.getState());
+        return;
+      }
+
+      if (this.minute >= this.maxMinutes) {
+        this.finish();
+        return;
+      }
+
+      if (onDone) onDone();
+    }, 1000);
   }
 
   // Colocar a los equipos y balón para sacar del centro del campo tras un gol
