@@ -53,6 +53,11 @@ export class MatchSimulator {
     this.onAlert = options.onAlert || (() => {});
     this.onGoal = options.onGoal || (() => {});
     this.onHalfTime = options.onHalfTime || (() => {});
+    this.onSubstitution = options.onSubstitution || (() => {});
+
+    this.userSide = options.userSide || "home";
+    this.aiSide = this.userSide === "home" ? "away" : "home";
+    this.lastAISubMinute = 0;
 
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
@@ -156,6 +161,72 @@ export class MatchSimulator {
     this.triggerAlert("CAMBIO", `🔄 Cambio: entra ${inPlayer.name} por ${outPlayer.name}`, isHome ? "home" : "away");
 
     return { success: true, inPlayer, outPlayer };
+  }
+
+  // Comprobar y ejecutar sustituciones tácticas automáticas de la IA rival
+  checkAISubstitutions() {
+    if (this.isHalfTime || this.isFinished || !this.isRunning) return;
+    const aiSubsRemaining = this.aiSide === "home" ? this.homeSubsRemaining : this.awaySubsRemaining;
+    if (aiSubsRemaining <= 0) return;
+
+    // La IA realiza cambios realistas entre el minuto 56 y el 86
+    if (this.minute < 56 || this.minute > 86) return;
+    if (this.minute - this.lastAISubMinute < 7) return;
+
+    const aiPitch = this.aiSide === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const aiBench = this.aiSide === "home" ? this.homeBench : this.awayBench;
+
+    if (!aiBench || aiBench.length === 0) return;
+
+    // Buscar jugadores de campo con energía más baja (< 68%) o al llegar a minutos clave
+    const outfieldPitch = aiPitch.filter(p => p.pos !== "POR");
+    if (outfieldPitch.length === 0) return;
+    outfieldPitch.sort((a, b) => (a.energy || 100) - (b.energy || 100));
+    const mostTired = outfieldPitch[0];
+
+    const isKeyMinute = [60, 68, 76, 83].includes(this.minute);
+    const isVeryTired = mostTired && (mostTired.energy || 100) < 66;
+
+    if (!isKeyMinute && !isVeryTired && Math.random() > 0.22) return;
+
+    // Buscar sustituto adecuado en el banquillo
+    const samePos = aiBench.filter(p => p.pos === mostTired.pos);
+    let candidate = null;
+    if (samePos.length > 0) {
+      candidate = samePos.sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0];
+    } else {
+      const isAtk = ["DC", "EI", "ED"].includes(mostTired.pos);
+      const isMid = ["MC", "MCD", "MCO"].includes(mostTired.pos);
+      const isDef = ["DFC", "LD", "LI"].includes(mostTired.pos);
+
+      const lineCandidates = aiBench.filter(p => {
+        if (isAtk) return ["DC", "EI", "ED"].includes(p.pos);
+        if (isMid) return ["MC", "MCD", "MCO"].includes(p.pos);
+        if (isDef) return ["DFC", "LD", "LI"].includes(p.pos);
+        return false;
+      });
+
+      if (lineCandidates.length > 0) {
+        candidate = lineCandidates.sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0];
+      } else {
+        candidate = aiBench.filter(p => p.pos !== "POR").sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0];
+      }
+    }
+
+    if (candidate && mostTired) {
+      this.lastAISubMinute = this.minute;
+      const res = this.makeSubstitution(this.aiSide, mostTired.id, candidate.id);
+      if (res.success) {
+        this.pause();
+        this.onSubstitution({
+          teamSide: this.aiSide,
+          team: this.aiSide === "home" ? this.homeTeam : this.awayTeam,
+          subs: [{ outPlayer: res.outPlayer, inPlayer: res.inPlayer }],
+          minute: this.minute,
+          remaining: this.aiSide === "home" ? this.homeSubsRemaining : this.awaySubsRemaining
+        });
+      }
+    }
   }
 
   loop() {
@@ -278,6 +349,9 @@ export class MatchSimulator {
         this.triggerAlert("TARJETA", `🟨 Tarjeta amarilla para ${teamName}`, foulTeam);
       }
     }
+
+    // Comprobar y realizar posibles cambios tácticos de la IA rival
+    this.checkAISubstitutions();
 
     // Actualizar coordenadas 3D de los jugadores hacia el balón para visualización dinámica
     this.update2DPositions();

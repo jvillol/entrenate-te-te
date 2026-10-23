@@ -481,17 +481,21 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
       speed: 1, // Ritmo fluido Football Manager por defecto
+      userSide: isUserHome ? "home" : "away",
       homeMentality: isUserHome ? gameState.userTactics.mentality : "balanced",
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
       onGoal: (goalData) => handleGoalSequence(goalData),
       onHalfTime: (htState) => handleHalfTimeSequence(htState),
+      onSubstitution: (subData) => handleSubstitutionChyron(subData),
       onFinish: handleLiveMatchEnd
     });
 
     let alertTimeout = null;
     let subSelectedPitchId = null;
+    const pendingUserSubs = [];
+    let subChyronTimeout = null;
 
     container.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between select-none max-w-md mx-auto">
@@ -571,6 +575,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <span class="text-[10px] text-slate-400 bg-slate-800/80 px-2 py-1 rounded-lg border border-slate-700">
                   Repetición en directo...
                 </span>
+              </div>
+            </div>
+
+            <!-- Rótulo Televisivo Oficial de Sustituciones (TV Broadcast Chyron) -->
+            <div id="sub-cinematic" class="absolute inset-0 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-3 text-center z-30 transition-all duration-300 opacity-0 pointer-events-none transform scale-95">
+              <div id="sub-team-header" class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-800/95 text-white font-black text-[10px] tracking-wider uppercase mb-2 border border-slate-700 shadow-lg">
+                <span id="sub-team-dot" class="w-2.5 h-2.5 rounded-full inline-block"></span>
+                <span id="sub-team-title">CAMBIO EN EQUIPO</span>
+                <span id="sub-minute-badge" class="px-1.5 py-0.5 rounded bg-black/60 text-amber-400 font-mono font-bold">65'</span>
+              </div>
+
+              <!-- Lista de parejas de sustituciones -->
+              <div id="sub-players-container" class="w-full max-w-[320px] space-y-1.5 my-1">
+              </div>
+
+              <div class="mt-2.5 flex items-center justify-center gap-3">
+                <span id="sub-remaining-text" class="text-[9px] text-slate-400 font-semibold">4 cambios restantes</span>
+                <button id="btn-sub-skip" class="text-[9px] bg-slate-800/90 hover:bg-slate-700 text-sky-400 px-2.5 py-1 rounded-lg border border-slate-700 font-bold active:scale-95 transition">
+                  Continuar ▶
+                </button>
               </div>
             </div>
 
@@ -1233,6 +1257,95 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       }, 1500);
     }
 
+    function handleSubstitutionChyron(subData) {
+      showSubstitutionChyron(subData, () => {
+        if (!simulator.isFinished && !simulator.isHalfTime) {
+          simulator.start();
+          const iconPP = container.querySelector("#play-pause-icon");
+          const textPP = container.querySelector("#play-pause-text");
+          if (iconPP) iconPP.textContent = "⏸";
+          if (textPP) textPP.textContent = "Pausar";
+        }
+      });
+    }
+
+    function showSubstitutionChyron(subData, onDone) {
+      simulator.pause();
+      const iconPP = container.querySelector("#play-pause-icon");
+      const textPP = container.querySelector("#play-pause-text");
+      if (iconPP) iconPP.textContent = "▶";
+      if (textPP) textPP.textContent = "Reanudar";
+
+      const subOverlay = container.querySelector("#sub-cinematic");
+      const dot = container.querySelector("#sub-team-dot");
+      const title = container.querySelector("#sub-team-title");
+      const minBadge = container.querySelector("#sub-minute-badge");
+      const containerPlayers = container.querySelector("#sub-players-container");
+      const remText = container.querySelector("#sub-remaining-text");
+      const btnSkip = container.querySelector("#btn-sub-skip");
+
+      if (!subOverlay || !containerPlayers) {
+        if (onDone) onDone();
+        return;
+      }
+
+      const team = subData.team;
+      const count = (subData.subs || []).length;
+      if (dot) dot.style.backgroundColor = team.primaryColor || "#38bdf8";
+      if (title) title.textContent = count > 1 ? `DOBLE CAMBIO EN ${team.name.toUpperCase()}` : `CAMBIO EN ${team.name.toUpperCase()}`;
+      if (minBadge) minBadge.textContent = `${subData.minute || simulator.minute}'`;
+      if (remText) remText.textContent = `${subData.remaining} cambios restantes`;
+
+      containerPlayers.innerHTML = (subData.subs || []).map(pair => `
+        <div class="flex items-center justify-between bg-slate-900/95 border border-slate-700/80 rounded-xl p-2 shadow-xl">
+          <!-- SALE (ROJO) -->
+          <div class="flex items-center gap-1.5 flex-1 min-w-0 text-left">
+            <div class="w-6 h-6 rounded-lg bg-red-500/20 border border-red-500/50 text-red-400 flex items-center justify-center font-black text-xs flex-shrink-0">
+              🔻
+            </div>
+            <div class="truncate">
+              <div class="text-[8px] uppercase font-bold text-red-400 leading-none">Sale</div>
+              <div class="text-[11px] font-bold text-white truncate leading-tight">${pair.outPlayer.name}</div>
+              <div class="text-[8px] text-slate-400 font-mono">${pair.outPlayer.pos} · ${pair.outPlayer.ovr}</div>
+            </div>
+          </div>
+
+          <div class="px-2 text-slate-500 font-black text-xs flex-shrink-0">➔</div>
+
+          <!-- ENTRA (VERDE) -->
+          <div class="flex items-center gap-1.5 flex-1 min-w-0 text-right justify-end">
+            <div class="truncate">
+              <div class="text-[8px] uppercase font-bold text-emerald-400 leading-none">Entra</div>
+              <div class="text-[11px] font-bold text-white truncate leading-tight">${pair.inPlayer.name}</div>
+              <div class="text-[8px] text-slate-400 font-mono">${pair.inPlayer.pos} · ${pair.inPlayer.ovr}</div>
+            </div>
+            <div class="w-6 h-6 rounded-lg bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 flex items-center justify-center font-black text-xs flex-shrink-0">
+              🔺
+            </div>
+          </div>
+        </div>
+      `).join('');
+
+      // Mostrar overlay
+      subOverlay.classList.remove("opacity-0", "pointer-events-none", "scale-95");
+      subOverlay.classList.add("opacity-100", "scale-100");
+
+      showMatchAlert({ text: `🔄 Cambio en ${team.name}` });
+
+      const closeChyron = () => {
+        if (subChyronTimeout) clearTimeout(subChyronTimeout);
+        subChyronTimeout = null;
+        subOverlay.classList.remove("opacity-100", "scale-100");
+        subOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+        if (onDone) onDone();
+      };
+
+      if (btnSkip) btnSkip.onclick = closeChyron;
+
+      if (subChyronTimeout) clearTimeout(subChyronTimeout);
+      subChyronTimeout = setTimeout(closeChyron, 3200);
+    }
+
     // Bucle principal de renderizado 3D a 60 FPS
     function drawPitch() {
       if (!ctx || !canvas) return;
@@ -1622,10 +1735,39 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest.`;
           modalHT.classList.remove("hidden");
         }
+        if (pendingUserSubs.length > 0) {
+          showSubstitutionChyron({
+            teamSide: isUserHome ? "home" : "away",
+            team: userTeam,
+            subs: [...pendingUserSubs],
+            minute: 45,
+            remaining: isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining
+          }, () => {
+            if (modalHT) modalHT.classList.remove("hidden");
+          });
+          pendingUserSubs.length = 0;
+        }
       } else {
-        simulator.start();
-        iconPP.textContent = "⏸";
-        textPP.textContent = "Pausar";
+        if (pendingUserSubs.length > 0) {
+          showSubstitutionChyron({
+            teamSide: isUserHome ? "home" : "away",
+            team: userTeam,
+            subs: [...pendingUserSubs],
+            minute: simulator.minute,
+            remaining: isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining
+          }, () => {
+            if (!simulator.isFinished && !simulator.isHalfTime) {
+              simulator.start();
+              iconPP.textContent = "⏸";
+              textPP.textContent = "Pausar";
+            }
+          });
+          pendingUserSubs.length = 0;
+        } else {
+          simulator.start();
+          iconPP.textContent = "⏸";
+          textPP.textContent = "Pausar";
+        }
       }
     };
 
@@ -1677,6 +1819,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           const benchId = item.dataset.id;
           const res = simulator.makeSubstitution(isUserHome ? "home" : "away", subSelectedPitchId, benchId);
           if (res.success) {
+            pendingUserSubs.push({ outPlayer: res.outPlayer, inPlayer: res.inPlayer });
             subSelectedPitchId = null;
             renderMatchSubsModal();
           } else {
