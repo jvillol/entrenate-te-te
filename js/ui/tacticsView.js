@@ -91,7 +91,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
         ${activeTab === "lineup" ? `
           <!-- Terreno de Juego Táctico (Campo Vertical) -->
           <div class="p-3">
-            <div id="tactics-pitch-container" class="relative w-full max-w-sm mx-auto aspect-[3/4] bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2 select-none touch-none">
+            <div id="tactics-pitch-container" class="relative w-full max-w-sm mx-auto aspect-[3/4] bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2 select-none touch-pan-y">
               <!-- Líneas del campo de fútbol -->
               <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
               <!-- Área portería rival arriba -->
@@ -770,6 +770,16 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
 
         selectedSlotEl.addEventListener("pointerdown", onPointerDown);
       }
+
+      pitchBox.onclick = (e) => {
+        if (tacticsJustDragged) return;
+        if (!e.target.closest(".slot-player")) {
+          if (selectedPlayerId) {
+            selectedPlayerId = null;
+            render();
+          }
+        }
+      };
     }
 
     // Eventos Pestaña Instrucciones: Presets 1-Click

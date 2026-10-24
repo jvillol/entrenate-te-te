@@ -541,7 +541,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           ${preMatchSubTab === 'PITCH' ? `
             <!-- Terreno de Juego Táctico Interactivo Usuario -->
             <div class="p-3 flex-1 flex flex-col justify-center">
-            <div id="pre-match-pitch-container" class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+            <div id="pre-match-pitch-container" class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2 select-none touch-pan-y">
               <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
               <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
               <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
@@ -1138,6 +1138,16 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
         selectedSlotEl.addEventListener("pointerdown", onPointerDown);
       }
+
+      prePitchBox.onclick = (e) => {
+        if (preJustDragged) return;
+        if (!e.target.closest(".slot-pre-player")) {
+          if (selectedPreMatchPlayerId) {
+            selectedPreMatchPlayerId = null;
+            renderPreMatch();
+          }
+        }
+      };
     }
 
     container.querySelectorAll(".slot-pre-player, .bench-pre-card").forEach(el => {
@@ -1836,7 +1846,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <div id="ht-pitch-wrapper" class="flex-1 flex flex-col justify-between">
               <!-- Terreno de Juego Táctico Interactivo -->
               <div class="p-3 flex-1 flex flex-col justify-center">
-                <div id="pre-match-pitch-container" class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+                <div id="ht-pitch-container" class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2 select-none touch-pan-y">
                   <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
                   <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
                   <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
@@ -5678,6 +5688,18 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
               selectedSlotEl.addEventListener("pointerdown", onPointerDown);
             }
+          }
+
+          if (htPitchBox) {
+            htPitchBox.onclick = (e) => {
+              if (htJustDragged) return;
+              if (!e.target.closest(".slot-ht-player")) {
+                if (htSelectedPlayerId) {
+                  htSelectedPlayerId = null;
+                  renderHTTactics();
+                }
+              }
+            };
           }
 
           pitchSlots.querySelectorAll(".slot-ht-player").forEach(el => {
