@@ -2196,6 +2196,29 @@ class MatchSimulator {
     const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
     const boxY = 36 + Math.random() * 28;
 
+    // Determinar resultado y rincón de disparo de forma coherente
+    const shotQuality = (shooter.sho || 75) + (Math.random() * 30 - 15);
+    const gkSavePower = (goalkeeper.ovr || 78) + (Math.random() * 25 - 10);
+    const onTarget = Math.random() < 0.72;
+    const isDefenderBlock = !onTarget && Math.random() < 0.22;
+
+    let outcome = "GOAL";
+    let targetCorner = "TOP_RIGHT";
+    const cornersPool = ["TOP_RIGHT", "TOP_LEFT", "BOTTOM_RIGHT", "BOTTOM_LEFT"];
+    targetCorner = cornersPool[Math.floor(Math.random() * cornersPool.length)];
+
+    if (isDefenderBlock) {
+      outcome = "BLOCK";
+    } else if (!onTarget) {
+      outcome = Math.random() < 0.38 ? "POST" : "WIDE";
+    } else {
+      if (shotQuality > gkSavePower + 4) {
+        outcome = "GOAL";
+      } else {
+        outcome = "SAVE";
+      }
+    }
+
     const baseHighlightData = {
       type: "KEY_CHANCE",
       attackingSide,
@@ -2208,13 +2231,16 @@ class MatchSimulator {
       passerRole,
       shooterRole,
       defenderRole,
+      outcome,
+      targetCorner,
       passStart: { x: midX, y: midY },
       passEnd: { x: boxX, y: boxY },
       commentary: chanceComment,
-      minute: this.minute
+      minute: this.minute,
+      totalDuration: 14000
     };
 
-    // FASE 1: Construcción y arranque (Pasador conduce y busca línea de pase)
+    // FASE 1: Construcción y arranque (Pasador conduce y busca línea de pase - 4.2 segundos)
     this.ball.targetX = midX;
     this.ball.targetY = midY;
     this.ball.targetZ = 0;
@@ -2239,7 +2265,8 @@ class MatchSimulator {
         ...baseHighlightData,
         phase: "BUILDUP",
         phaseLabel: "Construcción en tres cuartos",
-        tacticalNote: `${passer.name} (${passerRole?.name || 'Medio'}) conduce buscando la apertura`
+        phaseDuration: 4200,
+        tacticalNote: `${passer.name} (${passerRole?.name || 'Organizador'}) conduce y busca el desmarque de ${shooter.name}`
       });
     }
     if (this.onHighlightPhase) {
@@ -2247,14 +2274,15 @@ class MatchSimulator {
         ...baseHighlightData,
         phase: "BUILDUP",
         phaseLabel: "Construcción en tres cuartos",
-        tacticalNote: `${passer.name} (${passerRole?.name || 'Medio'}) conduce buscando la apertura`
+        phaseDuration: 4200,
+        tacticalNote: `${passer.name} (${passerRole?.name || 'Organizador'}) conduce y busca el desmarque de ${shooter.name}`
       });
     }
 
     setTimeout(() => {
       if (!this.isRunning && !this.isHighlightRunning) return;
 
-      // FASE 2: Asistencia filtrada y desmarque al espacio
+      // FASE 2: Asistencia filtrada, carrera y preparado de disparo (3.6 segundos)
       const isLob = Math.random() < 0.35;
       const passZ = isLob ? 5.0 + Math.random() * 3.5 : 0;
       this.ball.targetX = boxX;
@@ -2280,103 +2308,114 @@ class MatchSimulator {
           ...baseHighlightData,
           phase: "PASS",
           phaseLabel: isLob ? "Centro al área" : "Pase filtrado al hueco",
-          tacticalNote: attackingSide === this.userSide
-            ? `🎯 ${passer.name} asiste al espacio para ${shooter.name}`
-            : `⚠️ Despiste en la marca: ${shooter.name} entra solo al área a la espalda de ${defender.name}`
+          phaseDuration: 3600,
+          tacticalNote: `🎯 Pase filtrado de ${passer.name}. ¡${shooter.name} se perfila para disparar!`
         });
       }
 
       setTimeout(() => {
         if (!this.isRunning && !this.isHighlightRunning) return;
 
-        // FASE 3: Remate a puerta y desenlace
+        // FASE 3: Disparo potente y desenlace físico en pantalla (4.6 segundos)
         this.stats.shots[attackingSide]++;
-        const shotQuality = (shooter.sho || 75) + (Math.random() * 30 - 15);
-        const gkSavePower = (goalkeeper.ovr || 78) + (Math.random() * 25 - 10);
-        const onTarget = Math.random() < 0.68;
-        const isDefenderBlock = !onTarget && Math.random() < 0.20;
 
         if (this.onHighlightPhase) {
           this.onHighlightPhase({
             ...baseHighlightData,
             phase: "SHOT",
-            phaseLabel: "Definición frente al portero",
-            tacticalNote: `⚽ ${shooter.name} remata a portería ante ${goalkeeper.name}`
+            phaseLabel: "Disparo a puerta",
+            phaseDuration: 4600,
+            tacticalNote: `⚽ ¡${shooter.name} arma la pierna y chuta con potencia!`
           });
         }
 
-        if (isDefenderBlock) {
+        if (outcome === "BLOCK") {
           // Bloqueo de la zaga
           this.ball.targetX = boxX + (isHome ? -3 : 3);
           this.ball.targetY = boxY + (Math.random() * 8 - 4);
           this.ball.targetZ = 1.2;
-          this.triggerAlert("BLOQUEO", `🛡️ ¡Bloqueo providencial de ${defender.name}!`, isHome ? "away" : "home", 3200);
+          this.triggerAlert("BLOQUEO", `🛡️ ¡Bloqueo providencial de ${defender.name}!`, isHome ? "away" : "home", 3500);
 
           const analysis = attackingSide === this.userSide
-            ? `🛡️ Disparo bloqueado por la defensa rival. Faltó rapidez en el remate de ${shooter.name}.`
-            : `🛡️ ¡Gran anticipación de ${defender.name}! Tu zaga tapó el disparo a tiempo.`;
+            ? `🛡️ Disparo bloqueado por ${defender.name}. El central tapó el ángulo con una segada impecable.`
+            : `🛡️ ¡Gran anticipación de tu zaga! ${defender.name} se lanzó al suelo y neutralizó el tiro.`;
 
           setTimeout(() => {
             this.concludeHighlight({ outcome: "BLOCK", tacticalAnalysis: analysis, onComplete });
-          }, 1800);
+          }, 4600);
 
-        } else if (!onTarget) {
-          const isPost = Math.random() < 0.25;
-          if (isPost) {
-            this.ball.targetX = isHome ? 99 : 1;
-            this.ball.targetY = Math.random() < 0.5 ? 44.5 : 55.5;
-            this.ball.targetZ = 7;
-            this.triggerAlert("AL PALO", `🥅 ¡Al palo! Disparo de ${shooter.name} a la madera`, attackingSide, 3200);
-            const analysis = `🥅 ¡Al palo! La madera salvó al ${defTeam.shortName} tras ganar ${shooter.name} la posición.`;
-            setTimeout(() => {
-              this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
-            }, 1800);
-          } else {
-            this.ball.targetX = isHome ? 104 : -4;
-            this.ball.targetY = Math.random() < 0.5 ? 30 : 70;
-            this.ball.targetZ = 10;
-            this.triggerAlert("DISPARO FUERA", `💨 Disparo fuera de ${shooter.name}`, attackingSide, 2600);
-            const analysis = `💨 Remate desviado de ${shooter.name}. Tuvo tiempo pero no precisó el disparo.`;
-            setTimeout(() => {
-              this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
-            }, 1800);
-          }
+        } else if (outcome === "POST") {
+          this.ball.targetX = isHome ? 99 : 1;
+          this.ball.targetY = targetCorner.includes("RIGHT") ? 55.5 : 44.5;
+          this.ball.targetZ = 7;
+          this.triggerAlert("AL PALO", `🥅 ¡Al palo! El disparo de ${shooter.name} se estrella en la madera`, attackingSide, 3500);
+          const analysis = `🥅 ¡Al palo! La madera evitó el gol de ${shooter.name} tras superar al guardameta.`;
+
+          setTimeout(() => {
+            this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
+          }, 4600);
+
+        } else if (outcome === "WIDE") {
+          this.ball.targetX = isHome ? 104 : -4;
+          this.ball.targetY = targetCorner.includes("RIGHT") ? 62 : 38;
+          this.ball.targetZ = 9;
+          this.triggerAlert("DISPARO FUERA", `💨 Disparo desviado de ${shooter.name}`, attackingSide, 3000);
+          const analysis = `💨 El remate de ${shooter.name} se marcha rozando el poste por fuera.`;
+
+          setTimeout(() => {
+            this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
+          }, 4600);
+
+        } else if (outcome === "SAVE") {
+          this.stats.shotsOnTarget[attackingSide]++;
+          this.ball.targetX = isHome ? 98 : 2;
+          this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
+          this.ball.targetZ = 5;
+
+          setTimeout(() => {
+            this.triggerAlert("PARADÓN", `🧤 ¡Paradón providencial de ${goalkeeper.name} ante ${shooter.name}!`, isHome ? "away" : "home", 3800);
+            this.stats.corners[attackingSide]++;
+            const analysis = attackingSide === this.userSide
+              ? `🧤 ¡Paradón de ${goalkeeper.name}! Estirada espectacular a mano cambiada desviando el balón.`
+              : `🧤 ¡Intervención salvadora de ${goalkeeper.name}! Tu portero voló para evitar el gol.`;
+
+            this.concludeHighlight({ outcome: "SAVE", tacticalAnalysis: analysis, onComplete });
+          }, 4600);
 
         } else {
+          // ¡GOOOOL!
           this.stats.shotsOnTarget[attackingSide]++;
+          if (isHome) {
+            this.homeScore++;
+            this.ball.targetX = 99.5;
+            this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
+            this.ball.targetZ = targetCorner.includes("TOP") ? 9 : 2;
+          } else {
+            this.awayScore++;
+            this.ball.targetX = 0.5;
+            this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
+            this.ball.targetZ = targetCorner.includes("TOP") ? 9 : 2;
+          }
 
-          if (shotQuality > gkSavePower + 5) {
-            // ¡GOLAZO!
-            if (isHome) {
-              this.homeScore++;
-              this.ball.targetX = 99.5;
-              this.ball.targetY = 46 + Math.random() * 8;
-              this.ball.targetZ = 6 + Math.random() * 5;
-            } else {
-              this.awayScore++;
-              this.ball.targetX = 0.5;
-              this.ball.targetY = 46 + Math.random() * 8;
-              this.ball.targetZ = 6 + Math.random() * 5;
-            }
+          shooter.goals = (shooter.goals || 0) + 1;
+          const event = {
+            type: "GOAL",
+            minute: this.minute,
+            teamSide: attackingSide,
+            teamId: atkTeam.id,
+            teamName: atkTeam.shortName,
+            playerName: shooter.name,
+            currentScore: `${this.homeScore} - ${this.awayScore}`
+          };
+          this.events.push(event);
 
-            shooter.goals = (shooter.goals || 0) + 1;
-            const event = {
-              type: "GOAL",
-              minute: this.minute,
-              teamSide: attackingSide,
-              teamId: atkTeam.id,
-              teamName: atkTeam.shortName,
-              playerName: shooter.name,
-              currentScore: `${this.homeScore} - ${this.awayScore}`
-            };
-            this.events.push(event);
+          this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
 
-            this.triggerAlert("GOL", `⚽ ¡GOOOOOOL DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
+          const analysis = attackingSide === this.userSide
+            ? `🎯 ¡Golazo! ${shooter.name} definió a la escuadra con un golpeo imparable.`
+            : `⚠️ Despiste en la marca: ${shooter.name} recibió con espacio y fusiló la portería.`;
 
-            const analysis = attackingSide === this.userSide
-              ? `🎯 ¡Golazo! Desmarque magistral al hueco y definición perfecta de ${shooter.name}.`
-              : `⚠️ Gol encajado: Despiste defensivo. Tu zaga concedió la espalda de ${defender.name}. Considera retrasar la línea o usar un MCD.`;
-
+          setTimeout(() => {
             this.isHighlightRunning = false;
             this.speed = this.userSpeed;
             if (this.onHighlightEnd) {
@@ -2402,32 +2441,10 @@ class MatchSimulator {
               formattedMinute: this.getFormattedMinute(),
               score: `${this.homeScore} - ${this.awayScore}`
             });
-
-          } else {
-            // ¡PARADÓN!
-            this.ball.targetX = isHome ? 98 : 2;
-            this.ball.targetY = 48 + Math.random() * 4;
-            this.ball.targetZ = 5;
-
-            setTimeout(() => {
-              this.ball.targetX = isHome ? 88 : 12;
-              this.ball.targetY = Math.random() < 0.5 ? 26 : 74;
-              this.ball.targetZ = 0;
-              this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name} ante ${shooter.name}!`, isHome ? "away" : "home", 3200);
-              this.stats.corners[attackingSide]++;
-
-              const analysis = attackingSide === this.userSide
-                ? `🧤 ¡Paradón de ${goalkeeper.name}! Salvó un remate a bocajarro de ${shooter.name}.`
-                : `🧤 ¡Intervención providencial de ${goalkeeper.name}! Tu portero evitó el gol en el mano a mano.`;
-
-              setTimeout(() => {
-                this.concludeHighlight({ outcome: "SAVE", tacticalAnalysis: analysis, onComplete });
-              }, 1600);
-            }, 600);
-          }
+          }, 4600);
         }
-      }, 1650);
-    }, 1750);
+      }, 3600);
+    }, 4200);
   }
 
   concludeHighlight({ outcome, tacticalAnalysis, onComplete }) {
@@ -5618,30 +5635,34 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
         scale = depthFactor * baseResScale * zoom;
       } else {
-        // "broadcast" - Cámara de Retransmisión TV Isométrica FM (Exacta al estilo del pantallazo Football Manager)
-        const zoom = Math.max(0.96, Math.min(1.36, cameraZoom));
-        const tiltAngle = ((cameraPitchX - 50) / 50) * 0.16; // Rotación diagonal sutil
-        const cosT = Math.cos(tiltAngle);
-        const sinT = Math.sin(tiltAngle);
+        // "broadcast" - Vista lateral clásica de retransmisión televisiva (como estaba)
+        const zoom = Math.max(0.95, Math.min(1.25, cameraZoom));
+        const camOffsetX = (cameraPitchX - 50) * 0.38;
+        const camOffsetY = (cameraPitchY - 50) * 0.18;
 
-        const dx = (pitchX - cameraPitchX);
-        const dy = (pitchY - 50);
+        const relX = pitchX - camOffsetX;
+        const relY = pitchY - camOffsetY;
 
-        const rx = dx * cosT - dy * sinT;
-        const ry = dx * sinT + dy * cosT;
+        const nx = relX / 100;
+        const ny = Math.max(-10, Math.min(110, relY)) / 100;
 
-        const normY = Math.max(-0.2, Math.min(1.2, (ry + 50) / 100));
-        const depthFactor = 0.72 + normY * 0.54;
+        const baseTopY = h * 0.20;
+        const baseBotY = h * 0.88;
+        const midY = (baseTopY + baseBotY) / 2;
+        const topY = midY - (midY - baseTopY) * zoom;
+        const botY = midY + (baseBotY - midY) * zoom;
 
-        const midX = w * 0.50;
-        const midY = h * 0.52;
-        const spanX = w * 0.94 * zoom;
-        const spanY = h * 0.72 * zoom;
+        groundY = topY + ny * (botY - topY);
 
-        groundX = midX + (rx / 50) * (spanX * 0.5) * depthFactor;
-        groundY = midY + (ry / 50) * (spanY * 0.5);
+        const midX = w / 2;
+        const baseTopSpan = w * 0.78 * zoom;
+        const baseBotSpan = w * 0.94 * zoom;
 
-        scale = depthFactor * baseResScale * zoom;
+        const leftX = (midX - baseTopSpan / 2) + ny * ((midX - baseBotSpan / 2) - (midX - baseTopSpan / 2));
+        const rightX = (midX + baseTopSpan / 2) + ny * ((midX + baseBotSpan / 2) - (midX + baseTopSpan / 2));
+        groundX = leftX + nx * (rightX - leftX);
+
+        scale = (0.74 + ny * 0.54) * baseResScale * zoom;
       }
 
       // Elevación vertical 3D (eje Z para balones aéreos y saltos de cabeza)
@@ -6787,11 +6808,758 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     let lastBallX = 50;
     let lastBallY = 50;
 
+    // ==========================================
+    // CÁMARA FRONTAL DE JUGADAS CLAVE (SEGÚN DIBUJO DEL USUARIO)
+    // Vista frontal hacia la portería: portero bajo palos, 2 defensas en medio, 2 delanteros en primer plano
+    // ==========================================
+    function drawFrontalBall(ctx, x, y, z, r, sc) {
+      // Sombra en el césped
+      ctx.save();
+      const shadowAlpha = Math.max(0.08, 0.40 - (z / (30 * sc)) * 0.3);
+      ctx.fillStyle = `rgba(0, 25, 8, ${shadowAlpha})`;
+      ctx.beginPath();
+      ctx.ellipse(x, y, r * 1.3, r * 0.65, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+
+      // Balón elevado (Y - Z)
+      const bY = y - z;
+      const bR = Math.max(2.5, r);
+
+      ctx.beginPath();
+      ctx.arc(x, bY, bR, 0, Math.PI * 2);
+      const bGrad = ctx.createRadialGradient(x - bR * 0.3, bY - bR * 0.3, bR * 0.1, x, bY, bR);
+      bGrad.addColorStop(0, "#ffffff");
+      bGrad.addColorStop(0.7, "#e2e8f0");
+      bGrad.addColorStop(1, "#334155");
+      ctx.fillStyle = bGrad;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.6)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Paneles pentagonales
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      for (let p = 0; p < 5; p++) {
+        const pa = (p * Math.PI * 2) / 5;
+        const px = x + Math.cos(pa) * (bR * 0.42);
+        const py = bY + Math.sin(pa) * (bR * 0.42);
+        if (p === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    function drawFrontalAthlete(ctx, ent) {
+      const { x, y, sc, kit, number, isKeeper, pose, isFromBehind } = ent;
+      const jerseyColor = isKeeper ? kit.keeper : kit.jersey;
+      const shortsColor = kit.shorts || "#ffffff";
+      const socksColor = kit.socks || jerseyColor;
+      const skinColor = isKeeper ? "#fcd34d" : (number % 2 === 0 ? "#8d5b4c" : "#fcd34d");
+      const hairColor = number % 2 === 0 ? "#1e293b" : "#451a03";
+
+      ctx.save();
+      ctx.translate(x, y);
+
+      // Sombra en el césped bajo los pies
+      ctx.fillStyle = "rgba(0, 25, 8, 0.35)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 9 * sc, 4 * sc, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Si es portero lanzándose en plancha (DIVE):
+      if (pose === "DIVE_RIGHT" || pose === "DIVE_LEFT") {
+        const isRight = pose === "DIVE_RIGHT";
+        ctx.rotate(isRight ? 0.75 : -0.75);
+
+        // Cuerpo horizontal volando hacia el balón
+        const bodyY = -12 * sc;
+        ctx.strokeStyle = shortsColor;
+        ctx.lineWidth = 4 * sc;
+        ctx.beginPath();
+        ctx.moveTo(isRight ? -10 * sc : 10 * sc, bodyY);
+        ctx.lineTo(isRight ? -22 * sc : 22 * sc, bodyY + 3 * sc);
+        ctx.stroke();
+
+        ctx.strokeStyle = socksColor;
+        ctx.lineWidth = 3.2 * sc;
+        ctx.beginPath();
+        ctx.moveTo(isRight ? -22 * sc : 22 * sc, bodyY + 3 * sc);
+        ctx.lineTo(isRight ? -30 * sc : 30 * sc, bodyY + 6 * sc);
+        ctx.stroke();
+
+        // Torso en kit portero
+        ctx.fillStyle = jerseyColor;
+        ctx.beginPath();
+        ctx.roundRect(-7 * sc, bodyY - 6 * sc, 14 * sc, 11 * sc, 2.5 * sc);
+        ctx.fill();
+
+        // Brazos estirados al máximo
+        ctx.strokeStyle = jerseyColor;
+        ctx.lineWidth = 3.2 * sc;
+        ctx.beginPath();
+        ctx.moveTo(isRight ? 6 * sc : -6 * sc, bodyY - 2 * sc);
+        ctx.lineTo(isRight ? 24 * sc : -24 * sc, bodyY - 4 * sc);
+        ctx.stroke();
+
+        // Guantes con palma neón extendidos para parar
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(isRight ? 25 * sc : -25 * sc, bodyY - 4 * sc, 3.8 * sc, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Cabeza
+        ctx.fillStyle = skinColor;
+        ctx.beginPath();
+        ctx.arc(0, bodyY - 9 * sc, 4.2 * sc, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = hairColor;
+        ctx.beginPath();
+        ctx.arc(0, bodyY - 10.5 * sc, 4.2 * sc, Math.PI, 0);
+        ctx.fill();
+
+        ctx.restore();
+        return;
+      }
+
+      // Si es portero en el suelo
+      if (pose === "GROUND_RIGHT" || pose === "GROUND_LEFT" || pose === "CONCEDED") {
+        ctx.fillStyle = jerseyColor;
+        ctx.beginPath();
+        ctx.ellipse(0, -3 * sc, 12 * sc, 5 * sc, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = skinColor;
+        ctx.beginPath();
+        ctx.arc(pose === "GROUND_RIGHT" ? 11 * sc : -11 * sc, -3 * sc, 3.8 * sc, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+        return;
+      }
+
+      // Si es central en segada defensiva (SLIDE_BLOCK):
+      if (pose === "SLIDE_BLOCK") {
+        ctx.strokeStyle = socksColor;
+        ctx.lineWidth = 4 * sc;
+        ctx.beginPath();
+        ctx.moveTo(-6 * sc, -4 * sc);
+        ctx.lineTo(18 * sc, -2 * sc);
+        ctx.stroke();
+
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(17 * sc, -4 * sc, 6 * sc, 3 * sc);
+
+        ctx.fillStyle = jerseyColor;
+        ctx.beginPath();
+        ctx.roundRect(-10 * sc, -14 * sc, 12 * sc, 10 * sc, 2 * sc);
+        ctx.fill();
+
+        ctx.fillStyle = skinColor;
+        ctx.beginPath();
+        ctx.arc(-5 * sc, -18 * sc, 3.8 * sc, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = hairColor;
+        ctx.beginPath();
+        ctx.arc(-5 * sc, -19.5 * sc, 3.8 * sc, Math.PI, 0);
+        ctx.fill();
+
+        ctx.restore();
+        return;
+      }
+
+      // JUGADOR DE PIE / CORRIENDO / DISPARANDO / CELEBRANDO
+      const hipY = -12 * sc;
+      const shoulderY = -23 * sc;
+      const headY = -27.5 * sc;
+      const headR = 3.8 * sc;
+
+      let lStride = 0;
+      let rStride = 0;
+      if (pose === "WINDUP_SHOT") {
+        lStride = -2 * sc;
+        rStride = 8 * sc;
+      } else if (pose === "SHOT_FOLLOW_THROUGH") {
+        lStride = -2 * sc;
+        rStride = -8 * sc;
+      } else if (pose === "CELEBRATE_JUMP") {
+        lStride = 2 * sc;
+        rStride = -2 * sc;
+      }
+
+      // Muslos / Pantalón
+      ctx.strokeStyle = shortsColor;
+      ctx.lineWidth = 4.2 * sc;
+      ctx.beginPath();
+      ctx.moveTo(-3 * sc, hipY);
+      ctx.lineTo(-3 * sc + lStride * 0.4, -6 * sc);
+      ctx.moveTo(3 * sc, hipY);
+      ctx.lineTo(3 * sc + rStride * 0.4, -6 * sc);
+      ctx.stroke();
+
+      // Calcetas
+      ctx.strokeStyle = socksColor;
+      ctx.lineWidth = 3.2 * sc;
+      ctx.beginPath();
+      ctx.moveTo(-3 * sc + lStride * 0.4, -6 * sc);
+      ctx.lineTo(-3 * sc + lStride, -1 * sc);
+      ctx.moveTo(3 * sc + rStride * 0.4, -6 * sc);
+      ctx.lineTo(3 * sc + rStride, -1 * sc);
+      ctx.stroke();
+
+      // Botas
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      ctx.ellipse(-3 * sc + lStride, -0.8 * sc, 3.4 * sc, 1.4 * sc, 0, 0, Math.PI * 2);
+      ctx.ellipse(3 * sc + rStride, -0.8 * sc, 3.4 * sc, 1.4 * sc, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Pantalón corto
+      ctx.fillStyle = shortsColor;
+      ctx.beginPath();
+      ctx.roundRect(-5.5 * sc, hipY, 11 * sc, 6.5 * sc, 1.5 * sc);
+      ctx.fill();
+
+      // Torso y camiseta oficial
+      ctx.fillStyle = jerseyColor;
+      ctx.beginPath();
+      ctx.roundRect(-6.5 * sc, shoulderY, 13 * sc, 12 * sc, 2.5 * sc);
+      ctx.fill();
+
+      // Cuello
+      ctx.fillStyle = kit.collar || "#ffffff";
+      ctx.beginPath();
+      ctx.ellipse(0, shoulderY + 0.5 * sc, 3 * sc, 1.4 * sc, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Número en la espalda para atacantes en primer plano
+      if (isFromBehind) {
+        ctx.fillStyle = kit.number || "#ffffff";
+        ctx.font = `900 ${Math.round(6.5 * sc)}px monospace`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(`${number}`, 0, shoulderY + 6.5 * sc);
+      }
+
+      // Brazos
+      ctx.strokeStyle = jerseyColor;
+      ctx.lineWidth = 3.2 * sc;
+      if (pose === "CELEBRATE_JUMP") {
+        ctx.beginPath();
+        ctx.moveTo(-5.5 * sc, shoulderY + 2 * sc);
+        ctx.lineTo(-11 * sc, shoulderY - 8 * sc);
+        ctx.moveTo(5.5 * sc, shoulderY + 2 * sc);
+        ctx.lineTo(11 * sc, shoulderY - 8 * sc);
+        ctx.stroke();
+      } else if (pose === "HANDS_ON_HEAD") {
+        ctx.beginPath();
+        ctx.moveTo(-5.5 * sc, shoulderY + 2 * sc);
+        ctx.lineTo(-7 * sc, headY);
+        ctx.moveTo(5.5 * sc, shoulderY + 2 * sc);
+        ctx.lineTo(7 * sc, headY);
+        ctx.stroke();
+      } else {
+        ctx.beginPath();
+        ctx.moveTo(-5.5 * sc, shoulderY + 2 * sc);
+        ctx.lineTo(-9 * sc, hipY);
+        ctx.moveTo(5.5 * sc, shoulderY + 2 * sc);
+        ctx.lineTo(9 * sc, hipY);
+        ctx.stroke();
+      }
+
+      // Guantes de portero
+      if (isKeeper) {
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(-9 * sc, hipY, 2.8 * sc, 0, Math.PI * 2);
+        ctx.arc(9 * sc, hipY, 2.8 * sc, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = "#10b981";
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+
+      // Cabeza y pelo
+      ctx.fillStyle = skinColor;
+      ctx.beginPath();
+      ctx.arc(0, headY, headR, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = hairColor;
+      ctx.beginPath();
+      if (isFromBehind) {
+        ctx.arc(0, headY - 0.5 * sc, headR * 0.98, 0, Math.PI * 2);
+      } else {
+        ctx.arc(0, headY - 1 * sc, headR * 0.95, Math.PI, 0);
+      }
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function drawFrontalHighlightScene(ctx, w, h, hlData) {
+      const now = performance.now();
+      if (!hlData.animStartTime) hlData.animStartTime = now;
+      const elapsed = (now - hlData.animStartTime) / 1000;
+
+      const outcome = hlData.outcome || "GOAL";
+      const targetCorner = hlData.targetCorner || "TOP_RIGHT";
+      const isHome = hlData.attackingSide === "home";
+      const atkTeam = isHome ? homeTeam : awayTeam;
+      const defTeam = isHome ? awayTeam : homeTeam;
+      const atkKit = isHome ? kits.home : kits.away;
+      const defKit = isHome ? kits.away : kits.home;
+
+      const sc = Math.min(w / 460, h / 290);
+
+      // 1. FONDO: ESTADIO, GRADAS Y AMBIENTE
+      const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.25);
+      skyGrad.addColorStop(0, "#030712");
+      skyGrad.addColorStop(0.6, "#0f172a");
+      skyGrad.addColorStop(1, "#1e293b");
+      ctx.fillStyle = skyGrad;
+      ctx.fillRect(0, 0, w, h);
+
+      // Gradas superiores
+      const standTopY = h * 0.02;
+      const standBotY = h * 0.16;
+      const numRows = 6;
+      for (let r = 0; r < numRows; r++) {
+        const ry = standTopY + (r / numRows) * (standBotY - standTopY);
+        const rh = (standBotY - standTopY) / numRows;
+        ctx.fillStyle = r % 2 === 0 ? "#0f172a" : "#1e293b";
+        ctx.fillRect(0, ry, w, rh);
+
+        const dots = Math.floor(w / 7);
+        for (let d = 0; d < dots; d++) {
+          const dx = d * 7 + (r % 2 === 0 ? 3.5 : 0);
+          const colorSeed = (d * 17 + r * 31) % 9;
+          const fanColor = colorSeed < 3 ? (atkTeam.primaryColor || "#38bdf8")
+            : colorSeed < 5 ? (defTeam.primaryColor || "#ef4444")
+            : colorSeed < 7 ? "#f8fafc" : "#475569";
+          ctx.fillStyle = fanColor;
+          ctx.beginPath();
+          ctx.arc(dx, ry + rh * 0.55, 1.3 * sc, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // Flashes de cámaras durante el disparo
+      if (elapsed >= 7.6 && elapsed <= 11.0) {
+        for (let f = 0; f < 6; f++) {
+          if (Math.random() < 0.45) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+            ctx.beginPath();
+            ctx.arc(Math.random() * w, standTopY + Math.random() * (standBotY - standTopY), (2.0 + Math.random() * 2.5) * sc, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+
+      // Focos del estadio
+      const floodlights = [{ x: w * 0.08, y: h * 0.04 }, { x: w * 0.92, y: h * 0.04 }];
+      floodlights.forEach(fl => {
+        const beam = ctx.createRadialGradient(fl.x, fl.y, 4, fl.x, h * 0.55, w * 0.6);
+        beam.addColorStop(0, "rgba(255, 255, 255, 0.45)");
+        beam.addColorStop(0.3, "rgba(224, 242, 254, 0.15)");
+        beam.addColorStop(1, "rgba(224, 242, 254, 0)");
+        ctx.fillStyle = beam;
+        ctx.beginPath();
+        ctx.arc(fl.x, fl.y, w * 0.55, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // 2. CÉSPED FRONTAL Y LÍNEAS DE CAL
+      const horizonY = h * 0.20;
+      const goalLineY = h * 0.28;
+
+      const numLawnBands = 12;
+      for (let b = 0; b < numLawnBands; b++) {
+        const topBX1 = (w / 2) + ((b - numLawnBands / 2) / (numLawnBands / 2)) * (w * 0.38);
+        const topBX2 = (w / 2) + ((b + 1 - numLawnBands / 2) / (numLawnBands / 2)) * (w * 0.38);
+        const botBX1 = (w / 2) + ((b - numLawnBands / 2) / (numLawnBands / 2)) * (w * 0.72);
+        const botBX2 = (w / 2) + ((b + 1 - numLawnBands / 2) / (numLawnBands / 2)) * (w * 0.72);
+
+        ctx.fillStyle = b % 2 === 0 ? "#206e2e" : "#287d37";
+        ctx.beginPath();
+        ctx.moveTo(topBX1, horizonY);
+        ctx.lineTo(topBX2, horizonY);
+        ctx.lineTo(botBX2, h);
+        ctx.lineTo(botBX1, h);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.90)";
+      ctx.lineWidth = 2.2 * sc;
+
+      // Línea de gol
+      ctx.beginPath();
+      ctx.moveTo(w * 0.14, goalLineY);
+      ctx.lineTo(w * 0.86, goalLineY);
+      ctx.stroke();
+
+      // Área pequeña (6 yardas)
+      const sixBoxL = w * 0.36;
+      const sixBoxR = w * 0.64;
+      const sixBoxBotY = h * 0.37;
+      ctx.strokeRect(sixBoxL, goalLineY, sixBoxR - sixBoxL, sixBoxBotY - goalLineY);
+
+      // Área grande (18 yardas)
+      const penBoxL = w * 0.20;
+      const penBoxR = w * 0.80;
+      const penBoxBotY = h * 0.58;
+      ctx.strokeRect(penBoxL, goalLineY, penBoxR - penBoxL, penBoxBotY - goalLineY);
+
+      // Punto de penalti
+      const penSpotX = w * 0.50;
+      const penSpotY = h * 0.48;
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(penSpotX, penSpotY, 2.6 * sc, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Semicírculo
+      ctx.beginPath();
+      ctx.arc(penSpotX, penSpotY, (penBoxBotY - penSpotY), 0.15 * Math.PI, 0.85 * Math.PI);
+      ctx.stroke();
+
+      // 3. LA PORTERÍA EN 3D
+      const postLX = w * 0.26;
+      const postRX = w * 0.74;
+      const postGroundY = goalLineY;
+      const crossbarY = h * 0.12;
+
+      const netBackY = h * 0.08;
+      const netBackLX = w * 0.28;
+      const netBackRX = w * 0.72;
+
+      const isGoalScored = outcome === "GOAL" && elapsed >= 8.8;
+      const netRippleFactor = isGoalScored ? Math.max(0, 1 - (elapsed - 8.8) * 0.6) : 0;
+      const rippleOffsetX = netRippleFactor * (targetCorner.includes("RIGHT") ? 14 : -14) * Math.sin((elapsed - 8.8) * 16) * sc;
+      const rippleOffsetY = netRippleFactor * 8 * Math.cos((elapsed - 8.8) * 16) * sc;
+
+      ctx.fillStyle = "rgba(240, 249, 255, 0.20)";
+      ctx.beginPath();
+      ctx.moveTo(postLX, crossbarY);
+      ctx.lineTo(postRX, crossbarY);
+      ctx.lineTo(netBackRX + rippleOffsetX, netBackY + rippleOffsetY);
+      ctx.lineTo(netBackLX + rippleOffsetX, netBackY + rippleOffsetY);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(240, 249, 255, 0.32)";
+      ctx.lineWidth = 1.0 * sc;
+      const netCols = 16;
+      for (let c = 1; c < netCols; c++) {
+        const topX = postLX + (c / netCols) * (postRX - postLX);
+        const botX = postLX + (c / netCols) * (postRX - postLX);
+        ctx.beginPath();
+        ctx.moveTo(topX, crossbarY);
+        ctx.lineTo(botX + (c === 8 ? rippleOffsetX * 0.5 : 0), postGroundY);
+        ctx.stroke();
+      }
+      const netRows = 8;
+      for (let r = 1; r < netRows; r++) {
+        const ny = crossbarY + (r / netRows) * (postGroundY - crossbarY);
+        ctx.beginPath();
+        ctx.moveTo(postLX, ny);
+        ctx.lineTo(postRX, ny);
+        ctx.stroke();
+      }
+
+      // Tirantes de sujeción
+      ctx.strokeStyle = "rgba(203, 213, 225, 0.65)";
+      ctx.lineWidth = 2.0 * sc;
+      ctx.beginPath();
+      ctx.moveTo(postLX, crossbarY);
+      ctx.lineTo(netBackLX, netBackY);
+      ctx.lineTo(netBackLX, postGroundY);
+      ctx.moveTo(postRX, crossbarY);
+      ctx.lineTo(netBackRX, netBackY);
+      ctx.lineTo(netBackRX, postGroundY);
+      ctx.stroke();
+
+      // Postes y Larguero
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 5.2 * sc;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(postLX, postGroundY);
+      ctx.lineTo(postLX, crossbarY);
+      ctx.lineTo(postRX, crossbarY);
+      ctx.lineTo(postRX, postGroundY);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(241, 245, 249, 0.95)";
+      ctx.lineWidth = 2.2 * sc;
+      ctx.stroke();
+
+      // Chispazo de impacto en el poste
+      const isPostHit = outcome === "POST" && elapsed >= 8.8 && elapsed <= 9.6;
+      if (isPostHit) {
+        const postHitX = targetCorner.includes("RIGHT") ? postRX : postLX;
+        const postHitY = targetCorner.includes("TOP") ? crossbarY : (postGroundY + crossbarY) / 2;
+        ctx.fillStyle = "rgba(254, 240, 138, 0.95)";
+        ctx.beginPath();
+        ctx.arc(postHitX, postHitY, 14 * sc, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(postHitX, postHitY, 8 * sc, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 4. POSICIONES Y ESTADOS DE LOS JUGADORES
+      const targetShotX = targetCorner === "TOP_LEFT" ? postLX + 0.06 * w
+        : targetCorner === "BOTTOM_LEFT" ? postLX + 0.07 * w
+        : targetCorner === "TOP_RIGHT" ? postRX - 0.06 * w
+        : postRX - 0.07 * w;
+      const targetShotY = targetCorner.includes("TOP") ? crossbarY + 0.04 * h : postGroundY - 0.03 * h;
+
+      // 4.1 PORTERO
+      let gkX = w * 0.50;
+      let gkY = postGroundY - 2 * sc;
+      let gkPose = "READY";
+
+      if (elapsed < 7.6) {
+        gkX = w * 0.50 + Math.sin(now * 0.005) * 14 * sc;
+        gkPose = "BOUNCE";
+      } else {
+        const shotProgress = Math.min(1, (elapsed - 7.6) / 2.2);
+        if (outcome === "SAVE") {
+          const isRight = targetShotX > w * 0.50;
+          if (shotProgress < 0.55) {
+            gkX = (w * 0.50) + (targetShotX - w * 0.50) * (shotProgress / 0.55);
+            gkY = (postGroundY - 2 * sc) - Math.sin((shotProgress / 0.55) * Math.PI) * 18 * sc;
+            gkPose = isRight ? "DIVE_RIGHT" : "DIVE_LEFT";
+          } else {
+            gkX = targetShotX;
+            gkY = postGroundY + 4 * sc;
+            gkPose = isRight ? "GROUND_RIGHT" : "GROUND_LEFT";
+          }
+        } else if (outcome === "GOAL") {
+          const isRight = targetShotX > w * 0.50;
+          if (shotProgress < 0.6) {
+            gkX = (w * 0.50) + (targetShotX - w * 0.50) * (shotProgress / 0.6) * 0.75;
+            gkY = (postGroundY - 2 * sc) - Math.sin((shotProgress / 0.6) * Math.PI) * 14 * sc;
+            gkPose = isRight ? "DIVE_RIGHT" : "DIVE_LEFT";
+          } else {
+            gkPose = "CONCEDED";
+          }
+        } else if (outcome === "POST") {
+          const isRight = targetShotX > w * 0.50;
+          if (shotProgress < 0.5) {
+            gkX = (w * 0.50) + (targetShotX - w * 0.50) * 0.65;
+            gkPose = isRight ? "DIVE_RIGHT" : "DIVE_LEFT";
+          } else {
+            gkPose = "LOOK_POST";
+          }
+        } else {
+          gkPose = "READY";
+        }
+      }
+
+      // 4.2 CENTRALES RIVALES
+      let def1X = w * 0.40;
+      let def1Y = h * 0.46;
+      let def2X = w * 0.60;
+      let def2Y = h * 0.48;
+      let def1Pose = "JOCKEY";
+      let def2Pose = "JOCKEY";
+
+      if (elapsed < 4.2) {
+        def1X = w * 0.38 + (elapsed / 4.2) * 0.04 * w;
+        def1Y = h * 0.45 + (elapsed / 4.2) * 0.05 * h;
+        def2X = w * 0.62 - (elapsed / 4.2) * 0.04 * w;
+        def2Y = h * 0.47 + (elapsed / 4.2) * 0.05 * h;
+      } else if (elapsed < 7.6) {
+        def1X = w * 0.42;
+        def1Y = h * 0.50;
+        def2X = w * 0.58;
+        def2Y = h * 0.52;
+      } else {
+        if (outcome === "BLOCK") {
+          const blockProg = Math.min(1, (elapsed - 7.6) / 1.0);
+          def1X = w * 0.42 + blockProg * 0.07 * w;
+          def1Y = h * 0.50 + blockProg * 0.06 * h;
+          def1Pose = "SLIDE_BLOCK";
+        } else {
+          def1X = w * 0.42;
+          def1Y = h * 0.51;
+          def2X = w * 0.58;
+          def2Y = h * 0.53;
+        }
+      }
+
+      // 4.3 ATACANTES EN PRIMER PLANO
+      let passerX = w * 0.30;
+      let passerY = h * 0.82;
+      let passerPose = "DRIBBLE";
+
+      let strikerX = w * 0.66;
+      let strikerY = h * 0.75;
+      let strikerPose = "RUN_TO_BALL";
+
+      if (elapsed < 2.2) {
+        passerX = w * 0.30 + (elapsed / 2.2) * 0.05 * w;
+        passerY = h * 0.82 - (elapsed / 2.2) * 0.04 * h;
+        strikerX = w * 0.66 - (elapsed / 2.2) * 0.06 * w;
+        strikerY = h * 0.75 - (elapsed / 2.2) * 0.05 * h;
+        passerPose = "DRIBBLE";
+        strikerPose = "RUN_TO_BALL";
+      } else if (elapsed < 4.2) {
+        passerPose = "PASS_DELIVERY";
+        const passRunProg = (elapsed - 2.2) / 2.0;
+        strikerX = w * 0.60 - passRunProg * 0.10 * w;
+        strikerY = h * 0.70 - passRunProg * 0.05 * h;
+        strikerPose = "RUN_TO_BALL";
+      } else if (elapsed < 6.2) {
+        strikerX = w * 0.50;
+        strikerY = h * 0.64;
+        strikerPose = "CONTROL";
+      } else if (elapsed < 7.6) {
+        strikerX = w * 0.50;
+        strikerY = h * 0.63;
+        strikerPose = "WINDUP_SHOT";
+      } else {
+        strikerX = w * 0.50;
+        strikerY = h * 0.63;
+        if (outcome === "GOAL") {
+          strikerPose = (elapsed > 9.0) ? "CELEBRATE_JUMP" : "SHOT_FOLLOW_THROUGH";
+        } else {
+          strikerPose = (elapsed > 9.0) ? "HANDS_ON_HEAD" : "SHOT_FOLLOW_THROUGH";
+        }
+      }
+
+      // 4.4 BALÓN 3D
+      let ballX = passerX;
+      let ballY = passerY;
+      let ballZ = 0;
+      let ballRadius = 6.8 * sc;
+
+      if (elapsed < 2.2) {
+        ballX = passerX + 4 * sc;
+        ballY = passerY + 4 * sc;
+        ballZ = 0;
+      } else if (elapsed < 4.2) {
+        const passP = (elapsed - 2.2) / 2.0;
+        ballX = (passerX + 4 * sc) + ((strikerX) - (passerX + 4 * sc)) * passP;
+        ballY = (passerY + 4 * sc) + ((strikerY + 2 * sc) - (passerY + 4 * sc)) * passP;
+        ballZ = Math.sin(passP * Math.PI) * 4 * sc;
+      } else if (elapsed < 7.6) {
+        ballX = strikerX + 2 * sc;
+        ballY = strikerY + 3 * sc;
+        ballZ = 0;
+      } else {
+        const shotFlightProg = Math.min(1, (elapsed - 7.6) / 1.5);
+
+        if (outcome === "BLOCK") {
+          if (shotFlightProg < 0.4) {
+            const bp = shotFlightProg / 0.4;
+            ballX = strikerX + (def1X - strikerX) * bp;
+            ballY = strikerY + (def1Y - strikerY) * bp;
+            ballZ = Math.sin(bp * Math.PI) * 8 * sc;
+          } else {
+            const rebP = (shotFlightProg - 0.4) / 0.6;
+            ballX = def1X - rebP * 0.05 * w;
+            ballY = def1Y + rebP * 0.04 * h;
+            ballZ = Math.max(0, 6 * sc - rebP * 6 * sc);
+          }
+        } else if (outcome === "POST") {
+          const hitPostX = targetCorner.includes("RIGHT") ? postRX : postLX;
+          const hitPostY = targetCorner.includes("TOP") ? crossbarY : (postGroundY + crossbarY) / 2;
+          if (shotFlightProg < 0.5) {
+            const sp = shotFlightProg / 0.5;
+            ballX = strikerX + (hitPostX - strikerX) * sp;
+            ballY = strikerY + (hitPostY - strikerY) * sp;
+            ballZ = Math.sin(sp * Math.PI) * 20 * sc;
+            ballRadius = (6.8 - sp * 3.4) * sc;
+          } else {
+            const rebP = (shotFlightProg - 0.5) / 0.5;
+            ballX = hitPostX + (hitPostX > w * 0.5 ? -1 : 1) * rebP * 0.18 * w;
+            ballY = hitPostY + rebP * 0.22 * h;
+            ballZ = Math.max(0, 10 * sc - rebP * 10 * sc);
+            ballRadius = 4.2 * sc;
+          }
+        } else if (outcome === "SAVE") {
+          if (shotFlightProg < 0.5) {
+            const sp = shotFlightProg / 0.5;
+            ballX = strikerX + (targetShotX - strikerX) * sp;
+            ballY = strikerY + (targetShotY - strikerY) * sp;
+            ballZ = Math.sin(sp * Math.PI) * 20 * sc;
+            ballRadius = (6.8 - sp * 3.4) * sc;
+          } else {
+            const defP = (shotFlightProg - 0.5) / 0.5;
+            const defDir = targetShotX > w * 0.5 ? 1 : -1;
+            ballX = targetShotX + defDir * defP * 0.22 * w;
+            ballY = targetShotY + defP * 0.12 * h;
+            ballZ = Math.max(0, 12 * sc - defP * 12 * sc);
+            ballRadius = 3.6 * sc;
+          }
+        } else if (outcome === "WIDE") {
+          const wideTargetX = targetShotX > w * 0.5 ? postRX + 0.08 * w : postLX - 0.08 * w;
+          const sp = shotFlightProg;
+          ballX = strikerX + (wideTargetX - strikerX) * sp;
+          ballY = strikerY + (crossbarY - strikerY) * sp;
+          ballZ = Math.sin(sp * Math.PI) * 24 * sc;
+          ballRadius = (6.8 - sp * 3.6) * sc;
+        } else {
+          // GOL
+          if (shotFlightProg < 0.55) {
+            const sp = shotFlightProg / 0.55;
+            ballX = strikerX + (targetShotX - strikerX) * sp;
+            ballY = strikerY + (targetShotY - strikerY) * sp;
+            ballZ = Math.sin(sp * Math.PI) * 22 * sc;
+            ballRadius = (6.8 - sp * 3.4) * sc;
+          } else {
+            const dropP = (shotFlightProg - 0.55) / 0.45;
+            ballX = targetShotX + Math.sin(dropP * 5) * 2 * sc;
+            ballY = targetShotY + dropP * (postGroundY - targetShotY - 2 * sc);
+            ballZ = 0;
+            ballRadius = 3.4 * sc;
+          }
+        }
+      }
+
+      // 5. DIBUJADO DE JUGADORES EN ORDEN DE PROFUNDIDAD
+      const entities = [
+        { type: "GK", x: gkX, y: gkY, sc: 0.82 * sc, kit: defKit, name: hlData.goalkeeper?.name, number: 1, isKeeper: true, pose: gkPose, isFromBehind: false },
+        { type: "DEF1", x: def1X, y: def1Y, sc: 1.05 * sc, kit: defKit, name: hlData.defender?.name, number: 4, isKeeper: false, pose: def1Pose, isFromBehind: false },
+        { type: "DEF2", x: def2X, y: def2Y, sc: 1.05 * sc, kit: defKit, name: "CENTRAL", number: 5, isKeeper: false, pose: def2Pose, isFromBehind: false },
+        { type: "STRIKER", x: strikerX, y: strikerY, sc: 1.35 * sc, kit: atkKit, name: hlData.shooter?.name, number: 9, isKeeper: false, pose: strikerPose, isFromBehind: true },
+        { type: "PASSER", x: passerX, y: passerY, sc: 1.45 * sc, kit: atkKit, name: hlData.passer?.name, number: 8, isKeeper: false, pose: passerPose, isFromBehind: true },
+        { type: "BALL", x: ballX, y: ballY, z: ballZ, r: ballRadius, sc: sc }
+      ];
+
+      entities.sort((a, b) => a.y - b.y);
+
+      entities.forEach(ent => {
+        if (ent.type === "BALL") {
+          drawFrontalBall(ctx, ent.x, ent.y, ent.z, ent.r, ent.sc);
+        } else {
+          drawFrontalAthlete(ctx, ent);
+        }
+      });
+    }
+
     function drawPitch() {
       if (!ctx || !canvas) return;
       resizeCanvas();
       const w = canvas.width;
       const h = canvas.height;
+
+      // Si hay una jugada clave activa, dibujamos la cámara frontal de acción (unos 14 segundos)
+      if (currentHighlightData && !isReplaying) {
+        drawFrontalHighlightScene(ctx, w, h, currentHighlightData);
+        if (!simulator.isFinished) {
+          requestAnimationFrame(drawPitch);
+        }
+        return;
+      }
 
       // 1. Seguimiento cinemático de cámara TV Broadcast FM26 con Lookahead y Zoom dinámico
       const activeBallX = (isReplaying && replayFrames.length > 0 && replayFrames[Math.floor(replayFrameIndex)])
