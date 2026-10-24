@@ -2467,257 +2467,94 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       draw3DGoal(ctx, 100, 44.5, 55.5, 1, w, h);
     }
 
-    // Dibujo del futbolista 3D anatómico volumétrico estilo Football Manager (Idéntico al pantallazo)
+    // Dibujo de fichas circulares 2D estilo clásico Football Manager (🔴 con los colores de la equipación del equipo)
+    // Se usa durante la simulación normal del partido (fuera de las jugadas clave)
     function drawRealisticPlayer3D(ctx, item) {
-      const { groundX, groundY, scale, facingX, animPhase, side, isKeeper, number, name, isCarrier, playerId } = item;
+      const { groundX, groundY, scale, side, isKeeper, number, isCarrier, playerId } = item;
       const kit = side === "home" ? kits.home : kits.away;
-      const jerseyColor = isKeeper ? kit.keeper : kit.jersey;
-      const shortsColor = kit.shorts || "#ffffff";
-      const socksColor = kit.socks || jerseyColor;
+      const primaryColor = isKeeper ? (kit.keeper || "#10b981") : (kit.jersey || "#ef4444");
+      const secondaryColor = isKeeper ? "#ffffff" : (kit.collar || kit.shorts || "#ffffff");
+      const numberColor = isKeeper ? "#0f172a" : (kit.number || "#ffffff");
 
       const sc = scale;
       const nowMs = performance.now();
+      const radius = 7.4 * sc;
+      const centerY = groundY - 2.5 * sc;
 
-      // 1. Sombra direccional proyectada en el césped por la luz solar (Exacta al pantallazo de Football Manager)
-      // La luz incide desde la esquina superior derecha, proyectando una sombra elíptica hacia abajo a la izquierda
       ctx.save();
-      ctx.fillStyle = "rgba(0, 25, 8, 0.35)";
-      ctx.beginPath();
-      ctx.ellipse(groundX - 4.5 * sc, groundY + 2.5 * sc, 8.5 * sc, 3.8 * sc, -0.38, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
 
-      // 2. Indicadores sutiles en el césped (SIN tapar a los futbolistas con rótulos gigantes)
-      // Anillo dorado sutil en el suelo bajo el portador del balón (como en FM y EA FC)
+      // 1. Sombra suave bajo la ficha 2D en el césped
+      ctx.fillStyle = "rgba(0, 20, 6, 0.42)";
+      ctx.beginPath();
+      ctx.ellipse(groundX, groundY + 1.2 * sc, radius * 0.95, radius * 0.48, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // 2. Halo luminoso si el jugador lleva el balón
       if (isCarrier) {
-        const pulse = Math.sin(nowMs * 0.008) * 1.4 * sc;
+        const pulse = Math.sin(nowMs * 0.01) * 1.5 * sc;
         ctx.strokeStyle = "#fbbf24";
-        ctx.lineWidth = 1.8 * sc;
+        ctx.lineWidth = 2.0 * sc;
         ctx.beginPath();
-        ctx.ellipse(groundX, groundY, (7.5 * sc) + pulse, (3.2 * sc) + pulse * 0.4, 0, 0, Math.PI * 2);
+        ctx.arc(groundX, centerY, radius + 3.0 * sc + pulse, 0, Math.PI * 2);
         ctx.stroke();
         ctx.fillStyle = "rgba(251, 191, 36, 0.22)";
         ctx.fill();
       }
 
-      // Si es protagonista de jugada clave (goleador, pasador, defensa marcador), aro táctico en el suelo
+      // 3. Si es protagonista en repetición, aro indicador
       const isShooter = currentHighlightData && currentHighlightData.shooter?.id === playerId;
       const isPasser = currentHighlightData && currentHighlightData.passer?.id === playerId;
-      const isDefender = currentHighlightData && currentHighlightData.defender?.id === playerId;
-
-      if (isShooter) {
-        ctx.strokeStyle = "rgba(16, 185, 129, 0.92)";
-        ctx.lineWidth = 2.0 * sc;
-        ctx.beginPath();
-        ctx.ellipse(groundX, groundY, 11 * sc, 4.8 * sc, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      } else if (isPasser) {
-        ctx.strokeStyle = "rgba(34, 211, 238, 0.92)";
-        ctx.lineWidth = 2.0 * sc;
-        ctx.beginPath();
-        ctx.ellipse(groundX, groundY, 11 * sc, 4.8 * sc, 0, 0, Math.PI * 2);
-        ctx.stroke();
-      } else if (isDefender) {
-        ctx.strokeStyle = "rgba(244, 63, 94, 0.88)";
+      if (isShooter || isPasser) {
+        ctx.strokeStyle = isShooter ? "#10b981" : "#38bdf8";
         ctx.lineWidth = 1.8 * sc;
         ctx.beginPath();
-        ctx.ellipse(groundX, groundY, 10 * sc, 4.4 * sc, 0, 0, Math.PI * 2);
+        ctx.arc(groundX, centerY, radius + 2.4 * sc, 0, Math.PI * 2);
         ctx.stroke();
       }
 
-      // 3. Modelo 3D Anatómico Volumétrico del Futbolista
-      const skinTone = (number % 3 === 0) ? "#8d5b4c" : (number % 3 === 1) ? "#fcd34d" : "#e0ac69";
-      const hairColor = (number % 2 === 0) ? "#1e293b" : "#451a03";
-
-      const footY = groundY;
-      const kneeY = groundY - 7 * sc;
-      const hipY = groundY - 14 * sc;
-      const waistY = groundY - 16 * sc;
-      const shoulderY = groundY - 24 * sc;
-      const headCenterY = groundY - 28 * sc;
-      const headR = 3.6 * sc;
-
-      // Inclinación aerodinámica de carrera según dirección
-      const runLean = (isCarrier ? 1.6 : 0.8) * facingX * sc;
-
-      // Animación de carrera articulada
-      const phase = animPhase || 0;
-      const legCycle = Math.sin(phase);
-      const legSwingBack = -legCycle * 5.2 * sc * facingX;
-      const legSwingFront = legCycle * 5.2 * sc * facingX;
-      const armCycle = Math.cos(phase);
-      const armSwingBack = -armCycle * 4.5 * sc * facingX;
-      const armSwingFront = armCycle * 4.5 * sc * facingX;
-
-      // --- PIERNA TRASERA ---
-      // Muslo / pantalón trasero
-      ctx.strokeStyle = shortsColor;
-      ctx.lineWidth = 3.6 * sc;
-      ctx.lineCap = "round";
+      // 4. Contorno exterior oscuro de contraste sobre el césped
       ctx.beginPath();
-      ctx.moveTo(groundX - 1.8 * sc, hipY);
-      ctx.lineTo(groundX - 1.8 * sc + legSwingBack * 0.45, kneeY);
-      ctx.stroke();
-
-      // Calceta trasera
-      ctx.strokeStyle = socksColor;
-      ctx.lineWidth = 2.8 * sc;
-      ctx.beginPath();
-      ctx.moveTo(groundX - 1.8 * sc + legSwingBack * 0.45, kneeY);
-      ctx.lineTo(groundX - 1.8 * sc + legSwingBack, footY - 1.2 * sc);
-      ctx.stroke();
-
-      // Bota deportiva trasera
-      ctx.fillStyle = "#0f172a";
-      ctx.beginPath();
-      ctx.ellipse(groundX - 1.8 * sc + legSwingBack + (facingX * 1.5 * sc), footY - 1.0 * sc, 3.2 * sc, 1.4 * sc, 0, 0, Math.PI * 2);
+      ctx.arc(groundX, centerY, radius + 1.0 * sc, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
       ctx.fill();
 
-      // --- BRAZO TRASERO ---
-      // Manga de camiseta
-      ctx.strokeStyle = jerseyColor;
-      ctx.lineWidth = 2.8 * sc;
+      // 5. Círculo principal con el color de la equipación del equipo
       ctx.beginPath();
-      ctx.moveTo(groundX + runLean - 1.5 * sc, shoulderY + 2 * sc);
-      ctx.lineTo(groundX + runLean + armSwingBack * 0.5, shoulderY + 6.5 * sc);
+      ctx.arc(groundX, centerY, radius, 0, Math.PI * 2);
+      ctx.fillStyle = primaryColor;
+      ctx.fill();
+
+      // Brillo esférico sutil tipo ficha 🔴
+      const shineGrad = ctx.createRadialGradient(
+        groundX - radius * 0.3,
+        centerY - radius * 0.3,
+        radius * 0.08,
+        groundX,
+        centerY,
+        radius
+      );
+      shineGrad.addColorStop(0, "rgba(255, 255, 255, 0.35)");
+      shineGrad.addColorStop(0.55, "rgba(255, 255, 255, 0.0)");
+      shineGrad.addColorStop(1, "rgba(0, 0, 0, 0.28)");
+      ctx.fillStyle = shineGrad;
+      ctx.fill();
+
+      // 6. Anillo interior con el color secundario de la equipación
+      ctx.strokeStyle = secondaryColor;
+      ctx.lineWidth = Math.max(1.2, 1.8 * sc);
       ctx.stroke();
 
-      // Antebrazo anatómico
-      ctx.strokeStyle = skinTone;
-      ctx.lineWidth = 2.2 * sc;
-      ctx.beginPath();
-      ctx.moveTo(groundX + runLean + armSwingBack * 0.5, shoulderY + 6.5 * sc);
-      ctx.lineTo(groundX + runLean + armSwingBack, hipY + 1 * sc);
-      ctx.stroke();
-
-      // Mano o guante de portero trasero
-      ctx.fillStyle = isKeeper ? "#ffffff" : skinTone;
-      ctx.beginPath();
-      ctx.arc(groundX + runLean + armSwingBack, hipY + 1 * sc, 1.6 * sc, 0, Math.PI * 2);
-      ctx.fill();
-
-      // --- PIERNA DELANTERA ---
-      // Muslo / pantalón delantero
-      ctx.strokeStyle = shortsColor;
-      ctx.lineWidth = 3.8 * sc;
-      ctx.beginPath();
-      ctx.moveTo(groundX + 1.8 * sc, hipY);
-      ctx.lineTo(groundX + 1.8 * sc + legSwingFront * 0.45, kneeY);
-      ctx.stroke();
-
-      // Calceta delantera con ribete
-      ctx.strokeStyle = socksColor;
-      ctx.lineWidth = 2.9 * sc;
-      ctx.beginPath();
-      ctx.moveTo(groundX + 1.8 * sc + legSwingFront * 0.45, kneeY);
-      ctx.lineTo(groundX + 1.8 * sc + legSwingFront, footY - 1.2 * sc);
-      ctx.stroke();
-
-      // Bota delantera con tacos deportivos
-      ctx.fillStyle = "#0f172a";
-      ctx.beginPath();
-      ctx.ellipse(groundX + 1.8 * sc + legSwingFront + (facingX * 1.5 * sc), footY - 1.0 * sc, 3.4 * sc, 1.5 * sc, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(groundX + 1.8 * sc + legSwingFront - 1.5 * sc, footY - 0.5 * sc, 3.0 * sc, 0.6 * sc);
-
-      // --- PANTALÓN CORTO 3D ---
-      ctx.fillStyle = shortsColor;
-      ctx.beginPath();
-      ctx.roundRect(groundX - 4.2 * sc, waistY, 8.4 * sc, 5.2 * sc, 1.5 * sc);
-      ctx.fill();
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.25)";
-      ctx.lineWidth = 0.8 * sc;
-      ctx.stroke();
-
-      // --- TORSO CON CAMISETA 3D VOLUMÉTRICA ---
-      const chestW = 9.8 * sc;
-      const chestH = 10.5 * sc;
-      const torsoX = groundX + runLean;
-      const torsoY = shoulderY;
-
-      ctx.save();
-      ctx.translate(torsoX, torsoY);
-
-      // Sombreado de volumen muscular de la camiseta
-      ctx.fillStyle = jerseyColor;
-      ctx.beginPath();
-      ctx.roundRect(-chestW / 2, 0, chestW, chestH, 2.5 * sc);
-      ctx.fill();
-
-      // Sombra volumétrica lateral
-      ctx.fillStyle = "rgba(0, 0, 0, 0.16)";
-      ctx.beginPath();
-      ctx.roundRect(-chestW / 2, 0, chestW * 0.35, chestH, 2.5 * sc);
-      ctx.fill();
-
-      // Cuello oficial
-      ctx.fillStyle = kit.collar || "#ffffff";
-      ctx.beginPath();
-      ctx.ellipse(0, 0.8 * sc, 2.4 * sc, 1.2 * sc, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Número oficial elegante en la espalda
-      ctx.fillStyle = kit.number || "#ffffff";
-      ctx.font = `900 ${Math.round(6.2 * sc)}px monospace`;
+      // 7. Dorsal del jugador centrado en la ficha
+      ctx.font = `900 ${Math.max(7, Math.round(7.2 * sc))}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(`${number}`, 0, chestH * 0.52);
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.75)";
+      ctx.lineWidth = Math.max(1.5, 2.0 * sc);
+      ctx.strokeText(`${number}`, groundX, centerY + 0.4 * sc);
+      ctx.fillStyle = numberColor;
+      ctx.fillText(`${number}`, groundX, centerY + 0.4 * sc);
 
       ctx.restore();
-
-      // --- BRAZO DELANTERO ---
-      // Manga de camiseta
-      ctx.strokeStyle = jerseyColor;
-      ctx.lineWidth = 2.9 * sc;
-      ctx.beginPath();
-      ctx.moveTo(torsoX + 1.5 * sc, shoulderY + 2 * sc);
-      ctx.lineTo(torsoX + armSwingFront * 0.5, shoulderY + 6.5 * sc);
-      ctx.stroke();
-
-      // Antebrazo de piel
-      ctx.strokeStyle = skinTone;
-      ctx.lineWidth = 2.2 * sc;
-      ctx.beginPath();
-      ctx.moveTo(torsoX + armSwingFront * 0.5, shoulderY + 6.5 * sc);
-      ctx.lineTo(torsoX + armSwingFront, hipY + 1 * sc);
-      ctx.stroke();
-
-      // Mano o guante de portero delantero
-      if (isKeeper) {
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(torsoX + armSwingFront, hipY + 1 * sc, 2.4 * sc, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "#10b981";
-        ctx.lineWidth = 0.8 * sc;
-        ctx.stroke();
-      } else {
-        ctx.fillStyle = skinTone;
-        ctx.beginPath();
-        ctx.arc(torsoX + armSwingFront, hipY + 1 * sc, 1.6 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // --- CABEZA Y CABELLO 3D ---
-      const headX = torsoX;
-      const headY = headCenterY;
-
-      // Cuello
-      ctx.fillStyle = skinTone;
-      ctx.fillRect(headX - 1.2 * sc, shoulderY - 1.2 * sc, 2.4 * sc, 2.5 * sc);
-
-      // Cabeza
-      ctx.fillStyle = skinTone;
-      ctx.beginPath();
-      ctx.arc(headX, headY, headR, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Cabello estilizado en 3D
-      ctx.fillStyle = hairColor;
-      ctx.beginPath();
-      ctx.arc(headX, headY - 1.0 * sc, headR * 0.96, Math.PI, 0);
-      ctx.fill();
     }
 
     function drawMonigote3D(ctx, item) {
