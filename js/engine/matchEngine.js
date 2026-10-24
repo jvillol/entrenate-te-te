@@ -986,8 +986,85 @@ export class MatchSimulator {
       }
     }
 
+    // Selección de patrón táctico de la jugada clave (con variedad real y sin repetir el anterior)
+    const allPatterns = [
+      "TIKI_TAKA_CENTRAL",
+      "WING_CROSS_HEADER",
+      "NEAR_WING_CUTBACK",
+      "COUNTER_THROUGH_BALL",
+      "INDIVIDUAL_SLALOM",
+      "LONG_RANGE_BOMB"
+    ];
+    const teamInst = isHome ? this.homeInstructions : this.awayInstructions;
+    let candidatePatterns = allPatterns.filter(p => p !== this.lastHighlightPattern);
+    if (teamInst?.inPossession?.width === "wide" && Math.random() < 0.45) {
+      candidatePatterns = ["WING_CROSS_HEADER", "NEAR_WING_CUTBACK"].filter(p => p !== this.lastHighlightPattern);
+    } else if (teamInst?.inPossession?.passingStyle === "short" && Math.random() < 0.45) {
+      candidatePatterns = ["TIKI_TAKA_CENTRAL", "INDIVIDUAL_SLALOM"].filter(p => p !== this.lastHighlightPattern);
+    } else if (teamInst?.inTransition?.win === "counter" && Math.random() < 0.45) {
+      candidatePatterns = ["COUNTER_THROUGH_BALL", "LONG_RANGE_BOMB"].filter(p => p !== this.lastHighlightPattern);
+    }
+    if (candidatePatterns.length === 0) candidatePatterns = allPatterns;
+    const playPattern = candidatePatterns[Math.floor(Math.random() * candidatePatterns.length)];
+    this.lastHighlightPattern = playPattern;
+    const patternSeed = Math.random();
+
+    const patternDescriptions = {
+      TIKI_TAKA_CENTRAL: {
+        buildNote: `🧠 ${pivot.name} combina en corto con ${supportAttacker.name} buscando abrir la defensa por el centro`,
+        progAlert: ["PARED EN LA FRONTAL", `✨ ¡Pared eléctrica entre ${supportAttacker.name} y ${passer.name} en la media luna!`],
+        progNote: `✨ ${passer.name} tira la pared en la frontal mientras ${shooter.name} rompe entre los centrales`,
+        passAlert: ["PASE FILTRADO", `🎯 ¡Pase interior milimétrico de ${passer.name} dejando solo a ${shooter.name}!`],
+        passNote: `🎯 Pase raso entre líneas de ${passer.name}. ¡${shooter.name} controla en el punto de penalti!`,
+        shotNote: `⚽ ¡${shooter.name} define de primeras ante la salida del portero!`
+      },
+      WING_CROSS_HEADER: {
+        buildNote: `🔄 ${pivot.name} levanta la cabeza y cambia la orientación en largo hacia la banda derecha`,
+        progAlert: ["DESBORDE EN BANDA", `🚀 ${passer.name} encara al lateral a toda velocidad hasta la línea de fondo`],
+        progNote: `🚀 ${passer.name} gana línea de fondo mientras ${shooter.name} y ${supportAttacker.name} cargan el área`,
+        passAlert: ["CENTRO AL ÁREA", `🎯 ¡Centro tenso con rosca de ${passer.name} al corazón del área!`],
+        passNote: `🎯 Centro bombeado de ${passer.name} buscando el remate en el segundo palo`,
+        shotNote: `⚽ ¡${shooter.name} se eleva sobre la defensa y conecta un remate letal!`
+      },
+      NEAR_WING_CUTBACK: {
+        buildNote: `⚡ ${pivot.name} abre hacia el costado izquierdo para la subida de ${passer.name}`,
+        progAlert: ["INTERNADA EN EL ÁREA", `🔥 ¡${passer.name} recorta hacia adentro y se mete hasta la cocina por la izquierda!`],
+        progNote: `🔥 ${passer.name} rompe por el costado izquierdo del área atrayendo a dos defensores`,
+        passAlert: ["PASE DE LA MUERTE", `🎯 ¡Pase atrás raso de ${passer.name} buscando la llegada desde segunda línea!`],
+        passNote: `🎯 Pase de la muerte de ${passer.name} hacia la frontal del área pequeña`,
+        shotNote: `⚽ ¡${shooter.name} llega en carrera y empalma de primeras a portería!`
+      },
+      COUNTER_THROUGH_BALL: {
+        buildNote: `🏹 ¡Recuperación y transición relámpago! ${pivot.name} lanza la contra con la defensa adelantada`,
+        progAlert: ["CONTRAATAQUE VELOZ", `⚡ ${passer.name} conduce a campo abierto con ${shooter.name} tirando el desmarque de ruptura`],
+        progNote: `⚡ La defensa rival corre hacia atrás desesperada intentando cerrar el hueco`,
+        passAlert: ["BALÓN AL ESPACIO", `🎯 ¡Pase en profundidad de ${passer.name} a la espalda de los centrales!`],
+        passNote: `🎯 ¡${shooter.name} gana la carrera al espacio y se planta en el mano a mano!`,
+        shotNote: `⚽ ¡${shooter.name} encara al guardameta y cruza el disparo!`
+      },
+      INDIVIDUAL_SLALOM: {
+        buildNote: `✨ ${pivot.name} cede en banda para ${passer.name}, que arrastra marcas y entrega a ${shooter.name}`,
+        progAlert: ["JUGADA INDIVIDUAL", `🪄 ¡Slalom espectacular de ${shooter.name} sorteando rivales en diagonal hacia el área!`],
+        progNote: `🪄 ${shooter.name} recorta en seco, tira una pared rápida con ${supportAttacker.name} y se perfila`,
+        passAlert: ["RECORTE EN LA FRONTAL", `🔥 ¡${shooter.name} deja sentado a ${defender.name} con un amago en el borde del área!`],
+        passNote: `🔥 Hueco abierto en la frontal tras la bicicleta y recorte de ${shooter.name}`,
+        shotNote: `⚽ ¡${shooter.name} busca la escuadra con un golpeo con rosca!`
+      },
+      LONG_RANGE_BOMB: {
+        buildNote: `🔄 Circulación paciente de ${pivot.name} y ${supportAttacker.name} frente al bloque bajo rival`,
+        progAlert: ["BÚSQUEDA DE HUECO", `🧠 ${passer.name} pisa el balón en tres cuartos y atrae a la línea de presión`],
+        progNote: `🧠 La defensa se hunde en su área; ${passer.name} prepara la dejada de cara`,
+        passAlert: ["DEJADA EN LA FRONTAL", `🎯 ¡${passer.name} toca de cara para la llegada libre de ${shooter.name}!`],
+        passNote: `🎯 ${shooter.name} acomoda el balón a 22 metros con ángulo de disparo`,
+        shotNote: `🚀 ¡${shooter.name} suelta un latigazo descomunal desde fuera del área!`
+      }
+    };
+    const pDesc = patternDescriptions[playPattern] || patternDescriptions.TIKI_TAKA_CENTRAL;
+
     const baseHighlightData = {
       type: "KEY_CHANCE",
+      playPattern,
+      patternSeed,
       attackingSide,
       atkTeam,
       defTeam,
@@ -1035,42 +1112,42 @@ export class MatchSimulator {
       this.onHighlightStart({
         ...baseHighlightData,
         phase: "BUILDUP",
-        phaseLabel: "Construcción en tres cuartos",
+        phaseLabel: "Inicio de la jugada",
         phaseDuration: 4500,
-        tacticalNote: `${pivot.name} canaliza la salida de balón y busca a ${passer.name} en banda`
+        tacticalNote: pDesc.buildNote
       });
     }
     if (this.onHighlightPhase) {
       this.onHighlightPhase({
         ...baseHighlightData,
         phase: "BUILDUP",
-        phaseLabel: "Construcción en tres cuartos",
+        phaseLabel: "Inicio de la jugada",
         phaseDuration: 4500,
-        tacticalNote: `${pivot.name} canaliza la salida de balón y busca a ${passer.name} en banda`
+        tacticalNote: pDesc.buildNote
       });
     }
 
-    // FASE 2: Progresión y desborde por banda (4.5s - 8.5s)
+    // FASE 2: Progresión (4.5s - 8.5s)
     setTimeout(() => {
       if (!this.isRunning && !this.isHighlightRunning) return;
 
-      this.triggerAlert("DESBORDE", `🚀 ${passer.name} gana línea de fondo y encara al lateral`, attackingSide, 3200);
+      this.triggerAlert(pDesc.progAlert[0], pDesc.progAlert[1], attackingSide, 3200);
 
       if (this.onHighlightPhase) {
         this.onHighlightPhase({
           ...baseHighlightData,
           phase: "PROGRESSION",
-          phaseLabel: "Progresión y desborde",
+          phaseLabel: "Progresión ofensiva",
           phaseDuration: 4000,
-          tacticalNote: `🚀 ${passer.name} desborda por banda mientras ${shooter.name} tira el desmarque al área`
+          tacticalNote: pDesc.progNote
         });
       }
 
-      // FASE 3: Asistencia filtrada y desmarque al punto de penalti (8.5s - 11.5s)
+      // FASE 3: Pase clave / generación de espacio (8.5s - 11.5s)
       setTimeout(() => {
         if (!this.isRunning && !this.isHighlightRunning) return;
 
-        const isLob = Math.random() < 0.35;
+        const isLob = playPattern === "WING_CROSS_HEADER" || Math.random() < 0.35;
         const passZ = isLob ? 4.5 + Math.random() * 2.5 : 0;
         this.ball.targetX = boxX;
         this.ball.targetY = boxY;
@@ -1090,15 +1167,15 @@ export class MatchSimulator {
         }
         this.update2DPositions();
 
-        this.triggerAlert("PASE CLAVE", `🎯 ¡Asistencia al área de ${passer.name} buscando a ${shooter.name}!`, attackingSide, 2800);
+        this.triggerAlert(pDesc.passAlert[0], pDesc.passAlert[1], attackingSide, 2800);
 
         if (this.onHighlightPhase) {
           this.onHighlightPhase({
             ...baseHighlightData,
             phase: "KEY_PASS",
-            phaseLabel: "Pase al corazón del área",
+            phaseLabel: "Último pase y control",
             phaseDuration: 3000,
-            tacticalNote: `🎯 Pase medido de ${passer.name}. ¡${shooter.name} controla y se perfila!`
+            tacticalNote: pDesc.passNote
           });
         }
 
@@ -1112,9 +1189,9 @@ export class MatchSimulator {
             this.onHighlightPhase({
               ...baseHighlightData,
               phase: "SHOT",
-              phaseLabel: "Disparo a puerta",
+              phaseLabel: "Remate a portería",
               phaseDuration: 3500,
-              tacticalNote: `⚽ ¡${shooter.name} arma la pierna y fusila a portería!`
+              tacticalNote: pDesc.shotNote
             });
           }
 
