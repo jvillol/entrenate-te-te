@@ -19,6 +19,8 @@ export class MatchSimulator {
     this.isFinished = false;
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
+    this.isSecondHalf = false;
+    this.loopTimeout = null;
 
     this.homeScore = 0;
     this.awayScore = 0;
@@ -87,6 +89,7 @@ export class MatchSimulator {
 
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
+    this.isSecondHalf = false;
   }
 
   getFormationCoords(formationKey, isHome) {
@@ -134,12 +137,26 @@ export class MatchSimulator {
   }
 
   start() {
+    if (this.isSetPieceRunning || this.isFinished || this.isHalfTime) return;
+    if (this.isRunning) return;
     this.isRunning = true;
-    this.loop();
+    this.onTick(this.getState());
+
+    const baseInterval = 460;
+    const interval = Math.max(50, Math.round(baseInterval / this.speed));
+
+    if (this.loopTimeout) {
+      clearTimeout(this.loopTimeout);
+    }
+    this.loopTimeout = setTimeout(() => this.loop(), interval);
   }
 
   pause() {
     this.isRunning = false;
+    if (this.loopTimeout) {
+      clearTimeout(this.loopTimeout);
+      this.loopTimeout = null;
+    }
   }
 
   setSpeed(speedMultiplier) {
@@ -452,13 +469,14 @@ export class MatchSimulator {
   }
 
   loop() {
-    if (!this.isRunning || this.isFinished || this.isHighlightRunning) return;
+    if (!this.isRunning || this.isFinished || this.isHighlightRunning || this.isSetPieceRunning) return;
 
     // 1. Comprobar si ya corresponde el descanso
-    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
       this.halfTimeTriggered = true;
       this.isHalfTime = true;
       this.pause();
+      this.triggerAlert("DESCANSO", "📣 ¡Final de la 1ª Parte! Descanso", "neutral", 3200);
       this.onHalfTime(this.getState());
       return;
     }
@@ -478,10 +496,11 @@ export class MatchSimulator {
     }
 
     // 3. Comprobar descanso tras avanzar el minuto
-    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
       this.halfTimeTriggered = true;
       this.isHalfTime = true;
       this.pause();
+      this.triggerAlert("DESCANSO", "📣 ¡Final de la 1ª Parte! Descanso", "neutral", 3200);
       this.onHalfTime(this.getState());
       return;
     }
@@ -495,25 +514,31 @@ export class MatchSimulator {
     const baseInterval = 460; // ms por minuto en 1x (ritmo televisivo dinámico)
     const interval = Math.max(50, Math.round(baseInterval / this.speed));
 
-    setTimeout(() => this.loop(), interval);
+    if (this.loopTimeout) {
+      clearTimeout(this.loopTimeout);
+    }
+    this.loopTimeout = setTimeout(() => this.loop(), interval);
   }
 
   // Simulación paso a paso de cada minuto de partido
   stepMinute() {
+    if (this.isSetPieceRunning) return false;
+
     this.minute++;
 
     // Descuentos en directo: aviso al llegar a los minutos 45 y 90
-    if (this.minute === 45 && !this.halfTimeTriggered) {
+    if (this.minute === 45 && !this.halfTimeTriggered && !this.isSecondHalf) {
       this.triggerAlert("DESCUENTO", `⏱️ +${this.firstHalfExtra} min de añadido (1ª Parte)`, "neutral", 3500);
-    } else if (this.minute === 90) {
+    } else if (this.minute === 90 && this.isSecondHalf) {
       this.triggerAlert("DESCUENTO", `⏱️ +${this.secondHalfExtra} min de añadido (2ª Parte)`, "neutral", 3500);
     }
 
     // Comprobar si se ha cumplido el tiempo reglamentario más el descuento antes de generar jugadas
-    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
       this.halfTimeTriggered = true;
       this.isHalfTime = true;
       this.pause();
+      this.triggerAlert("DESCANSO", "📣 ¡Final de la 1ª Parte! Descanso", "neutral", 3200);
       this.onHalfTime(this.getState());
       return true;
     }
@@ -601,7 +626,7 @@ export class MatchSimulator {
       const attackScore = (homeAtk / (homeAtk + awayDef)) * 0.28;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("home", () => {
-          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
             this.halfTimeTriggered = true;
             this.isHalfTime = true;
             this.pause();
@@ -630,7 +655,7 @@ export class MatchSimulator {
       const attackScore = (awayAtk / (awayAtk + homeDef)) * 0.26;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("away", () => {
-          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
             this.halfTimeTriggered = true;
             this.isHalfTime = true;
             this.pause();
@@ -860,7 +885,7 @@ export class MatchSimulator {
             if (this.onHighlightEnd) this.onHighlightEnd();
 
             // Comprobar descanso o final tras la resolución de la jugada
-            if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+            if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
               this.halfTimeTriggered = true;
               this.isHalfTime = true;
               this.pause();
@@ -943,7 +968,7 @@ export class MatchSimulator {
                 if (this.onHighlightEnd) this.onHighlightEnd();
 
                 // Comprobar descanso o final tras la resolución de la jugada
-                if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+                if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
                   this.halfTimeTriggered = true;
                   this.isHalfTime = true;
                   this.pause();
@@ -1304,7 +1329,7 @@ export class MatchSimulator {
         this.update2DPositions();
 
         // Comprobar descanso reglamentario
-        if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+        if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
           this.halfTimeTriggered = true;
           this.isHalfTime = true;
           this.pause();
@@ -1462,7 +1487,7 @@ export class MatchSimulator {
 
   // Formato televisivo oficial del minuto con descuento (ej: 45+2', 90+4')
   getFormattedMinute() {
-    if (!this.halfTimeTriggered) {
+    if (!this.isSecondHalf && !this.halfTimeTriggered) {
       if (this.minute > 45) {
         return `45+${this.minute - 45}'`;
       }
@@ -1478,6 +1503,8 @@ export class MatchSimulator {
   // Reanudar el partido tras la pausa del descanso
   resumeSecondHalf() {
     this.isHalfTime = false;
+    this.halfTimeTriggered = true;
+    this.isSecondHalf = true;
     this.minute = 45; // El reloj de la 2ª parte comienza reglamentariamente en el minuto 45
     // Recuperación energética por los 15 minutos de descanso según físico
     this.homePlayersOnPitch.forEach(p => { 
@@ -1498,7 +1525,9 @@ export class MatchSimulator {
   skipToEnd() {
     this.halfTimeTriggered = true;
     this.isHalfTime = false;
+    this.isSecondHalf = true;
     this.isHighlightRunning = false;
+    this.isSetPieceRunning = false;
     while (this.minute < this.maxMinutes) {
       this.stepMinute();
     }
@@ -1541,6 +1570,7 @@ export class MatchSimulator {
       awayMentality: this.awayMentality,
       isRunning: this.isRunning,
       isHalfTime: this.isHalfTime,
+      isSecondHalf: this.isSecondHalf,
       isFinished: this.isFinished
     };
   }

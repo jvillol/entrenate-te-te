@@ -1377,6 +1377,8 @@ class MatchSimulator {
     this.isFinished = false;
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
+    this.isSecondHalf = false;
+    this.loopTimeout = null;
 
     this.homeScore = 0;
     this.awayScore = 0;
@@ -1445,6 +1447,7 @@ class MatchSimulator {
 
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
+    this.isSecondHalf = false;
   }
 
   getFormationCoords(formationKey, isHome) {
@@ -1492,12 +1495,26 @@ class MatchSimulator {
   }
 
   start() {
+    if (this.isSetPieceRunning || this.isFinished || this.isHalfTime) return;
+    if (this.isRunning) return;
     this.isRunning = true;
-    this.loop();
+    this.onTick(this.getState());
+
+    const baseInterval = 460;
+    const interval = Math.max(50, Math.round(baseInterval / this.speed));
+
+    if (this.loopTimeout) {
+      clearTimeout(this.loopTimeout);
+    }
+    this.loopTimeout = setTimeout(() => this.loop(), interval);
   }
 
   pause() {
     this.isRunning = false;
+    if (this.loopTimeout) {
+      clearTimeout(this.loopTimeout);
+      this.loopTimeout = null;
+    }
   }
 
   setSpeed(speedMultiplier) {
@@ -1810,13 +1827,14 @@ class MatchSimulator {
   }
 
   loop() {
-    if (!this.isRunning || this.isFinished || this.isHighlightRunning) return;
+    if (!this.isRunning || this.isFinished || this.isHighlightRunning || this.isSetPieceRunning) return;
 
     // 1. Comprobar si ya corresponde el descanso
-    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
       this.halfTimeTriggered = true;
       this.isHalfTime = true;
       this.pause();
+      this.triggerAlert("DESCANSO", "📣 ¡Final de la 1ª Parte! Descanso", "neutral", 3200);
       this.onHalfTime(this.getState());
       return;
     }
@@ -1836,10 +1854,11 @@ class MatchSimulator {
     }
 
     // 3. Comprobar descanso tras avanzar el minuto
-    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
       this.halfTimeTriggered = true;
       this.isHalfTime = true;
       this.pause();
+      this.triggerAlert("DESCANSO", "📣 ¡Final de la 1ª Parte! Descanso", "neutral", 3200);
       this.onHalfTime(this.getState());
       return;
     }
@@ -1853,25 +1872,31 @@ class MatchSimulator {
     const baseInterval = 460; // ms por minuto en 1x (ritmo televisivo dinámico)
     const interval = Math.max(50, Math.round(baseInterval / this.speed));
 
-    setTimeout(() => this.loop(), interval);
+    if (this.loopTimeout) {
+      clearTimeout(this.loopTimeout);
+    }
+    this.loopTimeout = setTimeout(() => this.loop(), interval);
   }
 
   // Simulación paso a paso de cada minuto de partido
   stepMinute() {
+    if (this.isSetPieceRunning) return false;
+
     this.minute++;
 
     // Descuentos en directo: aviso al llegar a los minutos 45 y 90
-    if (this.minute === 45 && !this.halfTimeTriggered) {
+    if (this.minute === 45 && !this.halfTimeTriggered && !this.isSecondHalf) {
       this.triggerAlert("DESCUENTO", `⏱️ +${this.firstHalfExtra} min de añadido (1ª Parte)`, "neutral", 3500);
-    } else if (this.minute === 90) {
+    } else if (this.minute === 90 && this.isSecondHalf) {
       this.triggerAlert("DESCUENTO", `⏱️ +${this.secondHalfExtra} min de añadido (2ª Parte)`, "neutral", 3500);
     }
 
     // Comprobar si se ha cumplido el tiempo reglamentario más el descuento antes de generar jugadas
-    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
       this.halfTimeTriggered = true;
       this.isHalfTime = true;
       this.pause();
+      this.triggerAlert("DESCANSO", "📣 ¡Final de la 1ª Parte! Descanso", "neutral", 3200);
       this.onHalfTime(this.getState());
       return true;
     }
@@ -1959,7 +1984,7 @@ class MatchSimulator {
       const attackScore = (homeAtk / (homeAtk + awayDef)) * 0.28;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("home", () => {
-          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
             this.halfTimeTriggered = true;
             this.isHalfTime = true;
             this.pause();
@@ -1988,7 +2013,7 @@ class MatchSimulator {
       const attackScore = (awayAtk / (awayAtk + homeDef)) * 0.26;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("away", () => {
-          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
             this.halfTimeTriggered = true;
             this.isHalfTime = true;
             this.pause();
@@ -2218,7 +2243,7 @@ class MatchSimulator {
             if (this.onHighlightEnd) this.onHighlightEnd();
 
             // Comprobar descanso o final tras la resolución de la jugada
-            if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+            if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
               this.halfTimeTriggered = true;
               this.isHalfTime = true;
               this.pause();
@@ -2301,7 +2326,7 @@ class MatchSimulator {
                 if (this.onHighlightEnd) this.onHighlightEnd();
 
                 // Comprobar descanso o final tras la resolución de la jugada
-                if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+                if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
                   this.halfTimeTriggered = true;
                   this.isHalfTime = true;
                   this.pause();
@@ -2662,7 +2687,7 @@ class MatchSimulator {
         this.update2DPositions();
 
         // Comprobar descanso reglamentario
-        if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered) {
+        if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
           this.halfTimeTriggered = true;
           this.isHalfTime = true;
           this.pause();
@@ -2820,7 +2845,7 @@ class MatchSimulator {
 
   // Formato televisivo oficial del minuto con descuento (ej: 45+2', 90+4')
   getFormattedMinute() {
-    if (!this.halfTimeTriggered) {
+    if (!this.isSecondHalf && !this.halfTimeTriggered) {
       if (this.minute > 45) {
         return `45+${this.minute - 45}'`;
       }
@@ -2836,6 +2861,8 @@ class MatchSimulator {
   // Reanudar el partido tras la pausa del descanso
   resumeSecondHalf() {
     this.isHalfTime = false;
+    this.halfTimeTriggered = true;
+    this.isSecondHalf = true;
     this.minute = 45; // El reloj de la 2ª parte comienza reglamentariamente en el minuto 45
     // Recuperación energética por los 15 minutos de descanso según físico
     this.homePlayersOnPitch.forEach(p => { 
@@ -2856,7 +2883,9 @@ class MatchSimulator {
   skipToEnd() {
     this.halfTimeTriggered = true;
     this.isHalfTime = false;
+    this.isSecondHalf = true;
     this.isHighlightRunning = false;
+    this.isSetPieceRunning = false;
     while (this.minute < this.maxMinutes) {
       this.stepMinute();
     }
@@ -2899,6 +2928,7 @@ class MatchSimulator {
       awayMentality: this.awayMentality,
       isRunning: this.isRunning,
       isHalfTime: this.isHalfTime,
+      isSecondHalf: this.isSecondHalf,
       isFinished: this.isFinished
     };
   }
@@ -5212,7 +5242,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             <!-- Header Táctico -->
             <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 shadow-md flex items-center justify-between">
               <div>
-                <span id="tactics-modal-stage" class="text-[10px] uppercase font-bold text-amber-400">Descanso (45') · Ajustes Tácticos</span>
+                <span id="tactics-modal-stage" class="text-[10px] uppercase font-bold text-amber-400">Pizarra Táctica</span>
                 <h2 id="tactics-modal-title" class="text-sm font-extrabold text-white leading-tight">Pizarra Táctica y Cambios</h2>
               </div>
               <div id="ht-tactic-remaining-badge" class="px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400">
@@ -6337,7 +6367,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           isKickoffInProgress = false;
 
           // Si tras el gol ya se había cumplido el tiempo reglamentario del primer tiempo con su descuento
-          if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered) {
+          if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered && !simulator.isSecondHalf) {
             simulator.halfTimeTriggered = true;
             simulator.isHalfTime = true;
             simulator.pause();
@@ -6761,11 +6791,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       const elAScore = container.querySelector("#away-score");
       if (elTimer) {
         if (state.isHalfTime) {
-          elTimer.textContent = "45' (Descanso)";
+          elTimer.textContent = "Descanso";
           elTimer.className = "px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold";
         } else {
           elTimer.textContent = state.formattedMinute || `${state.minute}'`;
-          const isAdded = (!simulator.halfTimeTriggered && state.minute > 45) || (state.minute > 90);
+          const isAdded = (!simulator.halfTimeTriggered && !simulator.isSecondHalf && state.minute > 45) || (state.minute > 90);
           elTimer.className = isAdded
             ? "px-2.5 py-0.5 rounded-full bg-amber-500/30 text-amber-300 font-mono font-extrabold animate-pulse"
             : "px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-mono font-bold animate-pulse";
@@ -6829,7 +6859,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       const htSubsBadge = container.querySelector("#ht-subs-badge");
 
       if (htBadge) {
-        htBadge.textContent = `⏸️ DESCANSO (45+${simulator.firstHalfExtra}')`;
+        htBadge.textContent = `⏸️ DESCANSO (Final 1ª Parte · 45+${simulator.firstHalfExtra}')`;
       }
       if (htHScore) htHScore.textContent = htState.homeScore;
       if (htAScore) htAScore.textContent = htState.awayScore;
@@ -6847,7 +6877,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       const elTimer = container.querySelector("#match-timer");
       if (elTimer) {
-        elTimer.textContent = "45' (Descanso)";
+        elTimer.textContent = "Descanso";
         elTimer.className = "px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold";
       }
       if (iconPP) iconPP.textContent = "▶";
@@ -6877,6 +6907,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     const textPP = container.querySelector("#play-pause-text");
 
     btnPlayPause.onclick = () => {
+      if (simulator.isSetPieceRunning) return;
       if (simulator.isHalfTime) {
         container.querySelector("#modal-halftime")?.classList.add("hidden");
         simulator.resumeSecondHalf();
@@ -6978,19 +7009,29 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       const elStage = modalHTTactics.querySelector("#tactics-modal-stage");
       if (elStage) {
-        elStage.textContent = isLive 
-          ? `Minuto ${simulator.getFormattedMinute ? simulator.getFormattedMinute() : simulator.minute + "'"} · En Directo`
-          : "Descanso (45') · Ajustes Tácticos";
+        if (isLive) {
+          const isAddedFirstHalf = !simulator.halfTimeTriggered && !simulator.isSecondHalf && simulator.minute >= 45;
+          elStage.textContent = isAddedFirstHalf 
+            ? `1ª Parte (Tiempo de Descuento: ${simulator.getFormattedMinute ? simulator.getFormattedMinute() : simulator.minute + "'"}) · En Directo`
+            : `Minuto ${simulator.getFormattedMinute ? simulator.getFormattedMinute() : simulator.minute + "'"} · En Directo`;
+        } else {
+          elStage.textContent = "⏸️ Descanso Oficial · Ajustes y Cambios para la 2ª Parte";
+        }
       }
 
       const elTitle = modalHTTactics.querySelector("#tactics-modal-title");
       if (elTitle) {
-        elTitle.textContent = isLive ? "Pizarra Táctica y Sustituciones" : "Pizarra Táctica y Cambios";
+        if (isLive) {
+          const isAddedFirstHalf = !simulator.halfTimeTriggered && !simulator.isSecondHalf && simulator.minute >= 45;
+          elTitle.textContent = isAddedFirstHalf ? "Cambios en Vivo (Descuento 1ª Parte)" : "Pizarra Táctica y Sustituciones";
+        } else {
+          elTitle.textContent = "Pizarra Táctica de Descanso";
+        }
       }
 
       const elConfirmText = modalHTTactics.querySelector("#tactics-modal-btn-confirm-text");
       if (elConfirmText) {
-        elConfirmText.textContent = isLive ? "⚽ APLICAR CAMBIOS Y CONTINUAR" : "⚽ GUARDAR AJUSTES Y VOLVER";
+        elConfirmText.textContent = isLive ? "⚽ APLICAR CAMBIOS Y CONTINUAR" : "⚽ GUARDAR CAMBIOS Y VOLVER AL DESCANSO";
       }
 
       const teamSide = isUserHome ? "home" : "away";
@@ -7491,6 +7532,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
     function openSetPieceModal(spInfo) {
       simulator.pause();
+      simulator.isSetPieceRunning = true;
       const iconPP = container.querySelector("#play-pause-icon");
       const textPP = container.querySelector("#play-pause-text");
       if (iconPP) iconPP.textContent = "▶";

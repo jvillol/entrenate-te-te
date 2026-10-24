@@ -1226,7 +1226,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <!-- Header Táctico -->
             <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 shadow-md flex items-center justify-between">
               <div>
-                <span id="tactics-modal-stage" class="text-[10px] uppercase font-bold text-amber-400">Descanso (45') · Ajustes Tácticos</span>
+                <span id="tactics-modal-stage" class="text-[10px] uppercase font-bold text-amber-400">Pizarra Táctica</span>
                 <h2 id="tactics-modal-title" class="text-sm font-extrabold text-white leading-tight">Pizarra Táctica y Cambios</h2>
               </div>
               <div id="ht-tactic-remaining-badge" class="px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-xs font-mono font-bold text-amber-400">
@@ -2351,7 +2351,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           isKickoffInProgress = false;
 
           // Si tras el gol ya se había cumplido el tiempo reglamentario del primer tiempo con su descuento
-          if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered) {
+          if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered && !simulator.isSecondHalf) {
             simulator.halfTimeTriggered = true;
             simulator.isHalfTime = true;
             simulator.pause();
@@ -2775,11 +2775,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const elAScore = container.querySelector("#away-score");
       if (elTimer) {
         if (state.isHalfTime) {
-          elTimer.textContent = "45' (Descanso)";
+          elTimer.textContent = "Descanso";
           elTimer.className = "px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold";
         } else {
           elTimer.textContent = state.formattedMinute || `${state.minute}'`;
-          const isAdded = (!simulator.halfTimeTriggered && state.minute > 45) || (state.minute > 90);
+          const isAdded = (!simulator.halfTimeTriggered && !simulator.isSecondHalf && state.minute > 45) || (state.minute > 90);
           elTimer.className = isAdded
             ? "px-2.5 py-0.5 rounded-full bg-amber-500/30 text-amber-300 font-mono font-extrabold animate-pulse"
             : "px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-mono font-bold animate-pulse";
@@ -2843,7 +2843,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const htSubsBadge = container.querySelector("#ht-subs-badge");
 
       if (htBadge) {
-        htBadge.textContent = `⏸️ DESCANSO (45+${simulator.firstHalfExtra}')`;
+        htBadge.textContent = `⏸️ DESCANSO (Final 1ª Parte · 45+${simulator.firstHalfExtra}')`;
       }
       if (htHScore) htHScore.textContent = htState.homeScore;
       if (htAScore) htAScore.textContent = htState.awayScore;
@@ -2861,7 +2861,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       const elTimer = container.querySelector("#match-timer");
       if (elTimer) {
-        elTimer.textContent = "45' (Descanso)";
+        elTimer.textContent = "Descanso";
         elTimer.className = "px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-mono font-bold";
       }
       if (iconPP) iconPP.textContent = "▶";
@@ -2891,6 +2891,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const textPP = container.querySelector("#play-pause-text");
 
     btnPlayPause.onclick = () => {
+      if (simulator.isSetPieceRunning) return;
       if (simulator.isHalfTime) {
         container.querySelector("#modal-halftime")?.classList.add("hidden");
         simulator.resumeSecondHalf();
@@ -2992,19 +2993,29 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       const elStage = modalHTTactics.querySelector("#tactics-modal-stage");
       if (elStage) {
-        elStage.textContent = isLive 
-          ? `Minuto ${simulator.getFormattedMinute ? simulator.getFormattedMinute() : simulator.minute + "'"} · En Directo`
-          : "Descanso (45') · Ajustes Tácticos";
+        if (isLive) {
+          const isAddedFirstHalf = !simulator.halfTimeTriggered && !simulator.isSecondHalf && simulator.minute >= 45;
+          elStage.textContent = isAddedFirstHalf 
+            ? `1ª Parte (Tiempo de Descuento: ${simulator.getFormattedMinute ? simulator.getFormattedMinute() : simulator.minute + "'"}) · En Directo`
+            : `Minuto ${simulator.getFormattedMinute ? simulator.getFormattedMinute() : simulator.minute + "'"} · En Directo`;
+        } else {
+          elStage.textContent = "⏸️ Descanso Oficial · Ajustes y Cambios para la 2ª Parte";
+        }
       }
 
       const elTitle = modalHTTactics.querySelector("#tactics-modal-title");
       if (elTitle) {
-        elTitle.textContent = isLive ? "Pizarra Táctica y Sustituciones" : "Pizarra Táctica y Cambios";
+        if (isLive) {
+          const isAddedFirstHalf = !simulator.halfTimeTriggered && !simulator.isSecondHalf && simulator.minute >= 45;
+          elTitle.textContent = isAddedFirstHalf ? "Cambios en Vivo (Descuento 1ª Parte)" : "Pizarra Táctica y Sustituciones";
+        } else {
+          elTitle.textContent = "Pizarra Táctica de Descanso";
+        }
       }
 
       const elConfirmText = modalHTTactics.querySelector("#tactics-modal-btn-confirm-text");
       if (elConfirmText) {
-        elConfirmText.textContent = isLive ? "⚽ APLICAR CAMBIOS Y CONTINUAR" : "⚽ GUARDAR AJUSTES Y VOLVER";
+        elConfirmText.textContent = isLive ? "⚽ APLICAR CAMBIOS Y CONTINUAR" : "⚽ GUARDAR CAMBIOS Y VOLVER AL DESCANSO";
       }
 
       const teamSide = isUserHome ? "home" : "away";
@@ -3505,6 +3516,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     function openSetPieceModal(spInfo) {
       simulator.pause();
+      simulator.isSetPieceRunning = true;
       const iconPP = container.querySelector("#play-pause-icon");
       const textPP = container.querySelector("#play-pause-text");
       if (iconPP) iconPP.textContent = "▶";
