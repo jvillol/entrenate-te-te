@@ -561,7 +561,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 const fatigue = player.fatigueLoad || 0;
 
                 return `
-                  <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing flex flex-col items-center transition-transform active:scale-95 z-10 touch-none select-none"
+                  <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 ${isSelected ? 'cursor-grab active:cursor-grabbing touch-none ring-2 ring-amber-400 ring-offset-2 ring-offset-slate-900 z-30 scale-105' : 'cursor-pointer touch-manipulation z-10'} flex flex-col items-center transition-transform active:scale-95 select-none"
                        style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
                        data-player-id="${player.id}"
                        data-slot-index="${index}">
@@ -578,6 +578,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
+                    ${isSelected ? `
+                      <div class="mt-0.5 px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 font-black text-[7px] shadow-md animate-pulse uppercase tracking-tight">
+                        ✋ Mover
+                      </div>
+                    ` : ''}
                     <!-- Rol / Función del jugador, Lesión o Sanción / Sobrecarga -->
                     ${isInjured ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7px] font-bold text-rose-200 truncate max-w-[70px] text-center shadow-sm">
@@ -678,7 +683,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                         <h4 class="text-xs font-black text-white">${curRole.name}</h4>
                       </div>
                     </div>
-                    <button id="btn-pre-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                    <button id="btn-pre-close-role-box" class="text-[10px] font-bold text-emerald-400 hover:text-white px-2 py-1 rounded bg-emerald-950/80 border border-emerald-500/50 flex items-center gap-1 active:scale-95 shadow">✓ Fijar posición</button>
                   </div>
                   <div class="text-[10px] text-slate-400 mb-2 font-medium">Instrucción individual en este partido:</div>
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
@@ -1072,13 +1077,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     }
 
-    // Arrastre libre con el dedo o ratón directamente en la previa pre-partido
+    // Arrastre libre con el dedo o ratón directamente en la previa pre-partido (solo activo para el futbolista seleccionado)
     let preJustDragged = false;
     const prePitchBox = container.querySelector("#pre-match-pitch-container");
-    if (prePitchBox) {
-      prePitchBox.querySelectorAll(".slot-pre-player").forEach(slotEl => {
-        const slotIdx = parseInt(slotEl.dataset.slotIndex, 10);
-        const pId = slotEl.dataset.playerId;
+    if (prePitchBox && selectedPreMatchPlayerId) {
+      const selectedSlotEl = prePitchBox.querySelector(`.slot-pre-player[data-player-id="${selectedPreMatchPlayerId}"]`);
+      if (selectedSlotEl) {
+        const slotIdx = parseInt(selectedSlotEl.dataset.slotIndex, 10);
+        const pId = selectedPreMatchPlayerId;
         let dragMoved = false;
         let startX = 0, startY = 0;
 
@@ -1100,10 +1106,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               const isGK = slotIdx === 0;
               nx = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, nx));
               ny = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, ny));
-              slotEl.style.left = `${nx}%`;
-              slotEl.style.top = `${ny}%`;
-              slotEl.dataset.dragX = nx;
-              slotEl.dataset.dragY = ny;
+              selectedSlotEl.style.left = `${nx}%`;
+              selectedSlotEl.style.top = `${ny}%`;
+              selectedSlotEl.dataset.dragX = nx;
+              selectedSlotEl.dataset.dragY = ny;
             }
           };
 
@@ -1113,8 +1119,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             if (dragMoved) {
               preJustDragged = true;
               setTimeout(() => { preJustDragged = false; }, 200);
-              const finalX = parseFloat(slotEl.dataset.dragX);
-              const finalY = parseFloat(slotEl.dataset.dragY);
+              const finalX = parseFloat(selectedSlotEl.dataset.dragX);
+              const finalY = parseFloat(selectedSlotEl.dataset.dragY);
               if (!isNaN(finalX) && !isNaN(finalY)) {
                 if (!tactics.customPositions) tactics.customPositions = {};
                 tactics.customPositions[slotIdx] = { x: Math.round(finalX), y: Math.round(finalY) };
@@ -1130,8 +1136,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           window.addEventListener("pointerup", onPointerUp);
         };
 
-        slotEl.addEventListener("pointerdown", onPointerDown);
-      });
+        selectedSlotEl.addEventListener("pointerdown", onPointerDown);
+      }
     }
 
     container.querySelectorAll(".slot-pre-player, .bench-pre-card").forEach(el => {
@@ -5586,7 +5592,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const r = getRoleDetails(effSlot.pos, curRoleId);
 
             return `
-              <div class="slot-ht-player absolute -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing flex flex-col items-center transition-transform active:scale-95 z-10 touch-none select-none"
+              <div class="slot-ht-player absolute -translate-x-1/2 -translate-y-1/2 ${isSelected ? 'cursor-grab active:cursor-grabbing touch-none ring-2 ring-amber-400 ring-offset-2 ring-offset-slate-900 z-30 scale-105' : 'cursor-pointer touch-manipulation z-10'} flex flex-col items-center transition-transform active:scale-95 select-none"
                    style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
                    data-player-id="${player.id}"
                    data-slot-index="${index}">
@@ -5606,16 +5612,22 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/80 border border-sky-500/30 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center">
                   ${r.icon} ${r.tag}
                 </div>
+                ${isSelected ? `
+                  <div class="mt-0.5 px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 font-black text-[7px] shadow-md animate-pulse uppercase tracking-tight">
+                    ✋ Mover
+                  </div>
+                ` : ''}
               </div>
             `;
           }).join('');
 
-          // Arrastre libre con el dedo o ratón directamente en la pizarra de cambios/descanso
+          // Arrastre libre con el dedo o ratón directamente en la pizarra de cambios/descanso (solo activo para el seleccionado)
           const htPitchBox = modalHTTactics.querySelector("#ht-pitch-slots")?.parentElement;
-          if (htPitchBox) {
-            pitchSlots.querySelectorAll(".slot-ht-player").forEach(slotEl => {
-              const slotIdx = parseInt(slotEl.dataset.slotIndex, 10);
-              const pId = slotEl.dataset.playerId;
+          if (htPitchBox && htSelectedPlayerId) {
+            const selectedSlotEl = pitchSlots.querySelector(`.slot-ht-player[data-player-id="${htSelectedPlayerId}"]`);
+            if (selectedSlotEl) {
+              const slotIdx = parseInt(selectedSlotEl.dataset.slotIndex, 10);
+              const pId = htSelectedPlayerId;
               let dragMoved = false;
               let startX = 0, startY = 0;
 
@@ -5637,10 +5649,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                     const isGK = slotIdx === 0;
                     nx = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, nx));
                     ny = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, ny));
-                    slotEl.style.left = `${nx}%`;
-                    slotEl.style.top = `${ny}%`;
-                    slotEl.dataset.dragX = nx;
-                    slotEl.dataset.dragY = ny;
+                    selectedSlotEl.style.left = `${nx}%`;
+                    selectedSlotEl.style.top = `${ny}%`;
+                    selectedSlotEl.dataset.dragX = nx;
+                    selectedSlotEl.dataset.dragY = ny;
                   }
                 };
 
@@ -5650,8 +5662,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                   if (dragMoved) {
                     htJustDragged = true;
                     setTimeout(() => { htJustDragged = false; }, 200);
-                    const finalX = parseFloat(slotEl.dataset.dragX);
-                    const finalY = parseFloat(slotEl.dataset.dragY);
+                    const finalX = parseFloat(selectedSlotEl.dataset.dragX);
+                    const finalY = parseFloat(selectedSlotEl.dataset.dragY);
                     if (!isNaN(finalX) && !isNaN(finalY)) {
                       htCustomPositions[slotIdx] = { x: Math.round(finalX), y: Math.round(finalY) };
                       htSelectedPlayerId = pId;
@@ -5664,8 +5676,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 window.addEventListener("pointerup", onPointerUp);
               };
 
-              slotEl.addEventListener("pointerdown", onPointerDown);
-            });
+              selectedSlotEl.addEventListener("pointerdown", onPointerDown);
+            }
           }
 
           pitchSlots.querySelectorAll(".slot-ht-player").forEach(el => {
@@ -5765,7 +5777,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                           <h4 class="text-xs font-black text-white">${curRole.name}</h4>
                         </div>
                       </div>
-                      <button id="btn-ht-close-role-panel" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                      <button id="btn-ht-close-role-panel" class="text-[10px] font-bold text-emerald-400 hover:text-white px-2 py-1 rounded bg-emerald-950/80 border border-emerald-500/50 flex items-center gap-1 active:scale-95 shadow">✓ Fijar posición</button>
                     </div>
                     <div class="text-[10px] text-slate-400 mb-2 font-medium">Modificar instrucción de juego para el partido:</div>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">

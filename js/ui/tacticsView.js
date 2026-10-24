@@ -116,7 +116,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                 const fatigue = player.fatigueLoad || 0;
 
                 return `
-                  <div class="slot-player absolute -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing flex flex-col items-center transition-transform active:scale-95 z-10 touch-none"
+                  <div class="slot-player absolute -translate-x-1/2 -translate-y-1/2 ${isSelected ? 'cursor-grab active:cursor-grabbing touch-none ring-2 ring-amber-400 ring-offset-2 ring-offset-slate-900 z-30 scale-105' : 'cursor-pointer touch-manipulation z-10'} flex flex-col items-center transition-transform active:scale-95 select-none"
                        style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
                        data-player-id="${player.id}"
                        data-slot-index="${index}">
@@ -136,6 +136,11 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                     <div class="bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-bold text-white tracking-tight mt-1 truncate max-w-[70px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
+                    ${isSelected ? `
+                      <div class="mt-0.5 px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 font-black text-[7px] shadow-md animate-pulse uppercase tracking-tight">
+                        ✋ Mover
+                      </div>
+                    ` : ''}
                     <!-- Función / Rol asignado o Lesión / Sanción / Sobrecarga -->
                     ${isInjured ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7.5px] font-bold text-rose-200 truncate max-w-[76px] text-center shadow-sm">
@@ -251,7 +256,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                         <h4 class="text-xs font-black text-white">${curRole.tag}</h4>
                       </div>
                     </div>
-                    <button id="btn-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                    <button id="btn-close-role-box" class="text-[10px] font-bold text-emerald-400 hover:text-white px-2 py-1 rounded-lg bg-emerald-950/80 border border-emerald-500/50 flex items-center gap-1 active:scale-95 shadow">✓ Fijar posición</button>
                   </div>
                   <div class="text-[10px] text-slate-400 mb-2 font-medium">Elige la función táctica de este futbolista según su posición:</div>
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
@@ -704,13 +709,14 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
       };
     }
 
-    // Arrastre libre con el dedo o ratón directamente en la pizarra
+    // Arrastre libre con el dedo o ratón directamente en la pizarra (solo activo para el futbolista seleccionado)
     let tacticsJustDragged = false;
     const pitchBox = container.querySelector("#tactics-pitch-container");
-    if (pitchBox) {
-      container.querySelectorAll(".slot-player").forEach(slotEl => {
-        const slotIdx = parseInt(slotEl.dataset.slotIndex, 10);
-        const pId = slotEl.dataset.playerId;
+    if (pitchBox && selectedPlayerId) {
+      const selectedSlotEl = pitchBox.querySelector(`.slot-player[data-player-id="${selectedPlayerId}"]`);
+      if (selectedSlotEl) {
+        const slotIdx = parseInt(selectedSlotEl.dataset.slotIndex, 10);
+        const pId = selectedPlayerId;
 
         let dragMoved = false;
         let startX = 0, startY = 0;
@@ -733,10 +739,10 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
               const isGK = slotIdx === 0;
               nx = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, nx));
               ny = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, ny));
-              slotEl.style.left = `${nx}%`;
-              slotEl.style.top = `${ny}%`;
-              slotEl.dataset.dragX = nx;
-              slotEl.dataset.dragY = ny;
+              selectedSlotEl.style.left = `${nx}%`;
+              selectedSlotEl.style.top = `${ny}%`;
+              selectedSlotEl.dataset.dragX = nx;
+              selectedSlotEl.dataset.dragY = ny;
             }
           };
 
@@ -746,8 +752,8 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
             if (dragMoved) {
               tacticsJustDragged = true;
               setTimeout(() => { tacticsJustDragged = false; }, 200);
-              const finalX = parseFloat(slotEl.dataset.dragX);
-              const finalY = parseFloat(slotEl.dataset.dragY);
+              const finalX = parseFloat(selectedSlotEl.dataset.dragX);
+              const finalY = parseFloat(selectedSlotEl.dataset.dragY);
               if (!isNaN(finalX) && !isNaN(finalY)) {
                 if (!tactics.customPositions) tactics.customPositions = {};
                 tactics.customPositions[slotIdx] = { x: Math.round(finalX), y: Math.round(finalY) };
@@ -762,8 +768,8 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
           window.addEventListener("pointerup", onPointerUp);
         };
 
-        slotEl.addEventListener("pointerdown", onPointerDown);
-      });
+        selectedSlotEl.addEventListener("pointerdown", onPointerDown);
+      }
     }
 
     // Eventos Pestaña Instrucciones: Presets 1-Click
