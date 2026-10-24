@@ -856,7 +856,56 @@ function calculateEffectiveRating(player, slotPos) {
 }
 
 // Media global de un equipo en base a su 11 inicial
-function calculateTeamAverages(lineupPlayers, formationKey) {
+function getEffectiveSlotCoords(formationKey, slotIndex, customPositions = null) {
+  const form = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
+  const slot = form.slots[slotIndex] || { id: slotIndex, label: "JUG", pos: "MC", x: 50, y: 50 };
+  const custom = customPositions && customPositions[slotIndex];
+
+  const isGK = slot.pos === "POR" || slotIndex === 0;
+  const rawX = custom?.x !== undefined ? custom.x : slot.x;
+  const rawY = custom?.y !== undefined ? custom.y : slot.y;
+
+  // Limitar dentro de los límites reglamentarios del terreno de juego
+  const minX = isGK ? 38 : 10;
+  const maxX = isGK ? 62 : 90;
+  const minY = isGK ? 82 : 12;
+  const maxY = isGK ? 90 : 88;
+
+  const effX = Math.max(minX, Math.min(maxX, rawX));
+  const effY = Math.max(minY, Math.min(maxY, rawY));
+
+  return {
+    ...slot,
+    x: effX,
+    y: effY,
+    origX: slot.x,
+    origY: slot.y,
+    isCustom: Boolean(custom && (effX !== slot.x || effY !== slot.y))
+  };
+}
+function getPositionAdjustmentLabel(slot, effCoord) {
+  if (!effCoord.isCustom) return "Posición estándar";
+  const dx = effCoord.x - effCoord.origX;
+  const dy = effCoord.y - effCoord.origY; // dy < 0: adelantado (hacia ataque), dy > 0: retrasado (hacia defensa)
+
+  let vertDesc = "";
+  if (dy <= -10) vertDesc = "Muy adelantado (hacia Delantera)";
+  else if (dy <= -4) vertDesc = "Adelantado";
+  else if (dy >= 10) vertDesc = "Muy retrasado (hacia Defensa)";
+  else if (dy >= 4) vertDesc = "Retrasado";
+
+  let horizDesc = "";
+  if (dx <= -8) horizDesc = "Hacia la banda izquierda";
+  else if (dx <= -3) horizDesc = "Ligeramente a la izquierda";
+  else if (dx >= 8) horizDesc = "Hacia la banda derecha";
+  else if (dx >= 3) horizDesc = "Ligeramente a la derecha";
+
+  if (vertDesc && horizDesc) return `${vertDesc} · ${horizDesc}`;
+  return vertDesc || horizDesc || "Ajuste libre personalizado";
+}
+
+// Media global de un equipo en base a su 11 inicial teniendo en cuenta posiciones efectivas
+function calculateTeamAverages(lineupPlayers, formationKey, customPositions = null) {
   const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
   if (!lineupPlayers || lineupPlayers.length < 11) {
     return { overall: 75, attack: 75, midfield: 75, defense: 75 };
@@ -870,13 +919,17 @@ function calculateTeamAverages(lineupPlayers, formationKey) {
   formation.slots.forEach((slot, index) => {
     const p = lineupPlayers[index];
     if (!p) return;
-    const eff = calculateEffectiveRating(p, slot.pos);
+    const effSlot = getEffectiveSlotCoords(formationKey, index, customPositions);
+    const eff = calculateEffectiveRating(p, effSlot.pos);
     totalSum += eff;
 
-    if (slot.pos === "DC" || slot.pos === "EI" || slot.pos === "ED") {
+    // Si el jugador ha sido adelantado de forma manual (ej. un interior o mediocentro empujado hacia Delantera)
+    const effectivePosZone = effSlot.y < 32 ? "ATK" : (effSlot.y > 64 ? "DEF" : "MID");
+
+    if (slot.pos === "DC" || slot.pos === "EI" || slot.pos === "ED" || (effectivePosZone === "ATK" && slot.pos !== "POR")) {
       atkSum += eff;
       atkCount++;
-    } else if (slot.pos === "MC" || slot.pos === "MCD" || slot.pos === "MCO") {
+    } else if (slot.pos === "MC" || slot.pos === "MCD" || slot.pos === "MCO" || effectivePosZone === "MID") {
       midSum += eff;
       midCount++;
     } else {
@@ -1308,10 +1361,19 @@ function simulateAIParties(match, teamsMap) {
   [homeTeam, awayTeam].forEach(team => {
     (team.players || []).forEach((p, idx) => {
       if (idx < 11) {
+        p.matchMinutes = 90;
         const isGK = p.pos === "POR";
         const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
         const drain = isGK ? (6 + Math.random() * 3) : ((31 * phyFactor) + (Math.random() * 4 - 2));
         p.energy = Math.max(25, Math.round((p.energy !== undefined ? p.energy : 100) - drain));
+      } else {
+        // Suplente que entra ocasionalmente
+        if (idx < 14 && Math.random() < 0.40) {
+          p.matchMinutes = 25;
+          p.energy = Math.max(35, Math.round((p.energy !== undefined ? p.energy : 100) - 10));
+        } else {
+          p.matchMinutes = 0;
+        }
       }
     });
 
@@ -1515,6 +1577,14 @@ class MatchSimulator {
     this.homePlayerRoles = options.homePlayerRoles || {};
     this.awayPlayerRoles = options.awayPlayerRoles || {};
 
+    // Posiciones personalizadas manuales de jugadores en el campo
+    this.homeCustomPositions = options.homeCustomPositions || {};
+    this.awayCustomPositions = options.awayCustomPositions || {};
+
+    // Inicializar cómputo de minutos de partido y desgaste
+    [...this.homePlayersOnPitch, ...this.homeBench].forEach(p => { p.matchMinutes = 0; });
+    [...this.awayPlayersOnPitch, ...this.awayBench].forEach(p => { p.matchMinutes = 0; });
+
     // Instrucciones tácticas por estados (Con balón / Transición / Sin balón)
     this.homeInstructions = options.homeInstructions ? JSON.parse(JSON.stringify(options.homeInstructions)) : getDefaultTacticalInstructions();
     this.awayInstructions = options.awayInstructions ? JSON.parse(JSON.stringify(options.awayInstructions)) : getDefaultTacticalInstructions();
@@ -1579,13 +1649,17 @@ class MatchSimulator {
     this.isSecondHalf = false;
   }
 
-  getFormationCoords(formationKey, isHome) {
+  getFormationCoords(formationKey, isHome, customPositions = null) {
     const form = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    return form.slots.map(s => {
+    const custom = customPositions || (isHome ? this.homeCustomPositions : this.awayCustomPositions) || {};
+    return form.slots.map((s, idx) => {
+      const c = custom[idx];
+      const effX = (c && c.x !== undefined) ? c.x : s.x;
+      const effY = (c && c.y !== undefined) ? c.y : s.y;
       const px = isHome 
-        ? 5 + ((88 - s.y) / 70) * 70 
-        : 100 - (5 + ((88 - s.y) / 70) * 70);
-      const py = isHome ? s.x : 100 - s.x;
+        ? 5 + ((88 - effY) / 70) * 70 
+        : 100 - (5 + ((88 - effY) / 70) * 70);
+      const py = isHome ? effX : 100 - effX;
       return { x: px, y: py };
     });
   }
@@ -1716,12 +1790,17 @@ class MatchSimulator {
   }
 
   // Aplicar ajustes tácticos completos (formación, mentalidad, cambios de puesto y sustituciones)
-  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false, newPlayerRoles = null) {
+  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false, newPlayerRoles = null, newCustomPositions = null) {
     const isHome = teamSide === "home";
     const currentPitch = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const currentPitchIds = currentPitch.map(p => p.id);
     const remaining = isHome ? this.homeSubsRemaining : this.awaySubsRemaining;
     const remainingWindows = isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining;
+
+    if (newCustomPositions) {
+      if (isHome) this.homeCustomPositions = newCustomPositions;
+      else this.awayCustomPositions = newCustomPositions;
+    }
 
     // Detectar qué futbolistas entran desde el banquillo
     const subsInIds = newLineupPlayerIds.filter(id => !currentPitchIds.includes(id));
@@ -2063,8 +2142,9 @@ class MatchSimulator {
     const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
     const awayTempoMod = this.awayInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.awayInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
 
-    // Desgaste físico gradual según atributos físicos (PHY), posición, mentalidad y estilo táctico
+    // Desgaste físico gradual y acumulación de minutos según atributos físicos (PHY), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
+      p.matchMinutes = (p.matchMinutes || 0) + 1;
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
       const rate = isGK ? 0.08 : (0.42 * phyFactor * homeMod.drain * homePressMod * homeTempoMod);
@@ -2072,6 +2152,7 @@ class MatchSimulator {
     });
 
     this.awayPlayersOnPitch.forEach(p => {
+      p.matchMinutes = (p.matchMinutes || 0) + 1;
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
       const rate = isGK ? 0.08 : (0.42 * phyFactor * awayMod.drain * awayPressMod * awayTempoMod);
@@ -3250,19 +3331,34 @@ class MatchSimulator {
 
   calcTeamPower(players, type, side = null) {
     if (!players || players.length === 0) return 75;
+    const isHome = side === "home";
+    const coords2D = isHome ? this.home2D : this.away2D;
     let sum = 0;
     players.forEach(p => {
       const role = this.getPlayerRole(p, side);
+      const item2D = coords2D?.find(item => item.player?.id === p.id);
       let power = 75;
       if (type === "atk") {
         power = (p.sho * 0.4 + p.dri * 0.3 + p.pac * 0.3) * (0.6 + p.energy / 250);
         if (role && role.atkMod) power *= (1 + role.atkMod);
+        // Si el jugador está adelantado manualmente hacia la portería rival (avance ofensivo)
+        if (item2D) {
+          const advX = isHome ? item2D.baseX : (100 - item2D.baseX);
+          if (advX > 55) power *= 1.10;
+        }
       } else if (type === "mid") {
         power = (p.pas * 0.4 + p.dri * 0.3 + p.def * 0.3) * (0.6 + p.energy / 250);
         if (role && role.midMod) power *= role.midMod;
+        // Si el jugador está centrado hacia la medular (amplitud interior)
+        if (item2D && item2D.baseY >= 35 && item2D.baseY <= 65) power *= 1.08;
       } else if (type === "def") {
         power = (p.def * 0.5 + p.phy * 0.3 + p.pac * 0.2) * (0.6 + p.energy / 250);
         if (role && role.defMod) power *= role.defMod;
+        // Si el jugador está retrasado hacia campo propio (refuerzo defensivo)
+        if (item2D) {
+          const advX = isHome ? item2D.baseX : (100 - item2D.baseX);
+          if (advX < 45) power *= 1.10;
+        }
       }
       sum += power;
     });
@@ -3609,9 +3705,11 @@ function renderTacticsView(container, gameState, onSaveTactics) {
     mentality: "balanced",
     lineup: team.players.slice(0, 11).map(p => p.id),
     bench: team.players.slice(11).map(p => p.id),
-    playerRoles: {}
+    playerRoles: {},
+    customPositions: {}
   };
   if (!tactics.playerRoles) tactics.playerRoles = {};
+  if (!tactics.customPositions) tactics.customPositions = {};
   if (!tactics.instructions) {
     tactics.instructions = getDefaultTacticalInstructions();
   }
@@ -3628,7 +3726,7 @@ function renderTacticsView(container, gameState, onSaveTactics) {
     const lineupPlayers = tactics.lineup.map(id => team.players.find(p => p.id === id)).filter(Boolean);
     const benchPlayers = tactics.bench.map(id => team.players.find(p => p.id === id)).filter(Boolean);
 
-    const averages = calculateTeamAverages(lineupPlayers, formationKey);
+    const averages = calculateTeamAverages(lineupPlayers, formationKey, tactics.customPositions);
     const matchingPresetKey = detectMatchingPreset(tactics.instructions);
     const currentPreset = TACTICAL_PRESETS[matchingPresetKey] || null;
 
@@ -3689,7 +3787,7 @@ function renderTacticsView(container, gameState, onSaveTactics) {
         ${activeTab === "lineup" ? `
           <!-- Terreno de Juego Táctico (Campo Vertical) -->
           <div class="p-3">
-            <div class="relative w-full max-w-sm mx-auto aspect-[3/4] bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+            <div id="tactics-pitch-container" class="relative w-full max-w-sm mx-auto aspect-[3/4] bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2 select-none touch-none">
               <!-- Líneas del campo de fútbol -->
               <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
               <!-- Área portería rival arriba -->
@@ -3705,30 +3803,36 @@ function renderTacticsView(container, gameState, onSaveTactics) {
               ${formation.slots.map((slot, index) => {
                 const player = lineupPlayers[index];
                 if (!player) return "";
-                const effRating = calculateEffectiveRating(player, slot.pos);
+                const effSlot = getEffectiveSlotCoords(formationKey, index, tactics.customPositions);
+                const effRating = calculateEffectiveRating(player, effSlot.pos);
                 const isSelected = selectedPlayerId === player.id;
                 const isInjured = Boolean(player.injury);
-                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
-                const role = getRoleDetails(slot.pos, roleId);
+                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(effSlot.pos);
+                const role = getRoleDetails(effSlot.pos, roleId);
+                const fatigue = player.fatigueLoad || 0;
 
                 return `
-                  <div class="slot-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
-                       style="left: ${slot.x}%; top: ${slot.y}%;"
-                       data-player-id="${player.id}">
+                  <div class="slot-player absolute -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing flex flex-col items-center transition-transform active:scale-95 z-10 touch-none"
+                       style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
+                       data-player-id="${player.id}"
+                       data-slot-index="${index}">
                     <!-- Ficha con dorsal y valoración -->
-                    <div class="w-10 h-10 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                    <div class="w-10 h-10 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110 ring-2 ring-amber-300' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : effSlot.isCustom ? 'border-amber-400 bg-slate-900 text-white shadow-md ring-1 ring-amber-400/80' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
                       <span class="text-[9px] font-black leading-none">${effRating}</span>
-                      <span class="text-[8px] font-bold ${isInjured ? 'text-rose-300' : 'text-slate-300'} leading-none">${slot.label}</span>
+                      <span class="text-[8px] font-bold ${isInjured ? 'text-rose-300' : effSlot.isCustom ? 'text-amber-300 font-extrabold' : 'text-slate-300'} leading-none">${slot.label}</span>
                       <!-- Barra de energía en miniatura -->
                       <div class="absolute -bottom-1 w-6 h-1 bg-black/60 rounded-full overflow-hidden">
-                        <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy}%;"></div>
+                        <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                       </div>
+                      ${effSlot.isCustom ? `
+                        <div class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 text-slate-950 text-[7px] font-black flex items-center justify-center shadow" title="Posición ajustada libremente">📍</div>
+                      ` : ''}
                     </div>
                     <!-- Nombre del futbolista -->
                     <div class="bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-bold text-white tracking-tight mt-1 truncate max-w-[70px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
-                    <!-- Función / Rol asignado o Lesión / Sanción -->
+                    <!-- Función / Rol asignado o Lesión / Sanción / Sobrecarga -->
                     ${isInjured ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7.5px] font-bold text-rose-200 truncate max-w-[76px] text-center shadow-sm">
                         🚑 ${player.injury.roundsLeft}j
@@ -3736,6 +3840,10 @@ function renderTacticsView(container, gameState, onSaveTactics) {
                     ` : player.suspension ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500/70 text-[7.5px] font-bold text-amber-300 truncate max-w-[76px] text-center shadow-sm">
                         🛑 ${player.suspension.roundsLeft}j
+                      </div>
+                    ` : fatigue >= 40 ? `
+                      <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500/80 text-[7px] font-bold text-amber-300 truncate max-w-[76px] text-center shadow-sm">
+                        🔥 Sobrecarga
                       </div>
                     ` : `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7.5px] font-bold text-sky-300 truncate max-w-[76px] text-center shadow-sm">
@@ -3748,7 +3856,7 @@ function renderTacticsView(container, gameState, onSaveTactics) {
             </div>
           </div>
 
-          <!-- Panel de Asignación de Función / Rol Táctico del Jugador Seleccionado -->
+          <!-- Paneles del Futbolista Titular Seleccionado: Ajuste Posicional y Función Táctica -->
           ${(() => {
             if (!selectedPlayerId) return "";
             const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
@@ -3757,33 +3865,102 @@ function renderTacticsView(container, gameState, onSaveTactics) {
             const selPlayer = team.players.find(p => p.id === selectedPlayerId);
             if (!selPlayer || !selSlot) return "";
 
-            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
-            const curRole = getRoleDetails(selSlot.pos, curRoleId);
-            const availRoles = getAvailableRolesForPosition(selSlot.pos);
+            const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(effSlot.pos);
+            const curRole = getRoleDetails(effSlot.pos, curRoleId);
+            const availRoles = getAvailableRolesForPosition(effSlot.pos);
+            const posLabel = getPositionAdjustmentLabel(selSlot, effSlot);
 
             return `
-              <div class="mx-3 my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
-                <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xl">${curRole.icon}</span>
-                    <div>
-                      <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name} (${selSlot.label})</span>
-                      <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+              <div class="mx-3 my-2 space-y-2 animate-fadeIn">
+                <!-- Panel 1: Ajuste Libre de Posición en el Campo -->
+                <div class="p-3 bg-slate-900 border border-amber-500/40 rounded-2xl shadow-xl">
+                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">📍</span>
+                      <div>
+                        <span class="text-[9px] uppercase font-bold text-amber-400">Posición en el Campo · ${selPlayer.name} (${selSlot.label})</span>
+                        <h4 class="text-xs font-black text-white">${posLabel}</h4>
+                      </div>
+                    </div>
+                    ${effSlot.isCustom ? `
+                      <button id="btn-reset-pos" class="text-[10px] font-bold text-rose-400 hover:text-rose-300 px-2 py-1 rounded-lg bg-rose-950/70 border border-rose-800/80 transition flex items-center gap-1 active:scale-95 shadow-sm">
+                        <span>↺</span> Posición base
+                      </button>
+                    ` : ''}
+                  </div>
+
+                  <div class="text-[10px] text-slate-400 mb-2 font-medium">
+                    Ajusta su posición para acercarlo al mediocentro, al delantero o abrirlo a banda (arrastra en la pizarra o usa los botones):
+                  </div>
+
+                  <!-- Botones de Nudge Direccional -->
+                  <div class="grid grid-cols-2 gap-2 mb-2.5">
+                    <div class="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex flex-col gap-1.5">
+                      <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Altura (Ataque / Defensa)</span>
+                      <div class="flex items-center gap-1.5">
+                        <button class="btn-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="y" data-delta="-5">
+                          <span>▲</span> Adelantar (+DC)
+                        </button>
+                        <button class="btn-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="y" data-delta="5">
+                          <span>▼</span> Retrasar (+MC)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex flex-col gap-1.5">
+                      <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Amplitud (Banda / Centro)</span>
+                      <div class="flex items-center gap-1.5">
+                        <button class="btn-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="x" data-delta="-5">
+                          <span>◀</span> Izquierda
+                        </button>
+                        <button class="btn-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="x" data-delta="5">
+                          <span>▶</span> Derecha
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <button id="btn-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+
+                  <!-- Sliders de Ajuste Fino -->
+                  <div class="space-y-2 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80 text-[10px]">
+                    <div class="flex items-center justify-between text-slate-400">
+                      <span>Profundidad en campo: <b class="text-white">${effSlot.y < 35 ? 'Delantera / Ofensivo' : (effSlot.y > 65 ? 'Defensa / Retrasado' : 'Medio campo')}</b></span>
+                      <span class="font-mono text-amber-400 font-bold">Y: ${Math.round(effSlot.y)}%</span>
+                    </div>
+                    <input type="range" class="slider-pos-y w-full accent-amber-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer" min="12" max="88" value="${effSlot.y}">
+
+                    <div class="flex items-center justify-between text-slate-400 pt-1">
+                      <span>Anchura / Amplitud: <b class="text-white">${effSlot.x < 35 ? 'Banda Izquierda' : (effSlot.x > 65 ? 'Banda Derecha' : 'Interior / Centro')}</b></span>
+                      <span class="font-mono text-amber-400 font-bold">X: ${Math.round(effSlot.x)}%</span>
+                    </div>
+                    <input type="range" class="slider-pos-x w-full accent-amber-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer" min="10" max="90" value="${effSlot.x}">
+                  </div>
                 </div>
-                <div class="text-[10px] text-slate-400 mb-2 font-medium">Elige la función táctica de este futbolista según su posición:</div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  ${availRoles.map(r => `
-                    <button class="btn-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
-                      <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
-                      <div class="min-w-0">
-                        <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
-                        <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+
+                <!-- Panel 2: Función Táctica / Rol -->
+                <div class="p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl">
+                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">${curRole.icon}</span>
+                      <div>
+                        <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${curRole.name}</span>
+                        <h4 class="text-xs font-black text-white">${curRole.tag}</h4>
                       </div>
-                    </button>
-                  `).join('')}
+                    </div>
+                    <button id="btn-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                  </div>
+                  <div class="text-[10px] text-slate-400 mb-2 font-medium">Elige la función táctica de este futbolista según su posición:</div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    ${availRoles.map(r => `
+                      <button class="btn-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                        <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                        <div class="min-w-0">
+                          <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                          <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                        </div>
+                      </button>
+                    `).join('')}
+                  </div>
                 </div>
               </div>
             `;
@@ -4120,6 +4297,7 @@ function renderTacticsView(container, gameState, onSaveTactics) {
     container.querySelectorAll(".btn-formation").forEach(btn => {
       btn.onclick = () => {
         tactics.formation = btn.dataset.formation;
+        tactics.customPositions = {}; // Reiniciar posiciones personalizadas al cambiar esquema base
         onSaveTactics(tactics);
         render();
       };
@@ -4141,6 +4319,144 @@ function renderTacticsView(container, gameState, onSaveTactics) {
         onSaveTactics(tactics);
         render();
       };
+    }
+
+    // Controles de Ajuste Manual de Posición en el Campo (Nudge botones)
+    container.querySelectorAll(".btn-nudge-pos").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!selectedPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+        if (selSlotIndex === -1) return;
+        const axis = btn.dataset.axis;
+        const delta = parseInt(btn.dataset.delta, 10);
+        const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        const isGK = selSlotIndex === 0;
+
+        if (axis === "x") {
+          const newX = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, effSlot.x + delta));
+          tactics.customPositions[selSlotIndex] = { x: newX, y: effSlot.y };
+        } else {
+          const newY = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, effSlot.y + delta));
+          tactics.customPositions[selSlotIndex] = { x: effSlot.x, y: newY };
+        }
+        onSaveTactics(tactics);
+        render();
+      };
+    });
+
+    // Sliders de Posición Fina
+    const sliderY = container.querySelector(".slider-pos-y");
+    if (sliderY) {
+      sliderY.oninput = (e) => {
+        if (!selectedPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+        if (selSlotIndex === -1) return;
+        const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+        const val = parseInt(e.target.value, 10);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        tactics.customPositions[selSlotIndex] = { x: effSlot.x, y: val };
+        const slotEl = container.querySelector(`.slot-player[data-slot-index="${selSlotIndex}"]`);
+        if (slotEl) slotEl.style.top = `${val}%`;
+      };
+      sliderY.onchange = () => {
+        onSaveTactics(tactics);
+        render();
+      };
+    }
+
+    const sliderX = container.querySelector(".slider-pos-x");
+    if (sliderX) {
+      sliderX.oninput = (e) => {
+        if (!selectedPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+        if (selSlotIndex === -1) return;
+        const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+        const val = parseInt(e.target.value, 10);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        tactics.customPositions[selSlotIndex] = { x: val, y: effSlot.y };
+        const slotEl = container.querySelector(`.slot-player[data-slot-index="${selSlotIndex}"]`);
+        if (slotEl) slotEl.style.left = `${val}%`;
+      };
+      sliderX.onchange = () => {
+        onSaveTactics(tactics);
+        render();
+      };
+    }
+
+    // Botón restablecer posición original
+    const btnResetPos = container.querySelector("#btn-reset-pos");
+    if (btnResetPos) {
+      btnResetPos.onclick = (e) => {
+        e.stopPropagation();
+        if (!selectedPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+        if (selSlotIndex !== -1 && tactics.customPositions) {
+          delete tactics.customPositions[selSlotIndex];
+          onSaveTactics(tactics);
+          render();
+        }
+      };
+    }
+
+    // Arrastre libre con el dedo o ratón directamente en la pizarra
+    const pitchBox = container.querySelector("#tactics-pitch-container");
+    if (pitchBox) {
+      container.querySelectorAll(".slot-player").forEach(slotEl => {
+        const slotIdx = parseInt(slotEl.dataset.slotIndex, 10);
+        const pId = slotEl.dataset.playerId;
+
+        let dragMoved = false;
+        let startX = 0, startY = 0;
+
+        const onPointerDown = (e) => {
+          if (e.button !== 0 && e.pointerType === "mouse") return;
+          dragMoved = false;
+          startX = e.clientX;
+          startY = e.clientY;
+
+          const onPointerMove = (me) => {
+            const dist = Math.hypot(me.clientX - startX, me.clientY - startY);
+            if (!dragMoved && dist > 5) {
+              dragMoved = true;
+            }
+            if (dragMoved) {
+              const rect = pitchBox.getBoundingClientRect();
+              let nx = ((me.clientX - rect.left) / rect.width) * 100;
+              let ny = ((me.clientY - rect.top) / rect.height) * 100;
+              const isGK = slotIdx === 0;
+              nx = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, nx));
+              ny = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, ny));
+              slotEl.style.left = `${nx}%`;
+              slotEl.style.top = `${ny}%`;
+              slotEl.dataset.dragX = nx;
+              slotEl.dataset.dragY = ny;
+            }
+          };
+
+          const onPointerUp = () => {
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            if (dragMoved) {
+              const finalX = parseFloat(slotEl.dataset.dragX);
+              const finalY = parseFloat(slotEl.dataset.dragY);
+              if (!isNaN(finalX) && !isNaN(finalY)) {
+                if (!tactics.customPositions) tactics.customPositions = {};
+                tactics.customPositions[slotIdx] = { x: Math.round(finalX), y: Math.round(finalY) };
+                selectedPlayerId = pId;
+                onSaveTactics(tactics);
+                render();
+              }
+            }
+          };
+
+          window.addEventListener("pointermove", onPointerMove);
+          window.addEventListener("pointerup", onPointerUp);
+        };
+
+        slotEl.addEventListener("pointerdown", onPointerDown);
+      });
     }
 
     // Eventos Pestaña Instrucciones: Presets 1-Click
@@ -4376,6 +4692,7 @@ function renderSquadView(container, gameState) {
                     <h4 class="text-xs font-bold text-white leading-tight">${p.name}</h4>
                     ${p.injury ? `<span class="px-1.5 py-0.2 rounded bg-rose-950/90 border border-rose-500/60 text-[8px] font-bold text-rose-300">🚑 ${p.injury.type} (${p.injury.roundsLeft}j)</span>` : ''}
                     ${p.suspension ? `<span class="px-1.5 py-0.2 rounded bg-amber-950/90 border border-amber-500/60 text-[8px] font-bold text-amber-300">🛑 Sancionado (${p.suspension.roundsLeft}j)</span>` : ''}
+                    ${(p.fatigueLoad || 0) >= 40 ? `<span class="px-1.5 py-0.2 rounded bg-amber-950 border border-amber-500/70 text-[8px] font-bold text-amber-300">🔥 Sobrecarga</span>` : (p.fatigueLoad || 0) >= 20 ? `<span class="px-1.5 py-0.2 rounded bg-yellow-950/80 border border-yellow-500/50 text-[8px] font-bold text-yellow-300">⚠️ Fatiga acum.</span>` : ''}
                   </div>
                   <div class="flex items-center gap-2 mt-1">
                     <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0}</span>
@@ -4383,6 +4700,7 @@ function renderSquadView(container, gameState) {
                     ${(p.seasonReds || 0) > 0 ? `<span class="text-[10px] text-red-400">🟥 ${p.seasonReds}</span>` : ''}
                     <span class="text-[10px] font-mono ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400 font-bold'}">⚡ ${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
                     <span class="text-[9px] text-slate-500 font-mono">FIS ${p.phy || 70}</span>
+                    ${p.seasonMinutes ? `<span class="text-[9px] text-slate-500 font-mono font-bold">${p.seasonMinutes}' min</span>` : ''}
                   </div>
                 </div>
               </div>
@@ -4515,7 +4833,7 @@ function renderSquadView(container, gameState) {
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
               <span class="text-[10px] text-slate-500 font-bold uppercase">Condición</span>
               <div class="text-base font-black ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'}">${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
-              <div class="text-[9px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold">${(p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
+              <div class="text-[9px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold">${(p.fatigueLoad || 0) >= 40 ? 'Sobrecarga (Rotar)' : (p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
               <span class="text-[10px] text-slate-500 font-bold uppercase">Moral</span>
@@ -4824,6 +5142,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   }
   if (!gameState.userTactics.playerRoles) {
     gameState.userTactics.playerRoles = {};
+  }
+  if (!gameState.userTactics.customPositions) {
+    gameState.userTactics.customPositions = {};
   }
   if (!gameState.userTactics.instructions) {
     gameState.userTactics.instructions = getDefaultTacticalInstructions();
@@ -5339,31 +5660,37 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
               <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-12 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
 
-              <!-- Fichas de los 11 titulares usuario -->
+              <!-- Fichas de los 11 titulares usuario con soporte de posición libre -->
               ${formation.slots.map((slot, index) => {
                 const player = lineupPlayers[index];
                 if (!player) return "";
-                const effRating = calculateEffectiveRating(player, slot.pos);
+                const effSlot = getEffectiveSlotCoords(formationKey, index, tactics.customPositions);
+                const effRating = calculateEffectiveRating(player, effSlot.pos);
                 const isSelected = selectedPreMatchPlayerId === player.id;
                 const isInjured = Boolean(player.injury);
-                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
-                const role = getRoleDetails(slot.pos, roleId);
+                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(effSlot.pos);
+                const role = getRoleDetails(effSlot.pos, roleId);
+                const fatigue = player.fatigueLoad || 0;
 
                 return `
                   <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
-                       style="left: ${slot.x}%; top: ${slot.y}%;"
-                       data-player-id="${player.id}">
-                    <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                       style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
+                       data-player-id="${player.id}"
+                       data-slot-index="${index}">
+                    <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110 ring-2 ring-amber-300' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : effSlot.isCustom ? 'border-amber-400 bg-slate-900 text-white shadow-md ring-1 ring-amber-400/80' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
                       <span class="text-[9px] font-black leading-none">${effRating}</span>
-                      <span class="text-[7px] font-bold ${isInjured ? 'text-rose-300' : 'text-slate-300'} leading-none">${slot.label}</span>
+                      <span class="text-[7px] font-bold ${isInjured ? 'text-rose-300' : effSlot.isCustom ? 'text-amber-300 font-extrabold' : 'text-slate-300'} leading-none">${slot.label}</span>
                       <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
                         <div class="h-full ${(player.energy || 100) >= 80 ? 'bg-emerald-400' : (player.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                       </div>
+                      ${effSlot.isCustom ? `
+                        <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-slate-950 text-[6.5px] font-black flex items-center justify-center shadow">📍</div>
+                      ` : ''}
                     </div>
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
-                    <!-- Rol / Función del jugador, Lesión o Sanción -->
+                    <!-- Rol / Función del jugador, Lesión o Sanción / Sobrecarga -->
                     ${isInjured ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7px] font-bold text-rose-200 truncate max-w-[70px] text-center shadow-sm">
                         🚑 ${player.injury.roundsLeft}j
@@ -5371,6 +5698,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                     ` : player.suspension ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500 text-[7px] font-bold text-amber-200 truncate max-w-[70px] text-center shadow-sm">
                         🛑 ${player.suspension.roundsLeft}j
+                      </div>
+                    ` : fatigue >= 40 ? `
+                      <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500/80 text-[6.5px] font-bold text-amber-300 truncate max-w-[70px] text-center shadow-sm">
+                        🔥 Sobrecarga
                       </div>
                     ` : `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center shadow-sm">
@@ -5383,7 +5714,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             </div>
           </div>
 
-          <!-- Panel de Asignación de Función Táctica Pre-Partido -->
+          <!-- Panel de Asignación de Función Táctica y Ajuste de Posición Pre-Partido -->
           ${(() => {
             if (!selectedPreMatchPlayerId) return "";
             const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
@@ -5392,33 +5723,72 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             const selPlayer = userTeam.players.find(p => p.id === selectedPreMatchPlayerId);
             if (!selPlayer || !selSlot) return "";
 
-            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
-            const curRole = getRoleDetails(selSlot.pos, curRoleId);
-            const availRoles = getAvailableRolesForPosition(selSlot.pos);
+            const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(effSlot.pos);
+            const curRole = getRoleDetails(effSlot.pos, curRoleId);
+            const availRoles = getAvailableRolesForPosition(effSlot.pos);
+            const posLabel = getPositionAdjustmentLabel(selSlot, effSlot);
 
             return `
-              <div class="mx-3 my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
-                <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xl">${curRole.icon}</span>
-                    <div>
-                      <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name} (${selSlot.label})</span>
-                      <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+              <div class="mx-3 my-2 space-y-2 animate-fadeIn">
+                <!-- Ajuste de Posición Manual en el Campo -->
+                <div class="p-2.5 bg-slate-900 border border-amber-500/40 rounded-2xl shadow-xl">
+                  <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-800">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-sm">📍</span>
+                      <span class="text-[10px] font-bold text-amber-400">Posición: ${posLabel}</span>
+                    </div>
+                    ${effSlot.isCustom ? `
+                      <button id="btn-pre-reset-pos" class="text-[9.5px] font-bold text-rose-400 hover:text-rose-300 px-2 py-0.5 rounded bg-rose-950/70 border border-rose-800/80 active:scale-95 transition">
+                        ↺ Restablecer
+                      </button>
+                    ` : ''}
+                  </div>
+                  <div class="text-[9.5px] text-slate-400 mb-1.5">Ajusta la posición de ${selPlayer.name.split(' ').slice(-1)[0]}:</div>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <div class="flex items-center gap-1">
+                      <button class="btn-pre-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="-5">
+                        ▲ Adelantar
+                      </button>
+                      <button class="btn-pre-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="5">
+                        ▼ Retrasar
+                      </button>
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <button class="btn-pre-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="-5">
+                        ◀ Izquierda
+                      </button>
+                      <button class="btn-pre-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="5">
+                        ▶ Derecha
+                      </button>
                     </div>
                   </div>
-                  <button id="btn-pre-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
                 </div>
-                <div class="text-[10px] text-slate-400 mb-2 font-medium">Instrucción individual en este partido:</div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  ${availRoles.map(r => `
-                    <button class="btn-pre-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
-                      <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
-                      <div class="min-w-0">
-                        <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
-                        <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+
+                <!-- Función Táctica / Rol -->
+                <div class="p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl">
+                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">${curRole.icon}</span>
+                      <div>
+                        <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name}</span>
+                        <h4 class="text-xs font-black text-white">${curRole.name}</h4>
                       </div>
-                    </button>
-                  `).join('')}
+                    </div>
+                    <button id="btn-pre-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                  </div>
+                  <div class="text-[10px] text-slate-400 mb-2 font-medium">Instrucción individual en este partido:</div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    ${availRoles.map(r => `
+                      <button class="btn-pre-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                        <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                        <div class="min-w-0">
+                          <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                          <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                        </div>
+                      </button>
+                    `).join('')}
+                  </div>
                 </div>
               </div>
             `;
@@ -5717,6 +6087,47 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       });
     }
 
+    // Ajuste de posición libre pre-partido
+    container.querySelectorAll(".btn-pre-nudge-pos").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!selectedPreMatchPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
+        if (selSlotIndex === -1) return;
+        const axis = btn.dataset.axis;
+        const delta = parseInt(btn.dataset.delta, 10);
+        const effSlot = getEffectiveSlotCoords(tactics.formation, selSlotIndex, tactics.customPositions);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        const isGK = selSlotIndex === 0;
+
+        if (axis === "x") {
+          const newX = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, effSlot.x + delta));
+          tactics.customPositions[selSlotIndex] = { x: newX, y: effSlot.y };
+        } else {
+          const newY = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, effSlot.y + delta));
+          tactics.customPositions[selSlotIndex] = { x: effSlot.x, y: newY };
+        }
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
+    const btnPreResetPos = container.querySelector("#btn-pre-reset-pos");
+    if (btnPreResetPos) {
+      btnPreResetPos.onclick = (e) => {
+        e.stopPropagation();
+        if (!selectedPreMatchPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
+        if (selSlotIndex !== -1 && tactics.customPositions) {
+          delete tactics.customPositions[selSlotIndex];
+          masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+          SaveManager.saveGame(gameState);
+          renderPreMatch();
+        }
+      };
+    }
+
     container.querySelectorAll(".slot-pre-player, .bench-pre-card").forEach(el => {
       el.onclick = () => {
         handlePrePlayerTap(el.dataset.playerId);
@@ -5954,6 +6365,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       homePlayerRoles: isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
       awayPlayerRoles: !isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
+      homeCustomPositions: isUserHome ? (gameState.userTactics.customPositions || {}) : {},
+      awayCustomPositions: !isUserHome ? (gameState.userTactics.customPositions || {}) : {},
       homeInstructions: isUserHome ? gameState.userTactics.instructions : oppInstructions,
       awayInstructions: !isUserHome ? gameState.userTactics.instructions : oppInstructions,
       onTick: updateMatchUI,
@@ -9397,6 +9810,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       let htSelectedPlayerId = null;
       let htSubTab = "pitch"; // "pitch" o "style"
       let htPlayerRoles = { ...(gameState.userTactics.playerRoles || {}) };
+      let htCustomPositions = JSON.parse(JSON.stringify(gameState.userTactics.customPositions || {}));
       let htInstructions = JSON.parse(JSON.stringify(
         (teamSide === "home" ? simulator.homeInstructions : simulator.awayInstructions) ||
         gameState.userTactics.instructions ||
@@ -9454,6 +9868,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           containerForm.querySelectorAll(".btn-ht-form").forEach(b => {
             b.onclick = () => {
               htFormationKey = b.dataset.formation;
+              htCustomPositions = {}; // Reiniciar posiciones libres al cambiar de esquema
               renderHTTactics();
             };
           });
@@ -9534,22 +9949,27 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             const playerId = htLineupIds[index];
             const player = getPlayer(playerId);
             if (!player) return "";
-            const effRating = calculateEffectiveRating(player, slot.pos);
+            const effSlot = getEffectiveSlotCoords(htFormationKey, index, htCustomPositions);
+            const effRating = calculateEffectiveRating(player, effSlot.pos);
             const isSelected = htSelectedPlayerId === player.id;
             const isNewSub = !initialPitchIds.includes(player.id);
-            const curRoleId = (htPlayerRoles && htPlayerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
-            const r = getRoleDetails(slot.pos, curRoleId);
+            const curRoleId = (htPlayerRoles && htPlayerRoles[player.id]) || getDefaultRoleForPosition(effSlot.pos);
+            const r = getRoleDetails(effSlot.pos, curRoleId);
 
             return `
               <div class="slot-ht-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
-                   style="left: ${slot.x}%; top: ${slot.y}%;"
-                   data-player-id="${player.id}">
-                <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isNewSub ? 'border-emerald-400 bg-emerald-950 text-emerald-300 shadow-md ring-2 ring-emerald-500/50' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                   style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
+                   data-player-id="${player.id}"
+                   data-slot-index="${index}">
+                <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110 ring-2 ring-amber-300' : isNewSub ? 'border-emerald-400 bg-emerald-950 text-emerald-300 shadow-md ring-2 ring-emerald-500/50' : effSlot.isCustom ? 'border-amber-400 bg-slate-900 text-white shadow-md ring-1 ring-amber-400/80' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
                   <span class="text-[9px] font-black leading-none">${effRating}</span>
-                  <span class="text-[7px] font-bold ${isNewSub ? 'text-emerald-400' : 'text-slate-300'} leading-none">${slot.label}</span>
+                  <span class="text-[7px] font-bold ${isNewSub ? 'text-emerald-400' : effSlot.isCustom ? 'text-amber-300 font-extrabold' : 'text-slate-300'} leading-none">${slot.label}</span>
                   <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
                     <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                   </div>
+                  ${effSlot.isCustom ? `
+                    <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-slate-950 text-[6.5px] font-black flex items-center justify-center shadow">📍</div>
+                  ` : ''}
                 </div>
                 <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                   ${isNewSub ? '🔺 ' : ''}${player.name.split(' ').slice(-1)[0]}
@@ -9568,7 +9988,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           });
         }
 
-        // Panel de asignación de función táctica individual si hay titular seleccionado
+        // Panel de asignación de función táctica individual y posición en vivo si hay titular seleccionado
         const rolePanel = modalHTTactics.querySelector("#ht-role-assignment-panel");
         if (rolePanel) {
           const selSlotIndex = htLineupIds.indexOf(htSelectedPlayerId);
@@ -9576,33 +9996,71 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             const selSlot = formation.slots[selSlotIndex];
             const selPlayer = getPlayer(htSelectedPlayerId);
             if (selPlayer && selSlot) {
-              const curRoleId = (htPlayerRoles && htPlayerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
-              const curRole = getRoleDetails(selSlot.pos, curRoleId);
-              const availRoles = getAvailableRolesForPosition(selSlot.pos);
+              const effSlot = getEffectiveSlotCoords(htFormationKey, selSlotIndex, htCustomPositions);
+              const curRoleId = (htPlayerRoles && htPlayerRoles[selPlayer.id]) || getDefaultRoleForPosition(effSlot.pos);
+              const curRole = getRoleDetails(effSlot.pos, curRoleId);
+              const availRoles = getAvailableRolesForPosition(effSlot.pos);
+              const posLabel = getPositionAdjustmentLabel(selSlot, effSlot);
 
               rolePanel.innerHTML = `
-                <div class="my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
-                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
-                    <div class="flex items-center gap-2">
-                      <span class="text-xl">${curRole.icon}</span>
-                      <div>
-                        <span class="text-[9px] uppercase font-bold text-sky-400">Función en vivo · ${selPlayer.name} (${selSlot.label})</span>
-                        <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+                <div class="my-2 space-y-2 animate-fadeIn">
+                  <!-- Ajuste de posición manual en descanso/directo -->
+                  <div class="p-2.5 bg-slate-900 border border-amber-500/40 rounded-xl">
+                    <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-800">
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-sm">📍</span>
+                        <span class="text-[10px] font-bold text-amber-400">Posición: ${posLabel}</span>
+                      </div>
+                      ${effSlot.isCustom ? `
+                        <button id="btn-ht-reset-pos" class="text-[9.5px] font-bold text-rose-400 hover:text-rose-300 px-2 py-0.5 rounded bg-rose-950/70 border border-rose-800/80 active:scale-95 transition">
+                          ↺ Restablecer
+                        </button>
+                      ` : ''}
+                    </div>
+                    <div class="grid grid-cols-2 gap-1.5">
+                      <div class="flex items-center gap-1">
+                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="-5">
+                          ▲ Adelantar (+DC)
+                        </button>
+                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="5">
+                          ▼ Retrasar (+MC)
+                        </button>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="-5">
+                          ◀ Izquierda
+                        </button>
+                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="5">
+                          ▶ Derecha
+                        </button>
                       </div>
                     </div>
-                    <button id="btn-ht-close-role-panel" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
                   </div>
-                  <div class="text-[10px] text-slate-400 mb-2 font-medium">Modificar instrucción de juego para el partido:</div>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    ${availRoles.map(r => `
-                      <button class="btn-ht-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
-                        <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
-                        <div class="min-w-0">
-                          <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
-                          <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+
+                  <!-- Función / Rol -->
+                  <div class="p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl">
+                    <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xl">${curRole.icon}</span>
+                        <div>
+                          <span class="text-[9px] uppercase font-bold text-sky-400">Función en vivo · ${selPlayer.name} (${selSlot.label})</span>
+                          <h4 class="text-xs font-black text-white">${curRole.name}</h4>
                         </div>
-                      </button>
-                    `).join('')}
+                      </div>
+                      <button id="btn-ht-close-role-panel" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mb-2 font-medium">Modificar instrucción de juego para el partido:</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      ${availRoles.map(r => `
+                        <button class="btn-ht-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                          <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                          <div class="min-w-0">
+                            <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                            <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                          </div>
+                        </button>
+                      `).join('')}
+                    </div>
                   </div>
                 </div>
               `;
@@ -9612,6 +10070,32 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 btnClose.onclick = (e) => {
                   e.stopPropagation();
                   htSelectedPlayerId = null;
+                  renderHTTactics();
+                };
+              }
+
+              rolePanel.querySelectorAll(".btn-ht-nudge-pos").forEach(btn => {
+                btn.onclick = (e) => {
+                  e.stopPropagation();
+                  const axis = btn.dataset.axis;
+                  const delta = parseInt(btn.dataset.delta, 10);
+                  const isGK = selSlotIndex === 0;
+                  if (axis === "x") {
+                    const newX = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, effSlot.x + delta));
+                    htCustomPositions[selSlotIndex] = { x: newX, y: effSlot.y };
+                  } else {
+                    const newY = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, effSlot.y + delta));
+                    htCustomPositions[selSlotIndex] = { x: effSlot.x, y: newY };
+                  }
+                  renderHTTactics();
+                };
+              });
+
+              const btnResetPos = rolePanel.querySelector("#btn-ht-reset-pos");
+              if (btnResetPos) {
+                btnResetPos.onclick = (e) => {
+                  e.stopPropagation();
+                  delete htCustomPositions[selSlotIndex];
                   renderHTTactics();
                 };
               }
@@ -9831,7 +10315,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           htLineupIds,
           htBenchIds,
           !isLive,
-          htPlayerRoles
+          htPlayerRoles,
+          htCustomPositions
         );
 
         if (!res.success) {
@@ -9844,6 +10329,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         gameState.userTactics.lineup = [...htLineupIds];
         gameState.userTactics.bench = [...htBenchIds];
         gameState.userTactics.playerRoles = { ...htPlayerRoles };
+        gameState.userTactics.customPositions = { ...htCustomPositions };
         gameState.userTactics.instructions = JSON.parse(JSON.stringify(htInstructions));
 
         simulator.setTacticalInstructions(teamSide, htInstructions);
@@ -9860,6 +10346,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           masterTacticsForNextMatches.lineup = [...htLineupIds];
           masterTacticsForNextMatches.bench = [...htBenchIds];
           masterTacticsForNextMatches.playerRoles = { ...htPlayerRoles };
+          masterTacticsForNextMatches.customPositions = { ...htCustomPositions };
           masterTacticsForNextMatches.instructions = JSON.parse(JSON.stringify(htInstructions));
         }
         SaveManager.saveGame(gameState);
@@ -11038,10 +11525,16 @@ class GameManager {
             lineup: (userTeam?.players || []).slice(0, 11).map(p => p.id),
             bench: (userTeam?.players || []).slice(11).map(p => p.id),
             playerRoles: {},
+            customPositions: {},
             instructions: getDefaultTacticalInstructions()
           };
-        } else if (!this.state.userTactics.instructions) {
-          this.state.userTactics.instructions = getDefaultTacticalInstructions();
+        } else {
+          if (!this.state.userTactics.instructions) {
+            this.state.userTactics.instructions = getDefaultTacticalInstructions();
+          }
+          if (!this.state.userTactics.customPositions) {
+            this.state.userTactics.customPositions = {};
+          }
         }
 
         if (this.state.isSeasonOver) {
@@ -11117,6 +11610,7 @@ class GameManager {
         lineup: selectedTeam.players.slice(0, 11).map(p => p.id),
         bench: selectedTeam.players.slice(11).map(p => p.id),
         playerRoles: {},
+        customPositions: {},
         instructions: getDefaultTacticalInstructions()
       },
       topScorers: {},
@@ -11146,6 +11640,7 @@ class GameManager {
       lineup: userTeam.players.slice(0, 11).map(p => p.id),
       bench: userTeam.players.slice(11).map(p => p.id),
       playerRoles: {},
+      customPositions: {},
       instructions: getDefaultTacticalInstructions()
     };
 
@@ -11167,7 +11662,7 @@ class GameManager {
     }
   }
 
-  // Recuperación física y evolución del parte médico de lesiones entre jornadas
+  // Recuperación física y evolución del desgaste acumulado por minutos (estilo FIFA / Football Manager)
   recoverPlayersEnergy() {
     if (!this.state || !this.state.teams) return;
     this.state.teams.forEach(team => {
@@ -11189,34 +11684,60 @@ class GameManager {
           }
         }
 
+        const matchMins = p.matchMinutes !== undefined ? p.matchMinutes : 0;
+        p.seasonMinutes = (p.seasonMinutes || 0) + matchMins;
+
+        // 3. Carga de fatiga acumulada (estilo FIFA: encadenar partidos completos pasa factura)
+        // fatigueLoad: 0 (fresco) a 100 (sobrecarga crítica)
+        let fatigueLoad = p.fatigueLoad || 0;
+        const phy = p.phy || 70;
+        const ovr = p.ovr || 70;
+
+        if (matchMins >= 70) {
+          // Disputó partido completo o casi completo: genera carga residual
+          // Jugadores con menor Físico (PHY) acumulan significativamente más desgaste residual
+          const staminaFactor = Math.max(0.65, (115 - phy) / 45);
+          fatigueLoad = Math.min(100, fatigueLoad + Math.round(18 * staminaFactor));
+        } else if (matchMins >= 25) {
+          // Entró de suplente: fatiga moderada, desciende levemente la sobrecarga
+          fatigueLoad = Math.max(0, fatigueLoad - 6);
+        } else {
+          // Descanso completo o no convocado: ¡Rotación de plantilla salvadora!
+          // Un partido de descanso alivia drásticamente la sobrecarga acumulada
+          fatigueLoad = Math.max(0, fatigueLoad - 35);
+        }
+        p.fatigueLoad = fatigueLoad;
+
         const curEnergy = p.energy !== undefined ? p.energy : 100;
 
-        // Si continúa lesionado, su energía no recupera al 100% hasta tener el alta médica
+        // Si continúa lesionado gravemente, la energía está restringida
         if (p.injury && p.injury.roundsLeft > 1) {
           p.energy = Math.min(80, curEnergy + 8);
+          p.matchMinutes = 0;
           return;
         }
 
-        // Si ya está prácticamente descansado (suplente o apenas participó), recupera al 100%
-        if (curEnergy >= 94) {
-          p.energy = 100;
-          return;
-        }
-
-        // Base semanal de recuperación
-        const baseRecovery = 18;
-
-        // Bonificación por Físico (PHY): mayor fondo físico y velocidad de regeneración
-        const phyBonus = Math.max(0, ((p.phy || 70) - 50) * 0.40);
-
-        // Bonificación por Media (OVR): profesionalismo y nutrición
-        const ovrBonus = Math.max(0, ((p.ovr || 70) - 60) * 0.22);
-
-        // Bonificación extra para jugadores de banquillo o con pocos minutos
-        const restBonus = curEnergy > 78 ? 10 : 0;
+        // 4. Regeneración semanal teniendo en cuenta media (OVR), físico (PHY) y minutos
+        const baseRecovery = 22;
+        // Bonificación por Físico (fondo y masa muscular)
+        const phyBonus = Math.max(0, (phy - 50) * 0.35);
+        // Bonificación por Media (nutrición, profesionalismo y recuperación de élite)
+        const ovrBonus = Math.max(0, (ovr - 60) * 0.22);
+        // Bonificación por rotación (quedarse en banquillo da +28 energía limpia)
+        const restBonus = matchMins === 0 ? 28 : (matchMins < 45 ? 14 : 0);
 
         const totalRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
-        p.energy = Math.min(100, Math.round(curEnergy + totalRecovery));
+        const recoveredEnergy = curEnergy + totalRecovery;
+
+        // 5. TOQUE FIFA: Techo máximo de energía inicial según la acumulación de minutos seguidos
+        // Si no se rota al futbolista tras 2-3 partidos de 90', su tope cae al 92%, 88%, etc.
+        // Al darle descanso 1 jornada, fatigueLoad cae y vuelve a recuperar al 100%.
+        const maxEnergyCap = Math.max(78, Math.round(100 - (fatigueLoad * 0.20)));
+
+        p.energy = Math.min(maxEnergyCap, Math.round(recoveredEnergy));
+
+        // Limpiar minutos del partido concluido
+        p.matchMinutes = 0;
       });
     });
   }

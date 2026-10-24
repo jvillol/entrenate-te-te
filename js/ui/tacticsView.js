@@ -1,6 +1,6 @@
 // Vista de la Pizarra Táctica, Alineaciones y Estilos de Juego por Estados
 
-import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset } from "../engine/tactics.js";
+import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset, getEffectiveSlotCoords, getPositionAdjustmentLabel } from "../engine/tactics.js";
 
 export function renderTacticsView(container, gameState, onSaveTactics) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);
@@ -9,9 +9,11 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
     mentality: "balanced",
     lineup: team.players.slice(0, 11).map(p => p.id),
     bench: team.players.slice(11).map(p => p.id),
-    playerRoles: {}
+    playerRoles: {},
+    customPositions: {}
   };
   if (!tactics.playerRoles) tactics.playerRoles = {};
+  if (!tactics.customPositions) tactics.customPositions = {};
   if (!tactics.instructions) {
     tactics.instructions = getDefaultTacticalInstructions();
   }
@@ -28,7 +30,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
     const lineupPlayers = tactics.lineup.map(id => team.players.find(p => p.id === id)).filter(Boolean);
     const benchPlayers = tactics.bench.map(id => team.players.find(p => p.id === id)).filter(Boolean);
 
-    const averages = calculateTeamAverages(lineupPlayers, formationKey);
+    const averages = calculateTeamAverages(lineupPlayers, formationKey, tactics.customPositions);
     const matchingPresetKey = detectMatchingPreset(tactics.instructions);
     const currentPreset = TACTICAL_PRESETS[matchingPresetKey] || null;
 
@@ -89,7 +91,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
         ${activeTab === "lineup" ? `
           <!-- Terreno de Juego Táctico (Campo Vertical) -->
           <div class="p-3">
-            <div class="relative w-full max-w-sm mx-auto aspect-[3/4] bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+            <div id="tactics-pitch-container" class="relative w-full max-w-sm mx-auto aspect-[3/4] bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2 select-none touch-none">
               <!-- Líneas del campo de fútbol -->
               <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
               <!-- Área portería rival arriba -->
@@ -105,30 +107,36 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
               ${formation.slots.map((slot, index) => {
                 const player = lineupPlayers[index];
                 if (!player) return "";
-                const effRating = calculateEffectiveRating(player, slot.pos);
+                const effSlot = getEffectiveSlotCoords(formationKey, index, tactics.customPositions);
+                const effRating = calculateEffectiveRating(player, effSlot.pos);
                 const isSelected = selectedPlayerId === player.id;
                 const isInjured = Boolean(player.injury);
-                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
-                const role = getRoleDetails(slot.pos, roleId);
+                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(effSlot.pos);
+                const role = getRoleDetails(effSlot.pos, roleId);
+                const fatigue = player.fatigueLoad || 0;
 
                 return `
-                  <div class="slot-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
-                       style="left: ${slot.x}%; top: ${slot.y}%;"
-                       data-player-id="${player.id}">
+                  <div class="slot-player absolute -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing flex flex-col items-center transition-transform active:scale-95 z-10 touch-none"
+                       style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
+                       data-player-id="${player.id}"
+                       data-slot-index="${index}">
                     <!-- Ficha con dorsal y valoración -->
-                    <div class="w-10 h-10 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                    <div class="w-10 h-10 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110 ring-2 ring-amber-300' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : effSlot.isCustom ? 'border-amber-400 bg-slate-900 text-white shadow-md ring-1 ring-amber-400/80' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
                       <span class="text-[9px] font-black leading-none">${effRating}</span>
-                      <span class="text-[8px] font-bold ${isInjured ? 'text-rose-300' : 'text-slate-300'} leading-none">${slot.label}</span>
+                      <span class="text-[8px] font-bold ${isInjured ? 'text-rose-300' : effSlot.isCustom ? 'text-amber-300 font-extrabold' : 'text-slate-300'} leading-none">${slot.label}</span>
                       <!-- Barra de energía en miniatura -->
                       <div class="absolute -bottom-1 w-6 h-1 bg-black/60 rounded-full overflow-hidden">
-                        <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy}%;"></div>
+                        <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                       </div>
+                      ${effSlot.isCustom ? `
+                        <div class="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-amber-400 text-slate-950 text-[7px] font-black flex items-center justify-center shadow" title="Posición ajustada libremente">📍</div>
+                      ` : ''}
                     </div>
                     <!-- Nombre del futbolista -->
                     <div class="bg-black/80 px-1.5 py-0.5 rounded text-[9px] font-bold text-white tracking-tight mt-1 truncate max-w-[70px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
-                    <!-- Función / Rol asignado o Lesión / Sanción -->
+                    <!-- Función / Rol asignado o Lesión / Sanción / Sobrecarga -->
                     ${isInjured ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7.5px] font-bold text-rose-200 truncate max-w-[76px] text-center shadow-sm">
                         🚑 ${player.injury.roundsLeft}j
@@ -136,6 +144,10 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                     ` : player.suspension ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500/70 text-[7.5px] font-bold text-amber-300 truncate max-w-[76px] text-center shadow-sm">
                         🛑 ${player.suspension.roundsLeft}j
+                      </div>
+                    ` : fatigue >= 40 ? `
+                      <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500/80 text-[7px] font-bold text-amber-300 truncate max-w-[76px] text-center shadow-sm">
+                        🔥 Sobrecarga
                       </div>
                     ` : `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7.5px] font-bold text-sky-300 truncate max-w-[76px] text-center shadow-sm">
@@ -148,7 +160,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
             </div>
           </div>
 
-          <!-- Panel de Asignación de Función / Rol Táctico del Jugador Seleccionado -->
+          <!-- Paneles del Futbolista Titular Seleccionado: Ajuste Posicional y Función Táctica -->
           ${(() => {
             if (!selectedPlayerId) return "";
             const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
@@ -157,33 +169,102 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
             const selPlayer = team.players.find(p => p.id === selectedPlayerId);
             if (!selPlayer || !selSlot) return "";
 
-            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
-            const curRole = getRoleDetails(selSlot.pos, curRoleId);
-            const availRoles = getAvailableRolesForPosition(selSlot.pos);
+            const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(effSlot.pos);
+            const curRole = getRoleDetails(effSlot.pos, curRoleId);
+            const availRoles = getAvailableRolesForPosition(effSlot.pos);
+            const posLabel = getPositionAdjustmentLabel(selSlot, effSlot);
 
             return `
-              <div class="mx-3 my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
-                <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xl">${curRole.icon}</span>
-                    <div>
-                      <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name} (${selSlot.label})</span>
-                      <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+              <div class="mx-3 my-2 space-y-2 animate-fadeIn">
+                <!-- Panel 1: Ajuste Libre de Posición en el Campo -->
+                <div class="p-3 bg-slate-900 border border-amber-500/40 rounded-2xl shadow-xl">
+                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">📍</span>
+                      <div>
+                        <span class="text-[9px] uppercase font-bold text-amber-400">Posición en el Campo · ${selPlayer.name} (${selSlot.label})</span>
+                        <h4 class="text-xs font-black text-white">${posLabel}</h4>
+                      </div>
+                    </div>
+                    ${effSlot.isCustom ? `
+                      <button id="btn-reset-pos" class="text-[10px] font-bold text-rose-400 hover:text-rose-300 px-2 py-1 rounded-lg bg-rose-950/70 border border-rose-800/80 transition flex items-center gap-1 active:scale-95 shadow-sm">
+                        <span>↺</span> Posición base
+                      </button>
+                    ` : ''}
+                  </div>
+
+                  <div class="text-[10px] text-slate-400 mb-2 font-medium">
+                    Ajusta su posición para acercarlo al mediocentro, al delantero o abrirlo a banda (arrastra en la pizarra o usa los botones):
+                  </div>
+
+                  <!-- Botones de Nudge Direccional -->
+                  <div class="grid grid-cols-2 gap-2 mb-2.5">
+                    <div class="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex flex-col gap-1.5">
+                      <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Altura (Ataque / Defensa)</span>
+                      <div class="flex items-center gap-1.5">
+                        <button class="btn-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="y" data-delta="-5">
+                          <span>▲</span> Adelantar (+DC)
+                        </button>
+                        <button class="btn-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="y" data-delta="5">
+                          <span>▼</span> Retrasar (+MC)
+                        </button>
+                      </div>
+                    </div>
+
+                    <div class="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex flex-col gap-1.5">
+                      <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Amplitud (Banda / Centro)</span>
+                      <div class="flex items-center gap-1.5">
+                        <button class="btn-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="x" data-delta="-5">
+                          <span>◀</span> Izquierda
+                        </button>
+                        <button class="btn-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="x" data-delta="5">
+                          <span>▶</span> Derecha
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <button id="btn-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+
+                  <!-- Sliders de Ajuste Fino -->
+                  <div class="space-y-2 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80 text-[10px]">
+                    <div class="flex items-center justify-between text-slate-400">
+                      <span>Profundidad en campo: <b class="text-white">${effSlot.y < 35 ? 'Delantera / Ofensivo' : (effSlot.y > 65 ? 'Defensa / Retrasado' : 'Medio campo')}</b></span>
+                      <span class="font-mono text-amber-400 font-bold">Y: ${Math.round(effSlot.y)}%</span>
+                    </div>
+                    <input type="range" class="slider-pos-y w-full accent-amber-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer" min="12" max="88" value="${effSlot.y}">
+
+                    <div class="flex items-center justify-between text-slate-400 pt-1">
+                      <span>Anchura / Amplitud: <b class="text-white">${effSlot.x < 35 ? 'Banda Izquierda' : (effSlot.x > 65 ? 'Banda Derecha' : 'Interior / Centro')}</b></span>
+                      <span class="font-mono text-amber-400 font-bold">X: ${Math.round(effSlot.x)}%</span>
+                    </div>
+                    <input type="range" class="slider-pos-x w-full accent-amber-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer" min="10" max="90" value="${effSlot.x}">
+                  </div>
                 </div>
-                <div class="text-[10px] text-slate-400 mb-2 font-medium">Elige la función táctica de este futbolista según su posición:</div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  ${availRoles.map(r => `
-                    <button class="btn-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
-                      <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
-                      <div class="min-w-0">
-                        <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
-                        <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+
+                <!-- Panel 2: Función Táctica / Rol -->
+                <div class="p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl">
+                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">${curRole.icon}</span>
+                      <div>
+                        <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${curRole.name}</span>
+                        <h4 class="text-xs font-black text-white">${curRole.tag}</h4>
                       </div>
-                    </button>
-                  `).join('')}
+                    </div>
+                    <button id="btn-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                  </div>
+                  <div class="text-[10px] text-slate-400 mb-2 font-medium">Elige la función táctica de este futbolista según su posición:</div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    ${availRoles.map(r => `
+                      <button class="btn-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                        <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                        <div class="min-w-0">
+                          <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                          <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                        </div>
+                      </button>
+                    `).join('')}
+                  </div>
                 </div>
               </div>
             `;
@@ -520,6 +601,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
     container.querySelectorAll(".btn-formation").forEach(btn => {
       btn.onclick = () => {
         tactics.formation = btn.dataset.formation;
+        tactics.customPositions = {}; // Reiniciar posiciones personalizadas al cambiar esquema base
         onSaveTactics(tactics);
         render();
       };
@@ -541,6 +623,144 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
         onSaveTactics(tactics);
         render();
       };
+    }
+
+    // Controles de Ajuste Manual de Posición en el Campo (Nudge botones)
+    container.querySelectorAll(".btn-nudge-pos").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!selectedPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+        if (selSlotIndex === -1) return;
+        const axis = btn.dataset.axis;
+        const delta = parseInt(btn.dataset.delta, 10);
+        const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        const isGK = selSlotIndex === 0;
+
+        if (axis === "x") {
+          const newX = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, effSlot.x + delta));
+          tactics.customPositions[selSlotIndex] = { x: newX, y: effSlot.y };
+        } else {
+          const newY = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, effSlot.y + delta));
+          tactics.customPositions[selSlotIndex] = { x: effSlot.x, y: newY };
+        }
+        onSaveTactics(tactics);
+        render();
+      };
+    });
+
+    // Sliders de Posición Fina
+    const sliderY = container.querySelector(".slider-pos-y");
+    if (sliderY) {
+      sliderY.oninput = (e) => {
+        if (!selectedPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+        if (selSlotIndex === -1) return;
+        const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+        const val = parseInt(e.target.value, 10);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        tactics.customPositions[selSlotIndex] = { x: effSlot.x, y: val };
+        const slotEl = container.querySelector(`.slot-player[data-slot-index="${selSlotIndex}"]`);
+        if (slotEl) slotEl.style.top = `${val}%`;
+      };
+      sliderY.onchange = () => {
+        onSaveTactics(tactics);
+        render();
+      };
+    }
+
+    const sliderX = container.querySelector(".slider-pos-x");
+    if (sliderX) {
+      sliderX.oninput = (e) => {
+        if (!selectedPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+        if (selSlotIndex === -1) return;
+        const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+        const val = parseInt(e.target.value, 10);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        tactics.customPositions[selSlotIndex] = { x: val, y: effSlot.y };
+        const slotEl = container.querySelector(`.slot-player[data-slot-index="${selSlotIndex}"]`);
+        if (slotEl) slotEl.style.left = `${val}%`;
+      };
+      sliderX.onchange = () => {
+        onSaveTactics(tactics);
+        render();
+      };
+    }
+
+    // Botón restablecer posición original
+    const btnResetPos = container.querySelector("#btn-reset-pos");
+    if (btnResetPos) {
+      btnResetPos.onclick = (e) => {
+        e.stopPropagation();
+        if (!selectedPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPlayerId);
+        if (selSlotIndex !== -1 && tactics.customPositions) {
+          delete tactics.customPositions[selSlotIndex];
+          onSaveTactics(tactics);
+          render();
+        }
+      };
+    }
+
+    // Arrastre libre con el dedo o ratón directamente en la pizarra
+    const pitchBox = container.querySelector("#tactics-pitch-container");
+    if (pitchBox) {
+      container.querySelectorAll(".slot-player").forEach(slotEl => {
+        const slotIdx = parseInt(slotEl.dataset.slotIndex, 10);
+        const pId = slotEl.dataset.playerId;
+
+        let dragMoved = false;
+        let startX = 0, startY = 0;
+
+        const onPointerDown = (e) => {
+          if (e.button !== 0 && e.pointerType === "mouse") return;
+          dragMoved = false;
+          startX = e.clientX;
+          startY = e.clientY;
+
+          const onPointerMove = (me) => {
+            const dist = Math.hypot(me.clientX - startX, me.clientY - startY);
+            if (!dragMoved && dist > 5) {
+              dragMoved = true;
+            }
+            if (dragMoved) {
+              const rect = pitchBox.getBoundingClientRect();
+              let nx = ((me.clientX - rect.left) / rect.width) * 100;
+              let ny = ((me.clientY - rect.top) / rect.height) * 100;
+              const isGK = slotIdx === 0;
+              nx = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, nx));
+              ny = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, ny));
+              slotEl.style.left = `${nx}%`;
+              slotEl.style.top = `${ny}%`;
+              slotEl.dataset.dragX = nx;
+              slotEl.dataset.dragY = ny;
+            }
+          };
+
+          const onPointerUp = () => {
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            if (dragMoved) {
+              const finalX = parseFloat(slotEl.dataset.dragX);
+              const finalY = parseFloat(slotEl.dataset.dragY);
+              if (!isNaN(finalX) && !isNaN(finalY)) {
+                if (!tactics.customPositions) tactics.customPositions = {};
+                tactics.customPositions[slotIdx] = { x: Math.round(finalX), y: Math.round(finalY) };
+                selectedPlayerId = pId;
+                onSaveTactics(tactics);
+                render();
+              }
+            }
+          };
+
+          window.addEventListener("pointermove", onPointerMove);
+          window.addEventListener("pointerup", onPointerUp);
+        };
+
+        slotEl.addEventListener("pointerdown", onPointerDown);
+      });
     }
 
     // Eventos Pestaña Instrucciones: Presets 1-Click

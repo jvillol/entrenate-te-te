@@ -2,7 +2,7 @@
 
 import { MatchSimulator } from "../engine/matchEngine.js";
 import { simulateAIParties, updateStandings } from "../engine/leagueEngine.js";
-import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset } from "../engine/tactics.js";
+import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset, getEffectiveSlotCoords, getPositionAdjustmentLabel } from "../engine/tactics.js";
 import { SaveManager } from "../engine/saveManager.js";
 
 export function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
@@ -30,6 +30,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   }
   if (!gameState.userTactics.playerRoles) {
     gameState.userTactics.playerRoles = {};
+  }
+  if (!gameState.userTactics.customPositions) {
+    gameState.userTactics.customPositions = {};
   }
   if (!gameState.userTactics.instructions) {
     gameState.userTactics.instructions = getDefaultTacticalInstructions();
@@ -545,31 +548,37 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
               <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-12 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
 
-              <!-- Fichas de los 11 titulares usuario -->
+              <!-- Fichas de los 11 titulares usuario con soporte de posición libre -->
               ${formation.slots.map((slot, index) => {
                 const player = lineupPlayers[index];
                 if (!player) return "";
-                const effRating = calculateEffectiveRating(player, slot.pos);
+                const effSlot = getEffectiveSlotCoords(formationKey, index, tactics.customPositions);
+                const effRating = calculateEffectiveRating(player, effSlot.pos);
                 const isSelected = selectedPreMatchPlayerId === player.id;
                 const isInjured = Boolean(player.injury);
-                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
-                const role = getRoleDetails(slot.pos, roleId);
+                const roleId = (tactics.playerRoles && tactics.playerRoles[player.id]) || getDefaultRoleForPosition(effSlot.pos);
+                const role = getRoleDetails(effSlot.pos, roleId);
+                const fatigue = player.fatigueLoad || 0;
 
                 return `
                   <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
-                       style="left: ${slot.x}%; top: ${slot.y}%;"
-                       data-player-id="${player.id}">
-                    <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                       style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
+                       data-player-id="${player.id}"
+                       data-slot-index="${index}">
+                    <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110 ring-2 ring-amber-300' : isInjured ? 'border-rose-500 bg-rose-950 text-rose-200 animate-pulse' : effSlot.isCustom ? 'border-amber-400 bg-slate-900 text-white shadow-md ring-1 ring-amber-400/80' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
                       <span class="text-[9px] font-black leading-none">${effRating}</span>
-                      <span class="text-[7px] font-bold ${isInjured ? 'text-rose-300' : 'text-slate-300'} leading-none">${slot.label}</span>
+                      <span class="text-[7px] font-bold ${isInjured ? 'text-rose-300' : effSlot.isCustom ? 'text-amber-300 font-extrabold' : 'text-slate-300'} leading-none">${slot.label}</span>
                       <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
                         <div class="h-full ${(player.energy || 100) >= 80 ? 'bg-emerald-400' : (player.energy || 100) >= 65 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                       </div>
+                      ${effSlot.isCustom ? `
+                        <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-slate-950 text-[6.5px] font-black flex items-center justify-center shadow">📍</div>
+                      ` : ''}
                     </div>
                     <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                       ${player.name.split(' ').slice(-1)[0]}
                     </div>
-                    <!-- Rol / Función del jugador, Lesión o Sanción -->
+                    <!-- Rol / Función del jugador, Lesión o Sanción / Sobrecarga -->
                     ${isInjured ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-900 border border-rose-500 text-[7px] font-bold text-rose-200 truncate max-w-[70px] text-center shadow-sm">
                         🚑 ${player.injury.roundsLeft}j
@@ -577,6 +586,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                     ` : player.suspension ? `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500 text-[7px] font-bold text-amber-200 truncate max-w-[70px] text-center shadow-sm">
                         🛑 ${player.suspension.roundsLeft}j
+                      </div>
+                    ` : fatigue >= 40 ? `
+                      <div class="mt-0.5 px-1 py-0.2 rounded bg-amber-950 border border-amber-500/80 text-[6.5px] font-bold text-amber-300 truncate max-w-[70px] text-center shadow-sm">
+                        🔥 Sobrecarga
                       </div>
                     ` : `
                       <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/90 border border-sky-500/40 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center shadow-sm">
@@ -589,7 +602,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
           </div>
 
-          <!-- Panel de Asignación de Función Táctica Pre-Partido -->
+          <!-- Panel de Asignación de Función Táctica y Ajuste de Posición Pre-Partido -->
           ${(() => {
             if (!selectedPreMatchPlayerId) return "";
             const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
@@ -598,33 +611,72 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const selPlayer = userTeam.players.find(p => p.id === selectedPreMatchPlayerId);
             if (!selPlayer || !selSlot) return "";
 
-            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
-            const curRole = getRoleDetails(selSlot.pos, curRoleId);
-            const availRoles = getAvailableRolesForPosition(selSlot.pos);
+            const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+            const curRoleId = (tactics.playerRoles && tactics.playerRoles[selPlayer.id]) || getDefaultRoleForPosition(effSlot.pos);
+            const curRole = getRoleDetails(effSlot.pos, curRoleId);
+            const availRoles = getAvailableRolesForPosition(effSlot.pos);
+            const posLabel = getPositionAdjustmentLabel(selSlot, effSlot);
 
             return `
-              <div class="mx-3 my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
-                <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xl">${curRole.icon}</span>
-                    <div>
-                      <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name} (${selSlot.label})</span>
-                      <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+              <div class="mx-3 my-2 space-y-2 animate-fadeIn">
+                <!-- Ajuste de Posición Manual en el Campo -->
+                <div class="p-2.5 bg-slate-900 border border-amber-500/40 rounded-2xl shadow-xl">
+                  <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-800">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-sm">📍</span>
+                      <span class="text-[10px] font-bold text-amber-400">Posición: ${posLabel}</span>
+                    </div>
+                    ${effSlot.isCustom ? `
+                      <button id="btn-pre-reset-pos" class="text-[9.5px] font-bold text-rose-400 hover:text-rose-300 px-2 py-0.5 rounded bg-rose-950/70 border border-rose-800/80 active:scale-95 transition">
+                        ↺ Restablecer
+                      </button>
+                    ` : ''}
+                  </div>
+                  <div class="text-[9.5px] text-slate-400 mb-1.5">Ajusta la posición de ${selPlayer.name.split(' ').slice(-1)[0]}:</div>
+                  <div class="grid grid-cols-2 gap-1.5">
+                    <div class="flex items-center gap-1">
+                      <button class="btn-pre-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="-5">
+                        ▲ Adelantar
+                      </button>
+                      <button class="btn-pre-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="5">
+                        ▼ Retrasar
+                      </button>
+                    </div>
+                    <div class="flex items-center gap-1">
+                      <button class="btn-pre-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="-5">
+                        ◀ Izquierda
+                      </button>
+                      <button class="btn-pre-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="5">
+                        ▶ Derecha
+                      </button>
                     </div>
                   </div>
-                  <button id="btn-pre-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
                 </div>
-                <div class="text-[10px] text-slate-400 mb-2 font-medium">Instrucción individual en este partido:</div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  ${availRoles.map(r => `
-                    <button class="btn-pre-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
-                      <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
-                      <div class="min-w-0">
-                        <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
-                        <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+
+                <!-- Función Táctica / Rol -->
+                <div class="p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl">
+                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                    <div class="flex items-center gap-2">
+                      <span class="text-xl">${curRole.icon}</span>
+                      <div>
+                        <span class="text-[9px] uppercase font-bold text-sky-400">Función táctica · ${selPlayer.name}</span>
+                        <h4 class="text-xs font-black text-white">${curRole.name}</h4>
                       </div>
-                    </button>
-                  `).join('')}
+                    </div>
+                    <button id="btn-pre-close-role-box" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                  </div>
+                  <div class="text-[10px] text-slate-400 mb-2 font-medium">Instrucción individual en este partido:</div>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    ${availRoles.map(r => `
+                      <button class="btn-pre-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                        <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                        <div class="min-w-0">
+                          <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                          <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                        </div>
+                      </button>
+                    `).join('')}
+                  </div>
                 </div>
               </div>
             `;
@@ -923,6 +975,47 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       });
     }
 
+    // Ajuste de posición libre pre-partido
+    container.querySelectorAll(".btn-pre-nudge-pos").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!selectedPreMatchPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
+        if (selSlotIndex === -1) return;
+        const axis = btn.dataset.axis;
+        const delta = parseInt(btn.dataset.delta, 10);
+        const effSlot = getEffectiveSlotCoords(tactics.formation, selSlotIndex, tactics.customPositions);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        const isGK = selSlotIndex === 0;
+
+        if (axis === "x") {
+          const newX = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, effSlot.x + delta));
+          tactics.customPositions[selSlotIndex] = { x: newX, y: effSlot.y };
+        } else {
+          const newY = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, effSlot.y + delta));
+          tactics.customPositions[selSlotIndex] = { x: effSlot.x, y: newY };
+        }
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
+    const btnPreResetPos = container.querySelector("#btn-pre-reset-pos");
+    if (btnPreResetPos) {
+      btnPreResetPos.onclick = (e) => {
+        e.stopPropagation();
+        if (!selectedPreMatchPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
+        if (selSlotIndex !== -1 && tactics.customPositions) {
+          delete tactics.customPositions[selSlotIndex];
+          masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+          SaveManager.saveGame(gameState);
+          renderPreMatch();
+        }
+      };
+    }
+
     container.querySelectorAll(".slot-pre-player, .bench-pre-card").forEach(el => {
       el.onclick = () => {
         handlePrePlayerTap(el.dataset.playerId);
@@ -1160,6 +1253,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       homePlayerRoles: isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
       awayPlayerRoles: !isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
+      homeCustomPositions: isUserHome ? (gameState.userTactics.customPositions || {}) : {},
+      awayCustomPositions: !isUserHome ? (gameState.userTactics.customPositions || {}) : {},
       homeInstructions: isUserHome ? gameState.userTactics.instructions : oppInstructions,
       awayInstructions: !isUserHome ? gameState.userTactics.instructions : oppInstructions,
       onTick: updateMatchUI,
@@ -4603,6 +4698,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       let htSelectedPlayerId = null;
       let htSubTab = "pitch"; // "pitch" o "style"
       let htPlayerRoles = { ...(gameState.userTactics.playerRoles || {}) };
+      let htCustomPositions = JSON.parse(JSON.stringify(gameState.userTactics.customPositions || {}));
       let htInstructions = JSON.parse(JSON.stringify(
         (teamSide === "home" ? simulator.homeInstructions : simulator.awayInstructions) ||
         gameState.userTactics.instructions ||
@@ -4660,6 +4756,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           containerForm.querySelectorAll(".btn-ht-form").forEach(b => {
             b.onclick = () => {
               htFormationKey = b.dataset.formation;
+              htCustomPositions = {}; // Reiniciar posiciones libres al cambiar de esquema
               renderHTTactics();
             };
           });
@@ -4740,22 +4837,27 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const playerId = htLineupIds[index];
             const player = getPlayer(playerId);
             if (!player) return "";
-            const effRating = calculateEffectiveRating(player, slot.pos);
+            const effSlot = getEffectiveSlotCoords(htFormationKey, index, htCustomPositions);
+            const effRating = calculateEffectiveRating(player, effSlot.pos);
             const isSelected = htSelectedPlayerId === player.id;
             const isNewSub = !initialPitchIds.includes(player.id);
-            const curRoleId = (htPlayerRoles && htPlayerRoles[player.id]) || getDefaultRoleForPosition(slot.pos);
-            const r = getRoleDetails(slot.pos, curRoleId);
+            const curRoleId = (htPlayerRoles && htPlayerRoles[player.id]) || getDefaultRoleForPosition(effSlot.pos);
+            const r = getRoleDetails(effSlot.pos, curRoleId);
 
             return `
               <div class="slot-ht-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
-                   style="left: ${slot.x}%; top: ${slot.y}%;"
-                   data-player-id="${player.id}">
-                <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110' : isNewSub ? 'border-emerald-400 bg-emerald-950 text-emerald-300 shadow-md ring-2 ring-emerald-500/50' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
+                   style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
+                   data-player-id="${player.id}"
+                   data-slot-index="${index}">
+                <div class="w-9 h-9 rounded-full border-2 ${isSelected ? 'border-amber-400 bg-amber-500 text-black shadow-lg shadow-amber-400/50 scale-110 ring-2 ring-amber-300' : isNewSub ? 'border-emerald-400 bg-emerald-950 text-emerald-300 shadow-md ring-2 ring-emerald-500/50' : effSlot.isCustom ? 'border-amber-400 bg-slate-900 text-white shadow-md ring-1 ring-amber-400/80' : 'border-white/80 bg-slate-900 text-white shadow-md'} flex flex-col items-center justify-center relative transition-all">
                   <span class="text-[9px] font-black leading-none">${effRating}</span>
-                  <span class="text-[7px] font-bold ${isNewSub ? 'text-emerald-400' : 'text-slate-300'} leading-none">${slot.label}</span>
+                  <span class="text-[7px] font-bold ${isNewSub ? 'text-emerald-400' : effSlot.isCustom ? 'text-amber-300 font-extrabold' : 'text-slate-300'} leading-none">${slot.label}</span>
                   <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
                     <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
                   </div>
+                  ${effSlot.isCustom ? `
+                    <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-slate-950 text-[6.5px] font-black flex items-center justify-center shadow">📍</div>
+                  ` : ''}
                 </div>
                 <div class="bg-black/80 px-1 py-0.5 rounded text-[8px] font-bold text-white tracking-tight mt-0.5 truncate max-w-[65px] text-center border border-white/10 shadow">
                   ${isNewSub ? '🔺 ' : ''}${player.name.split(' ').slice(-1)[0]}
@@ -4774,7 +4876,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           });
         }
 
-        // Panel de asignación de función táctica individual si hay titular seleccionado
+        // Panel de asignación de función táctica individual y posición en vivo si hay titular seleccionado
         const rolePanel = modalHTTactics.querySelector("#ht-role-assignment-panel");
         if (rolePanel) {
           const selSlotIndex = htLineupIds.indexOf(htSelectedPlayerId);
@@ -4782,33 +4884,71 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const selSlot = formation.slots[selSlotIndex];
             const selPlayer = getPlayer(htSelectedPlayerId);
             if (selPlayer && selSlot) {
-              const curRoleId = (htPlayerRoles && htPlayerRoles[selPlayer.id]) || getDefaultRoleForPosition(selSlot.pos);
-              const curRole = getRoleDetails(selSlot.pos, curRoleId);
-              const availRoles = getAvailableRolesForPosition(selSlot.pos);
+              const effSlot = getEffectiveSlotCoords(htFormationKey, selSlotIndex, htCustomPositions);
+              const curRoleId = (htPlayerRoles && htPlayerRoles[selPlayer.id]) || getDefaultRoleForPosition(effSlot.pos);
+              const curRole = getRoleDetails(effSlot.pos, curRoleId);
+              const availRoles = getAvailableRolesForPosition(effSlot.pos);
+              const posLabel = getPositionAdjustmentLabel(selSlot, effSlot);
 
               rolePanel.innerHTML = `
-                <div class="my-2 p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl animate-fadeIn">
-                  <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
-                    <div class="flex items-center gap-2">
-                      <span class="text-xl">${curRole.icon}</span>
-                      <div>
-                        <span class="text-[9px] uppercase font-bold text-sky-400">Función en vivo · ${selPlayer.name} (${selSlot.label})</span>
-                        <h4 class="text-xs font-black text-white">${curRole.name}</h4>
+                <div class="my-2 space-y-2 animate-fadeIn">
+                  <!-- Ajuste de posición manual en descanso/directo -->
+                  <div class="p-2.5 bg-slate-900 border border-amber-500/40 rounded-xl">
+                    <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-800">
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-sm">📍</span>
+                        <span class="text-[10px] font-bold text-amber-400">Posición: ${posLabel}</span>
+                      </div>
+                      ${effSlot.isCustom ? `
+                        <button id="btn-ht-reset-pos" class="text-[9.5px] font-bold text-rose-400 hover:text-rose-300 px-2 py-0.5 rounded bg-rose-950/70 border border-rose-800/80 active:scale-95 transition">
+                          ↺ Restablecer
+                        </button>
+                      ` : ''}
+                    </div>
+                    <div class="grid grid-cols-2 gap-1.5">
+                      <div class="flex items-center gap-1">
+                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="-5">
+                          ▲ Adelantar (+DC)
+                        </button>
+                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="5">
+                          ▼ Retrasar (+MC)
+                        </button>
+                      </div>
+                      <div class="flex items-center gap-1">
+                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="-5">
+                          ◀ Izquierda
+                        </button>
+                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="5">
+                          ▶ Derecha
+                        </button>
                       </div>
                     </div>
-                    <button id="btn-ht-close-role-panel" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
                   </div>
-                  <div class="text-[10px] text-slate-400 mb-2 font-medium">Modificar instrucción de juego para el partido:</div>
-                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    ${availRoles.map(r => `
-                      <button class="btn-ht-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
-                        <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
-                        <div class="min-w-0">
-                          <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
-                          <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+
+                  <!-- Función / Rol -->
+                  <div class="p-3 bg-slate-900 border border-sky-500/50 rounded-2xl shadow-xl">
+                    <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xl">${curRole.icon}</span>
+                        <div>
+                          <span class="text-[9px] uppercase font-bold text-sky-400">Función en vivo · ${selPlayer.name} (${selSlot.label})</span>
+                          <h4 class="text-xs font-black text-white">${curRole.name}</h4>
                         </div>
-                      </button>
-                    `).join('')}
+                      </div>
+                      <button id="btn-ht-close-role-panel" class="text-slate-400 hover:text-white text-xs px-2 py-0.5 rounded bg-slate-800">✕</button>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mb-2 font-medium">Modificar instrucción de juego para el partido:</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                      ${availRoles.map(r => `
+                        <button class="btn-ht-assign-role p-2 rounded-xl border text-left transition flex items-start gap-2 ${r.id === curRoleId ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-role-id="${r.id}" data-player-id="${selPlayer.id}">
+                          <span class="text-base mt-0.5 flex-shrink-0">${r.icon}</span>
+                          <div class="min-w-0">
+                            <div class="text-xs font-bold ${r.id === curRoleId ? 'text-sky-300' : 'text-slate-200'}">${r.name}</div>
+                            <div class="text-[9.5px] text-slate-400 leading-tight mt-0.5">${r.desc}</div>
+                          </div>
+                        </button>
+                      `).join('')}
+                    </div>
                   </div>
                 </div>
               `;
@@ -4818,6 +4958,32 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 btnClose.onclick = (e) => {
                   e.stopPropagation();
                   htSelectedPlayerId = null;
+                  renderHTTactics();
+                };
+              }
+
+              rolePanel.querySelectorAll(".btn-ht-nudge-pos").forEach(btn => {
+                btn.onclick = (e) => {
+                  e.stopPropagation();
+                  const axis = btn.dataset.axis;
+                  const delta = parseInt(btn.dataset.delta, 10);
+                  const isGK = selSlotIndex === 0;
+                  if (axis === "x") {
+                    const newX = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, effSlot.x + delta));
+                    htCustomPositions[selSlotIndex] = { x: newX, y: effSlot.y };
+                  } else {
+                    const newY = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, effSlot.y + delta));
+                    htCustomPositions[selSlotIndex] = { x: effSlot.x, y: newY };
+                  }
+                  renderHTTactics();
+                };
+              });
+
+              const btnResetPos = rolePanel.querySelector("#btn-ht-reset-pos");
+              if (btnResetPos) {
+                btnResetPos.onclick = (e) => {
+                  e.stopPropagation();
+                  delete htCustomPositions[selSlotIndex];
                   renderHTTactics();
                 };
               }
@@ -5037,7 +5203,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           htLineupIds,
           htBenchIds,
           !isLive,
-          htPlayerRoles
+          htPlayerRoles,
+          htCustomPositions
         );
 
         if (!res.success) {
@@ -5050,6 +5217,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         gameState.userTactics.lineup = [...htLineupIds];
         gameState.userTactics.bench = [...htBenchIds];
         gameState.userTactics.playerRoles = { ...htPlayerRoles };
+        gameState.userTactics.customPositions = { ...htCustomPositions };
         gameState.userTactics.instructions = JSON.parse(JSON.stringify(htInstructions));
 
         simulator.setTacticalInstructions(teamSide, htInstructions);
@@ -5066,6 +5234,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           masterTacticsForNextMatches.lineup = [...htLineupIds];
           masterTacticsForNextMatches.bench = [...htBenchIds];
           masterTacticsForNextMatches.playerRoles = { ...htPlayerRoles };
+          masterTacticsForNextMatches.customPositions = { ...htCustomPositions };
           masterTacticsForNextMatches.instructions = JSON.parse(JSON.stringify(htInstructions));
         }
         SaveManager.saveGame(gameState);

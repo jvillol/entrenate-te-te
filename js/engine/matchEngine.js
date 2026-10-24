@@ -34,6 +34,14 @@ export class MatchSimulator {
     this.homePlayerRoles = options.homePlayerRoles || {};
     this.awayPlayerRoles = options.awayPlayerRoles || {};
 
+    // Posiciones personalizadas manuales de jugadores en el campo
+    this.homeCustomPositions = options.homeCustomPositions || {};
+    this.awayCustomPositions = options.awayCustomPositions || {};
+
+    // Inicializar cómputo de minutos de partido y desgaste
+    [...this.homePlayersOnPitch, ...this.homeBench].forEach(p => { p.matchMinutes = 0; });
+    [...this.awayPlayersOnPitch, ...this.awayBench].forEach(p => { p.matchMinutes = 0; });
+
     // Instrucciones tácticas por estados (Con balón / Transición / Sin balón)
     this.homeInstructions = options.homeInstructions ? JSON.parse(JSON.stringify(options.homeInstructions)) : getDefaultTacticalInstructions();
     this.awayInstructions = options.awayInstructions ? JSON.parse(JSON.stringify(options.awayInstructions)) : getDefaultTacticalInstructions();
@@ -98,13 +106,17 @@ export class MatchSimulator {
     this.isSecondHalf = false;
   }
 
-  getFormationCoords(formationKey, isHome) {
+  getFormationCoords(formationKey, isHome, customPositions = null) {
     const form = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    return form.slots.map(s => {
+    const custom = customPositions || (isHome ? this.homeCustomPositions : this.awayCustomPositions) || {};
+    return form.slots.map((s, idx) => {
+      const c = custom[idx];
+      const effX = (c && c.x !== undefined) ? c.x : s.x;
+      const effY = (c && c.y !== undefined) ? c.y : s.y;
       const px = isHome 
-        ? 5 + ((88 - s.y) / 70) * 70 
-        : 100 - (5 + ((88 - s.y) / 70) * 70);
-      const py = isHome ? s.x : 100 - s.x;
+        ? 5 + ((88 - effY) / 70) * 70 
+        : 100 - (5 + ((88 - effY) / 70) * 70);
+      const py = isHome ? effX : 100 - effX;
       return { x: px, y: py };
     });
   }
@@ -235,12 +247,17 @@ export class MatchSimulator {
   }
 
   // Aplicar ajustes tácticos completos (formación, mentalidad, cambios de puesto y sustituciones)
-  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false, newPlayerRoles = null) {
+  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false, newPlayerRoles = null, newCustomPositions = null) {
     const isHome = teamSide === "home";
     const currentPitch = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const currentPitchIds = currentPitch.map(p => p.id);
     const remaining = isHome ? this.homeSubsRemaining : this.awaySubsRemaining;
     const remainingWindows = isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining;
+
+    if (newCustomPositions) {
+      if (isHome) this.homeCustomPositions = newCustomPositions;
+      else this.awayCustomPositions = newCustomPositions;
+    }
 
     // Detectar qué futbolistas entran desde el banquillo
     const subsInIds = newLineupPlayerIds.filter(id => !currentPitchIds.includes(id));
@@ -582,8 +599,9 @@ export class MatchSimulator {
     const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
     const awayTempoMod = this.awayInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.awayInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
 
-    // Desgaste físico gradual según atributos físicos (PHY), posición, mentalidad y estilo táctico
+    // Desgaste físico gradual y acumulación de minutos según atributos físicos (PHY), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
+      p.matchMinutes = (p.matchMinutes || 0) + 1;
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
       const rate = isGK ? 0.08 : (0.42 * phyFactor * homeMod.drain * homePressMod * homeTempoMod);
@@ -591,6 +609,7 @@ export class MatchSimulator {
     });
 
     this.awayPlayersOnPitch.forEach(p => {
+      p.matchMinutes = (p.matchMinutes || 0) + 1;
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
       const rate = isGK ? 0.08 : (0.42 * phyFactor * awayMod.drain * awayPressMod * awayTempoMod);
@@ -1769,19 +1788,34 @@ export class MatchSimulator {
 
   calcTeamPower(players, type, side = null) {
     if (!players || players.length === 0) return 75;
+    const isHome = side === "home";
+    const coords2D = isHome ? this.home2D : this.away2D;
     let sum = 0;
     players.forEach(p => {
       const role = this.getPlayerRole(p, side);
+      const item2D = coords2D?.find(item => item.player?.id === p.id);
       let power = 75;
       if (type === "atk") {
         power = (p.sho * 0.4 + p.dri * 0.3 + p.pac * 0.3) * (0.6 + p.energy / 250);
         if (role && role.atkMod) power *= (1 + role.atkMod);
+        // Si el jugador está adelantado manualmente hacia la portería rival (avance ofensivo)
+        if (item2D) {
+          const advX = isHome ? item2D.baseX : (100 - item2D.baseX);
+          if (advX > 55) power *= 1.10;
+        }
       } else if (type === "mid") {
         power = (p.pas * 0.4 + p.dri * 0.3 + p.def * 0.3) * (0.6 + p.energy / 250);
         if (role && role.midMod) power *= role.midMod;
+        // Si el jugador está centrado hacia la medular (amplitud interior)
+        if (item2D && item2D.baseY >= 35 && item2D.baseY <= 65) power *= 1.08;
       } else if (type === "def") {
         power = (p.def * 0.5 + p.phy * 0.3 + p.pac * 0.2) * (0.6 + p.energy / 250);
         if (role && role.defMod) power *= role.defMod;
+        // Si el jugador está retrasado hacia campo propio (refuerzo defensivo)
+        if (item2D) {
+          const advX = isHome ? item2D.baseX : (100 - item2D.baseX);
+          if (advX < 45) power *= 1.10;
+        }
       }
       sum += power;
     });

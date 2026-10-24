@@ -44,10 +44,16 @@ class GameManager {
             lineup: (userTeam?.players || []).slice(0, 11).map(p => p.id),
             bench: (userTeam?.players || []).slice(11).map(p => p.id),
             playerRoles: {},
+            customPositions: {},
             instructions: getDefaultTacticalInstructions()
           };
-        } else if (!this.state.userTactics.instructions) {
-          this.state.userTactics.instructions = getDefaultTacticalInstructions();
+        } else {
+          if (!this.state.userTactics.instructions) {
+            this.state.userTactics.instructions = getDefaultTacticalInstructions();
+          }
+          if (!this.state.userTactics.customPositions) {
+            this.state.userTactics.customPositions = {};
+          }
         }
 
         if (this.state.isSeasonOver) {
@@ -123,6 +129,7 @@ class GameManager {
         lineup: selectedTeam.players.slice(0, 11).map(p => p.id),
         bench: selectedTeam.players.slice(11).map(p => p.id),
         playerRoles: {},
+        customPositions: {},
         instructions: getDefaultTacticalInstructions()
       },
       topScorers: {},
@@ -152,6 +159,7 @@ class GameManager {
       lineup: userTeam.players.slice(0, 11).map(p => p.id),
       bench: userTeam.players.slice(11).map(p => p.id),
       playerRoles: {},
+      customPositions: {},
       instructions: getDefaultTacticalInstructions()
     };
 
@@ -173,7 +181,7 @@ class GameManager {
     }
   }
 
-  // Recuperación física y evolución del parte médico de lesiones entre jornadas
+  // Recuperación física y evolución del desgaste acumulado por minutos (estilo FIFA / Football Manager)
   recoverPlayersEnergy() {
     if (!this.state || !this.state.teams) return;
     this.state.teams.forEach(team => {
@@ -195,34 +203,60 @@ class GameManager {
           }
         }
 
+        const matchMins = p.matchMinutes !== undefined ? p.matchMinutes : 0;
+        p.seasonMinutes = (p.seasonMinutes || 0) + matchMins;
+
+        // 3. Carga de fatiga acumulada (estilo FIFA: encadenar partidos completos pasa factura)
+        // fatigueLoad: 0 (fresco) a 100 (sobrecarga crítica)
+        let fatigueLoad = p.fatigueLoad || 0;
+        const phy = p.phy || 70;
+        const ovr = p.ovr || 70;
+
+        if (matchMins >= 70) {
+          // Disputó partido completo o casi completo: genera carga residual
+          // Jugadores con menor Físico (PHY) acumulan significativamente más desgaste residual
+          const staminaFactor = Math.max(0.65, (115 - phy) / 45);
+          fatigueLoad = Math.min(100, fatigueLoad + Math.round(18 * staminaFactor));
+        } else if (matchMins >= 25) {
+          // Entró de suplente: fatiga moderada, desciende levemente la sobrecarga
+          fatigueLoad = Math.max(0, fatigueLoad - 6);
+        } else {
+          // Descanso completo o no convocado: ¡Rotación de plantilla salvadora!
+          // Un partido de descanso alivia drásticamente la sobrecarga acumulada
+          fatigueLoad = Math.max(0, fatigueLoad - 35);
+        }
+        p.fatigueLoad = fatigueLoad;
+
         const curEnergy = p.energy !== undefined ? p.energy : 100;
 
-        // Si continúa lesionado, su energía no recupera al 100% hasta tener el alta médica
+        // Si continúa lesionado gravemente, la energía está restringida
         if (p.injury && p.injury.roundsLeft > 1) {
           p.energy = Math.min(80, curEnergy + 8);
+          p.matchMinutes = 0;
           return;
         }
 
-        // Si ya está prácticamente descansado (suplente o apenas participó), recupera al 100%
-        if (curEnergy >= 94) {
-          p.energy = 100;
-          return;
-        }
-
-        // Base semanal de recuperación
-        const baseRecovery = 18;
-
-        // Bonificación por Físico (PHY): mayor fondo físico y velocidad de regeneración
-        const phyBonus = Math.max(0, ((p.phy || 70) - 50) * 0.40);
-
-        // Bonificación por Media (OVR): profesionalismo y nutrición
-        const ovrBonus = Math.max(0, ((p.ovr || 70) - 60) * 0.22);
-
-        // Bonificación extra para jugadores de banquillo o con pocos minutos
-        const restBonus = curEnergy > 78 ? 10 : 0;
+        // 4. Regeneración semanal teniendo en cuenta media (OVR), físico (PHY) y minutos
+        const baseRecovery = 22;
+        // Bonificación por Físico (fondo y masa muscular)
+        const phyBonus = Math.max(0, (phy - 50) * 0.35);
+        // Bonificación por Media (nutrición, profesionalismo y recuperación de élite)
+        const ovrBonus = Math.max(0, (ovr - 60) * 0.22);
+        // Bonificación por rotación (quedarse en banquillo da +28 energía limpia)
+        const restBonus = matchMins === 0 ? 28 : (matchMins < 45 ? 14 : 0);
 
         const totalRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
-        p.energy = Math.min(100, Math.round(curEnergy + totalRecovery));
+        const recoveredEnergy = curEnergy + totalRecovery;
+
+        // 5. TOQUE FIFA: Techo máximo de energía inicial según la acumulación de minutos seguidos
+        // Si no se rota al futbolista tras 2-3 partidos de 90', su tope cae al 92%, 88%, etc.
+        // Al darle descanso 1 jornada, fatigueLoad cae y vuelve a recuperar al 100%.
+        const maxEnergyCap = Math.max(78, Math.round(100 - (fatigueLoad * 0.20)));
+
+        p.energy = Math.min(maxEnergyCap, Math.round(recoveredEnergy));
+
+        // Limpiar minutos del partido concluido
+        p.matchMinutes = 0;
       });
     });
   }

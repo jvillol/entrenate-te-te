@@ -199,7 +199,57 @@ export function calculateEffectiveRating(player, slotPos) {
 }
 
 // Media global de un equipo en base a su 11 inicial
-export function calculateTeamAverages(lineupPlayers, formationKey) {
+export function getEffectiveSlotCoords(formationKey, slotIndex, customPositions = null) {
+  const form = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
+  const slot = form.slots[slotIndex] || { id: slotIndex, label: "JUG", pos: "MC", x: 50, y: 50 };
+  const custom = customPositions && customPositions[slotIndex];
+
+  const isGK = slot.pos === "POR" || slotIndex === 0;
+  const rawX = custom?.x !== undefined ? custom.x : slot.x;
+  const rawY = custom?.y !== undefined ? custom.y : slot.y;
+
+  // Limitar dentro de los límites reglamentarios del terreno de juego
+  const minX = isGK ? 38 : 10;
+  const maxX = isGK ? 62 : 90;
+  const minY = isGK ? 82 : 12;
+  const maxY = isGK ? 90 : 88;
+
+  const effX = Math.max(minX, Math.min(maxX, rawX));
+  const effY = Math.max(minY, Math.min(maxY, rawY));
+
+  return {
+    ...slot,
+    x: effX,
+    y: effY,
+    origX: slot.x,
+    origY: slot.y,
+    isCustom: Boolean(custom && (effX !== slot.x || effY !== slot.y))
+  };
+}
+
+export function getPositionAdjustmentLabel(slot, effCoord) {
+  if (!effCoord.isCustom) return "Posición estándar";
+  const dx = effCoord.x - effCoord.origX;
+  const dy = effCoord.y - effCoord.origY; // dy < 0: adelantado (hacia ataque), dy > 0: retrasado (hacia defensa)
+
+  let vertDesc = "";
+  if (dy <= -10) vertDesc = "Muy adelantado (hacia Delantera)";
+  else if (dy <= -4) vertDesc = "Adelantado";
+  else if (dy >= 10) vertDesc = "Muy retrasado (hacia Defensa)";
+  else if (dy >= 4) vertDesc = "Retrasado";
+
+  let horizDesc = "";
+  if (dx <= -8) horizDesc = "Hacia la banda izquierda";
+  else if (dx <= -3) horizDesc = "Ligeramente a la izquierda";
+  else if (dx >= 8) horizDesc = "Hacia la banda derecha";
+  else if (dx >= 3) horizDesc = "Ligeramente a la derecha";
+
+  if (vertDesc && horizDesc) return `${vertDesc} · ${horizDesc}`;
+  return vertDesc || horizDesc || "Ajuste libre personalizado";
+}
+
+// Media global de un equipo en base a su 11 inicial teniendo en cuenta posiciones efectivas
+export function calculateTeamAverages(lineupPlayers, formationKey, customPositions = null) {
   const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
   if (!lineupPlayers || lineupPlayers.length < 11) {
     return { overall: 75, attack: 75, midfield: 75, defense: 75 };
@@ -213,13 +263,17 @@ export function calculateTeamAverages(lineupPlayers, formationKey) {
   formation.slots.forEach((slot, index) => {
     const p = lineupPlayers[index];
     if (!p) return;
-    const eff = calculateEffectiveRating(p, slot.pos);
+    const effSlot = getEffectiveSlotCoords(formationKey, index, customPositions);
+    const eff = calculateEffectiveRating(p, effSlot.pos);
     totalSum += eff;
 
-    if (slot.pos === "DC" || slot.pos === "EI" || slot.pos === "ED") {
+    // Si el jugador ha sido adelantado de forma manual (ej. un interior o mediocentro empujado hacia Delantera)
+    const effectivePosZone = effSlot.y < 32 ? "ATK" : (effSlot.y > 64 ? "DEF" : "MID");
+
+    if (slot.pos === "DC" || slot.pos === "EI" || slot.pos === "ED" || (effectivePosZone === "ATK" && slot.pos !== "POR")) {
       atkSum += eff;
       atkCount++;
-    } else if (slot.pos === "MC" || slot.pos === "MCD" || slot.pos === "MCO") {
+    } else if (slot.pos === "MC" || slot.pos === "MCD" || slot.pos === "MCO" || effectivePosZone === "MID") {
       midSum += eff;
       midCount++;
     } else {

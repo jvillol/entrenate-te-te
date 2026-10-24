@@ -61,6 +61,7 @@ export function renderSquadView(container, gameState) {
                     <h4 class="text-xs font-bold text-white leading-tight">${p.name}</h4>
                     ${p.injury ? `<span class="px-1.5 py-0.2 rounded bg-rose-950/90 border border-rose-500/60 text-[8px] font-bold text-rose-300">🚑 ${p.injury.type} (${p.injury.roundsLeft}j)</span>` : ''}
                     ${p.suspension ? `<span class="px-1.5 py-0.2 rounded bg-amber-950/90 border border-amber-500/60 text-[8px] font-bold text-amber-300">🛑 Sancionado (${p.suspension.roundsLeft}j)</span>` : ''}
+                    ${(p.fatigueLoad || 0) >= 40 ? `<span class="px-1.5 py-0.2 rounded bg-amber-950 border border-amber-500/70 text-[8px] font-bold text-amber-300">🔥 Sobrecarga</span>` : (p.fatigueLoad || 0) >= 20 ? `<span class="px-1.5 py-0.2 rounded bg-yellow-950/80 border border-yellow-500/50 text-[8px] font-bold text-yellow-300">⚠️ Fatiga acum.</span>` : ''}
                   </div>
                   <div class="flex items-center gap-2 mt-1">
                     <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0}</span>
@@ -68,6 +69,7 @@ export function renderSquadView(container, gameState) {
                     ${(p.seasonReds || 0) > 0 ? `<span class="text-[10px] text-red-400">🟥 ${p.seasonReds}</span>` : ''}
                     <span class="text-[10px] font-mono ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400 font-bold'}">⚡ ${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
                     <span class="text-[9px] text-slate-500 font-mono">FIS ${p.phy || 70}</span>
+                    ${p.seasonMinutes ? `<span class="text-[9px] text-slate-500 font-mono font-bold">${p.seasonMinutes}' min</span>` : ''}
                   </div>
                 </div>
               </div>
@@ -200,7 +202,7 @@ export function renderSquadView(container, gameState) {
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
               <span class="text-[10px] text-slate-500 font-bold uppercase">Condición</span>
               <div class="text-base font-black ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'}">${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
-              <div class="text-[9px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold">${(p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
+              <div class="text-[9px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold">${(p.fatigueLoad || 0) >= 40 ? 'Sobrecarga (Rotar)' : (p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
               <span class="text-[10px] text-slate-500 font-bold uppercase">Moral</span>
