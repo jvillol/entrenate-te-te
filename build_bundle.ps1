@@ -20,8 +20,9 @@ $bundleParts = @()
 foreach ($file in $files) {
     if (Test-Path $file) {
         $content = Get-Content -Path $file -Raw -Encoding UTF8
-        # Eliminar importaciones
-        $content = $content -replace '(?m)^\s*import\s+[^;\n]+;?\s*$', ''
+        # Eliminar importaciones multilínea y monolínea
+        $content = [System.Text.RegularExpressions.Regex]::Replace($content, '(?s)\bimport\b[^;\n]*?\{[^}]*\}\s*from\s*["''].*?["''];?\s*', '')
+        $content = [System.Text.RegularExpressions.Regex]::Replace($content, '(?m)^\s*import\s+[^;\n]+;?\s*$', '')
         # Eliminar export default
         $content = $content -replace '(?m)^\s*export\s+default\s+', ''
         # Eliminar export

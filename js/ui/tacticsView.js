@@ -1,19 +1,6 @@
 // Vista de la Pizarra Táctica, Alineaciones y Estilos de Juego por Estados
 
-import {
-  FORMATIONS,
-  MENTALITIES,
-  calculateTeamAverages,
-  calculateEffectiveRating,
-  POSITION_ROLES,
-  getAvailableRolesForPosition,
-  getDefaultRoleForPosition,
-  getRoleDetails,
-  TACTICAL_PRESETS,
-  TACTICAL_OPTIONS,
-  getDefaultTacticalInstructions,
-  detectMatchingPreset
-} from "../engine/tactics.js";
+import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset } from "../engine/tactics.js";
 
 export function renderTacticsView(container, gameState, onSaveTactics) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);

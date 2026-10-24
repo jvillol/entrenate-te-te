@@ -3602,20 +3602,6 @@ function renderTeamSelect(container, teams, onSelectTeam) {
 // =========================================================
 
 // Vista de la Pizarra Táctica, Alineaciones y Estilos de Juego por Estados
-
-  FORMATIONS,
-  MENTALITIES,
-  calculateTeamAverages,
-  calculateEffectiveRating,
-  POSITION_ROLES,
-  getAvailableRolesForPosition,
-  getDefaultRoleForPosition,
-  getRoleDetails,
-  TACTICAL_PRESETS,
-  TACTICAL_OPTIONS,
-  getDefaultTacticalInstructions,
-  detectMatchingPreset
-} from "../engine/tactics.js";
 function renderTacticsView(container, gameState, onSaveTactics) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);
   let tactics = gameState.userTactics || {
@@ -10679,15 +10665,6 @@ function renderHubView(container, gameState, callbacks) {
 // =========================================================
 
 // Controlador Principal del Juego (State Manager & Router)
-
-
-
-
-
-
-
-
-
 
 class GameManager {
   constructor() {
