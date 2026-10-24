@@ -1432,6 +1432,7 @@ class MatchSimulator {
     this.onHalfTime = options.onHalfTime || (() => {});
     this.onSubstitution = options.onSubstitution || (() => {});
     this.onHighlightStart = options.onHighlightStart || (() => {});
+    this.onHighlightPhase = options.onHighlightPhase || (() => {});
     this.onHighlightEnd = options.onHighlightEnd || (() => {});
 
     this.userSide = options.userSide || "home";
@@ -2148,10 +2149,10 @@ class MatchSimulator {
     return false;
   }
 
-  // Ejecución de jugada clave en varias fases a ritmo normal (Estilo Football Manager)
+  // Ejecución de jugada clave en varias fases cinematográficas estilo Football Manager
   executeKeyHighlight(attackingSide, onComplete) {
     this.isHighlightRunning = true;
-    this.speed = 1; // Ajuste automático a ritmo normal y fluido durante la ocasión trascendental
+    this.speed = 1; // Ritmo deliberado para apreciar la jugada en detalle
 
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
@@ -2162,9 +2163,19 @@ class MatchSimulator {
     const passer = this.pickPlayerForAction(atkPlayers, ["MC", "MCD", "MCO", "EI", "ED", "LD", "LI", "DC"], "pass");
     const shooter = this.pickPlayerForAction(atkPlayers, ["DC", "EI", "ED", "MCO", "MC", "LD", "LI"], "shoot");
     const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
+    const defender = defPlayers.find(p => (p.pos === "DFC" || p.pos === "MCD" || p.pos === "LD" || p.pos === "LI") && p.id !== goalkeeper.id) || defPlayers[1];
 
     const passerRole = this.getPlayerRole(passer, attackingSide);
     const shooterRole = this.getPlayerRole(shooter, attackingSide);
+    const defenderRole = this.getPlayerRole(defender, isHome ? "away" : "home");
+
+    const atk2D = isHome ? this.home2D : this.away2D;
+    const def2D = isHome ? this.away2D : this.home2D;
+
+    const passerItem = atk2D.find(p => p.player?.id === passer.id);
+    const shooterItem = atk2D.find(p => p.player?.id === shooter.id);
+    const defItem = def2D.find(p => p.player?.id === defender.id) || def2D.find(p => !p.isKeeper);
+    const gkItem = def2D.find(p => p.isKeeper) || def2D[0];
 
     let chanceComment = `⚡ ¡Ocasión de peligro de ${atkTeam.shortName}!`;
     if (passerRole && passerRole.tag === "Organizador") {
@@ -2179,105 +2190,176 @@ class MatchSimulator {
       chanceComment = `🧠 ${passer.name} (Falso 9) baja a recibir y filtra al espacio`;
     }
 
-    // Notificar al visor de partido del inicio de la jugada clave
-    if (this.onHighlightStart) {
-      this.onHighlightStart({
-        type: "KEY_CHANCE",
-        attackingSide,
-        atkTeam,
-        defTeam,
-        passer,
-        shooter,
-        passerRole,
-        shooterRole,
-        commentary: chanceComment,
-        minute: this.minute
-      });
-    }
+    // Coordenadas calculadas para la jugada
+    const midX = isHome ? (58 + Math.random() * 8) : (42 - Math.random() * 8);
+    const midY = 28 + Math.random() * 44;
+    const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
+    const boxY = 36 + Math.random() * 28;
 
-    // FASE 1: Construcción y arranque de la jugada de peligro en tres cuartos
-    const midX = isHome ? (60 + Math.random() * 8) : (40 - Math.random() * 8);
-    const midY = 32 + Math.random() * 36;
+    const baseHighlightData = {
+      type: "KEY_CHANCE",
+      attackingSide,
+      atkTeam,
+      defTeam,
+      passer,
+      shooter,
+      defender,
+      goalkeeper,
+      passerRole,
+      shooterRole,
+      defenderRole,
+      passStart: { x: midX, y: midY },
+      passEnd: { x: boxX, y: boxY },
+      commentary: chanceComment,
+      minute: this.minute
+    };
+
+    // FASE 1: Construcción y arranque (Pasador conduce y busca línea de pase)
     this.ball.targetX = midX;
     this.ball.targetY = midY;
     this.ball.targetZ = 0;
+    this.ball.possession = attackingSide;
+
+    if (passerItem) {
+      passerItem.targetX = midX;
+      passerItem.targetY = midY;
+    }
+    if (defItem) {
+      defItem.targetX = midX + (isHome ? 7 : -7);
+      defItem.targetY = midY + (Math.random() * 4 - 2);
+    }
+    if (shooterItem) {
+      shooterItem.targetX = isHome ? midX + 13 : midX - 13;
+      shooterItem.targetY = midY + (Math.random() < 0.5 ? -10 : 10);
+    }
     this.update2DPositions();
+
+    if (this.onHighlightStart) {
+      this.onHighlightStart({
+        ...baseHighlightData,
+        phase: "BUILDUP",
+        phaseLabel: "Construcción en tres cuartos",
+        tacticalNote: `${passer.name} (${passerRole?.name || 'Medio'}) conduce buscando la apertura`
+      });
+    }
+    if (this.onHighlightPhase) {
+      this.onHighlightPhase({
+        ...baseHighlightData,
+        phase: "BUILDUP",
+        phaseLabel: "Construcción en tres cuartos",
+        tacticalNote: `${passer.name} (${passerRole?.name || 'Medio'}) conduce buscando la apertura`
+      });
+    }
 
     setTimeout(() => {
       if (!this.isRunning && !this.isHighlightRunning) return;
 
-      // FASE 2: Pase filtrado y desmarque al área del rematador
-      const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
-      const boxY = 38 + Math.random() * 24;
+      // FASE 2: Asistencia filtrada y desmarque al espacio
+      const isLob = Math.random() < 0.35;
+      const passZ = isLob ? 5.0 + Math.random() * 3.5 : 0;
       this.ball.targetX = boxX;
       this.ball.targetY = boxY;
-      this.ball.targetZ = 3 + Math.random() * 4;
+      this.ball.targetZ = passZ;
+
+      if (shooterItem) {
+        shooterItem.targetX = boxX;
+        shooterItem.targetY = boxY;
+      }
+      if (defItem) {
+        defItem.targetX = boxX + (isHome ? -5 : 5);
+        defItem.targetY = boxY + (Math.random() * 6 - 3);
+      }
+      if (gkItem) {
+        gkItem.targetX = isHome ? 96.5 : 3.5;
+        gkItem.targetY = 48 + (boxY - 50) * 0.22;
+      }
       this.update2DPositions();
+
+      if (this.onHighlightPhase) {
+        this.onHighlightPhase({
+          ...baseHighlightData,
+          phase: "PASS",
+          phaseLabel: isLob ? "Centro al área" : "Pase filtrado al hueco",
+          tacticalNote: attackingSide === this.userSide
+            ? `🎯 ${passer.name} asiste al espacio para ${shooter.name}`
+            : `⚠️ Despiste en la marca: ${shooter.name} entra solo al área a la espalda de ${defender.name}`
+        });
+      }
 
       setTimeout(() => {
         if (!this.isRunning && !this.isHighlightRunning) return;
 
-        // FASE 3: Remate y resolución (Gol, Paradón, Palo o Fuera)
+        // FASE 3: Remate a puerta y desenlace
         this.stats.shots[attackingSide]++;
         const shotQuality = (shooter.sho || 75) + (Math.random() * 30 - 15);
         const gkSavePower = (goalkeeper.ovr || 78) + (Math.random() * 25 - 10);
         const onTarget = Math.random() < 0.68;
+        const isDefenderBlock = !onTarget && Math.random() < 0.20;
 
-        if (!onTarget) {
-          const isPost = Math.random() < 0.22;
-          if (isPost) {
-            this.ball.targetX = isHome ? 99 : 1;
-            this.ball.targetY = Math.random() < 0.5 ? 44.5 : 55.5; // Directo a la madera
-            this.ball.targetZ = 7;
-            this.triggerAlert("AL PALO", `🥅 ¡Al palo! Disparo de ${shooter.name} a la madera`, attackingSide, 3000);
-          } else {
-            this.ball.targetX = isHome ? 104 : -4;
-            this.ball.targetY = Math.random() < 0.5 ? 32 : 68;
-            this.ball.targetZ = 10;
-            this.triggerAlert("DISPARO FUERA", `💨 Disparo fuera de ${shooter.name}`, attackingSide, 2600);
-          }
+        if (this.onHighlightPhase) {
+          this.onHighlightPhase({
+            ...baseHighlightData,
+            phase: "SHOT",
+            phaseLabel: "Definición frente al portero",
+            tacticalNote: `⚽ ${shooter.name} remata a portería ante ${goalkeeper.name}`
+          });
+        }
+
+        if (isDefenderBlock) {
+          // Bloqueo de la zaga
+          this.ball.targetX = boxX + (isHome ? -3 : 3);
+          this.ball.targetY = boxY + (Math.random() * 8 - 4);
+          this.ball.targetZ = 1.2;
+          this.triggerAlert("BLOQUEO", `🛡️ ¡Bloqueo providencial de ${defender.name}!`, isHome ? "away" : "home", 3200);
+
+          const analysis = attackingSide === this.userSide
+            ? `🛡️ Disparo bloqueado por la defensa rival. Faltó rapidez en el remate de ${shooter.name}.`
+            : `🛡️ ¡Gran anticipación de ${defender.name}! Tu zaga tapó el disparo a tiempo.`;
 
           setTimeout(() => {
-            this.isHighlightRunning = false;
-            this.speed = this.userSpeed;
-            if (this.onHighlightEnd) this.onHighlightEnd();
+            this.concludeHighlight({ outcome: "BLOCK", tacticalAnalysis: analysis, onComplete });
+          }, 1800);
 
-            // Comprobar descanso o final tras la resolución de la jugada
-            if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
-              this.halfTimeTriggered = true;
-              this.isHalfTime = true;
-              this.pause();
-              this.onHalfTime(this.getState());
-              return;
-            }
-
-            if (this.minute >= this.maxMinutes) {
-              this.finish();
-              return;
-            }
-
-            if (onComplete) onComplete();
-          }, 1400);
+        } else if (!onTarget) {
+          const isPost = Math.random() < 0.25;
+          if (isPost) {
+            this.ball.targetX = isHome ? 99 : 1;
+            this.ball.targetY = Math.random() < 0.5 ? 44.5 : 55.5;
+            this.ball.targetZ = 7;
+            this.triggerAlert("AL PALO", `🥅 ¡Al palo! Disparo de ${shooter.name} a la madera`, attackingSide, 3200);
+            const analysis = `🥅 ¡Al palo! La madera salvó al ${defTeam.shortName} tras ganar ${shooter.name} la posición.`;
+            setTimeout(() => {
+              this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
+            }, 1800);
+          } else {
+            this.ball.targetX = isHome ? 104 : -4;
+            this.ball.targetY = Math.random() < 0.5 ? 30 : 70;
+            this.ball.targetZ = 10;
+            this.triggerAlert("DISPARO FUERA", `💨 Disparo fuera de ${shooter.name}`, attackingSide, 2600);
+            const analysis = `💨 Remate desviado de ${shooter.name}. Tuvo tiempo pero no precisó el disparo.`;
+            setTimeout(() => {
+              this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
+            }, 1800);
+          }
 
         } else {
           this.stats.shotsOnTarget[attackingSide]++;
 
-          if (shotQuality > gkSavePower + 6) {
-            // ¡GOOOOOOLAZO!
+          if (shotQuality > gkSavePower + 5) {
+            // ¡GOLAZO!
             if (isHome) {
               this.homeScore++;
-              this.ball.targetX = 99;
+              this.ball.targetX = 99.5;
               this.ball.targetY = 46 + Math.random() * 8;
               this.ball.targetZ = 6 + Math.random() * 5;
             } else {
               this.awayScore++;
-              this.ball.targetX = 1;
+              this.ball.targetX = 0.5;
               this.ball.targetY = 46 + Math.random() * 8;
               this.ball.targetZ = 6 + Math.random() * 5;
             }
 
             shooter.goals = (shooter.goals || 0) + 1;
-
             const event = {
               type: "GOAL",
               minute: this.minute,
@@ -2291,9 +2373,23 @@ class MatchSimulator {
 
             this.triggerAlert("GOL", `⚽ ¡GOOOOOOL DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
 
+            const analysis = attackingSide === this.userSide
+              ? `🎯 ¡Golazo! Desmarque magistral al hueco y definición perfecta de ${shooter.name}.`
+              : `⚠️ Gol encajado: Despiste defensivo. Tu zaga concedió la espalda de ${defender.name}. Considera retrasar la línea o usar un MCD.`;
+
             this.isHighlightRunning = false;
             this.speed = this.userSpeed;
-            if (this.onHighlightEnd) this.onHighlightEnd();
+            if (this.onHighlightEnd) {
+              this.onHighlightEnd({
+                outcome: "GOAL",
+                tacticalAnalysis: analysis,
+                attackingSide,
+                shooter,
+                passer,
+                defender,
+                goalkeeper
+              });
+            }
 
             this.onGoal({
               shooter,
@@ -2308,7 +2404,7 @@ class MatchSimulator {
             });
 
           } else {
-            // ¡PARADÓN DEL GUARDAMETA!
+            // ¡PARADÓN!
             this.ball.targetX = isHome ? 98 : 2;
             this.ball.targetY = 48 + Math.random() * 4;
             this.ball.targetZ = 5;
@@ -2320,32 +2416,46 @@ class MatchSimulator {
               this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name} ante ${shooter.name}!`, isHome ? "away" : "home", 3200);
               this.stats.corners[attackingSide]++;
 
+              const analysis = attackingSide === this.userSide
+                ? `🧤 ¡Paradón de ${goalkeeper.name}! Salvó un remate a bocajarro de ${shooter.name}.`
+                : `🧤 ¡Intervención providencial de ${goalkeeper.name}! Tu portero evitó el gol en el mano a mano.`;
+
               setTimeout(() => {
-                this.isHighlightRunning = false;
-                this.speed = this.userSpeed;
-                if (this.onHighlightEnd) this.onHighlightEnd();
-
-                // Comprobar descanso o final tras la resolución de la jugada
-                if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
-                  this.halfTimeTriggered = true;
-                  this.isHalfTime = true;
-                  this.pause();
-                  this.onHalfTime(this.getState());
-                  return;
-                }
-
-                if (this.minute >= this.maxMinutes) {
-                  this.finish();
-                  return;
-                }
-
-                if (onComplete) onComplete();
-              }, 1300);
+                this.concludeHighlight({ outcome: "SAVE", tacticalAnalysis: analysis, onComplete });
+              }, 1600);
             }, 600);
           }
         }
-      }, 1000);
-    }, 1100);
+      }, 1650);
+    }, 1750);
+  }
+
+  concludeHighlight({ outcome, tacticalAnalysis, onComplete }) {
+    this.isHighlightRunning = false;
+    this.speed = this.userSpeed;
+
+    if (this.onHighlightEnd) {
+      this.onHighlightEnd({
+        outcome,
+        tacticalAnalysis
+      });
+    }
+
+    if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
+      this.halfTimeTriggered = true;
+      this.isHalfTime = true;
+      this.pause();
+      this.triggerAlert("DESCANSO", "📣 ¡Final de la 1ª Parte! Descanso", "neutral", 3200);
+      this.onHalfTime(this.getState());
+      return;
+    }
+
+    if (this.minute >= this.maxMinutes) {
+      this.finish();
+      return;
+    }
+
+    if (onComplete) onComplete();
   }
 
   // Activar jugada a balón parado (Córner o Falta peligrosa)
@@ -4850,7 +4960,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       onHalfTime: (htState) => handleHalfTimeSequence(htState),
       onSubstitution: (subData) => handleSubstitutionChyron(subData),
       onHighlightStart: (hlData) => handleHighlightStart(hlData),
-      onHighlightEnd: () => handleHighlightEnd(),
+      onHighlightPhase: (phaseData) => handleHighlightPhase(phaseData),
+      onHighlightEnd: (endData) => handleHighlightEnd(endData),
       onSetPiece: (spInfo) => openSetPieceModal(spInfo),
       onInjury: (injData) => handleInjurySequence(injData),
       onFinish: handleLiveMatchEnd
@@ -4912,9 +5023,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             <!-- Canvas 3D -->
             <canvas id="match-canvas" class="w-full h-full block cursor-pointer" title="Toca para cambiar de cámara"></canvas>
 
-            <!-- Selector de Cámaras FM26 (TV Broadcast / Táctica / Gol) -->
+            <!-- Selector de Cámaras FM26 (TV Broadcast / Acción / Táctica / Gol) -->
             <div class="absolute top-2 right-2 flex items-center bg-slate-950/85 backdrop-blur-md p-0.5 rounded-lg border border-slate-700/80 z-20 text-[9px] font-bold shadow-lg">
               <button id="cam-btn-broadcast" class="btn-cam px-2 py-0.5 rounded-md bg-emerald-500 text-white shadow transition" data-cam="broadcast">📺 TV</button>
+              <button id="cam-btn-action" class="btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition" data-cam="action">🎥 Acción</button>
               <button id="cam-btn-tactical" class="btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition" data-cam="tactical">🦅 Táctica</button>
               <button id="cam-btn-goal" class="btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition" data-cam="goal">🥅 Gol</button>
             </div>
@@ -4925,10 +5037,28 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               <span id="replay-badge-text">📹 REPETICIÓN</span>
             </div>
 
-            <!-- Banner de Ocasión Clave (Highlight en directo) -->
-            <div id="highlight-badge" class="absolute top-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 bg-amber-500/95 text-slate-950 font-black text-[10px] rounded-full shadow-2xl border border-amber-300 uppercase tracking-wider hidden animate-bounce z-20 whitespace-nowrap">
-              <span class="w-2 h-2 rounded-full bg-slate-950 animate-ping"></span>
-              <span id="highlight-badge-text">🔥 OCASIÓN CLAVE</span>
+            <!-- HUD de Cámara de Acción y Táctica FM26 -->
+            <div id="highlight-action-hud" class="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none z-20 transition-all duration-300 opacity-0 -translate-y-2 max-w-[90%]">
+              <div class="flex items-center gap-1.5 bg-slate-950/95 backdrop-blur-md px-3 py-1 rounded-full border border-amber-400 shadow-2xl">
+                <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
+                <span id="hl-hud-title" class="text-[9.5px] font-black uppercase text-amber-400 tracking-wider font-mono">🎥 ENFOQUE DE ACCIÓN · JUGADA CLAVE</span>
+              </div>
+              <div id="hl-hud-subtitle" class="mt-1 text-[10.5px] font-bold text-white bg-slate-900/90 px-3 py-0.5 rounded-xl border border-slate-700/80 shadow text-center truncate">
+                Construcción de la jugada
+              </div>
+            </div>
+
+            <!-- Toast de Análisis Táctico FM26 (Dónde falla la defensa / Cómo ataca el rival) -->
+            <div id="tactical-analysis-toast" class="absolute bottom-2 left-2 right-2 bg-slate-950/95 backdrop-blur-md p-2 rounded-xl border border-sky-400/70 shadow-2xl z-20 transition-all duration-300 opacity-0 translate-y-3 pointer-events-none flex items-center gap-2">
+              <div id="tactical-analysis-icon" class="w-6 h-6 rounded-lg bg-sky-500/20 text-sky-400 border border-sky-500/40 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                📊
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="text-[8.5px] uppercase font-black text-sky-400 tracking-wider">Análisis Táctico FM</div>
+                <div id="tactical-analysis-text" class="text-[10px] font-medium text-slate-200 leading-snug truncate">
+                  Observación táctica del desarrollo de la jugada.
+                </div>
+              </div>
             </div>
 
             <!-- Banner de Saque de Centro -->
@@ -5458,11 +5588,39 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         groundX = leftX + nx * (rightX - leftX);
 
         scale = (0.75 + ny * 0.58) * (w / 380);
+      } else if (cameraMode === "action") {
+        // Vista de Acción FM26 (Primer plano del duelo y jugada de ataque)
+        const zoom = Math.max(1.30, Math.min(1.85, cameraZoom));
+        const camOffsetX = (cameraPitchX - 50) * 0.44;
+        const camOffsetY = (cameraPitchY - 50) * 0.22;
+
+        const relX = pitchX - camOffsetX;
+        const relY = pitchY - camOffsetY;
+
+        const nx = relX / 100;
+        const ny = Math.max(-15, Math.min(115, relY)) / 100;
+
+        const baseTopY = h * 0.16;
+        const baseBotY = h * 0.92;
+        const midY = (baseTopY + baseBotY) / 2;
+        const topY = midY - (midY - baseTopY) * zoom;
+        const botY = midY + (baseBotY - midY) * zoom;
+        groundY = topY + ny * (botY - topY);
+
+        const midX = w / 2;
+        const baseTopSpan = w * 0.72 * zoom;
+        const baseBotSpan = w * 0.96 * zoom;
+
+        const leftX = (midX - baseTopSpan / 2) + ny * ((midX - baseBotSpan / 2) - (midX - baseTopSpan / 2));
+        const rightX = (midX + baseTopSpan / 2) + ny * ((midX + baseBotSpan / 2) - (midX + baseTopSpan / 2));
+        groundX = leftX + nx * (rightX - leftX);
+
+        scale = (0.85 + ny * 0.60) * (w / 380) * zoom;
       } else {
-        // "broadcast" - TV Retransmisión estilo FM26 (Unity Engine)
-        const zoom = Math.max(0.9, Math.min(1.28, cameraZoom));
-        const camOffsetX = (cameraPitchX - 50) * 0.36;
-        const camOffsetY = (cameraPitchY - 50) * 0.16;
+        // "broadcast" - TV Retransmisión estilo FM26 (Unity Engine con zoom dinámico en jugadas clave)
+        const zoom = Math.max(0.9, Math.min(1.72, cameraZoom));
+        const camOffsetX = (cameraPitchX - 50) * 0.38;
+        const camOffsetY = (cameraPitchY - 50) * 0.18;
 
         const relX = pitchX - camOffsetX;
         const relY = pitchY - camOffsetY;
@@ -5680,6 +5838,21 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           ctx.beginPath();
           ctx.arc(dx, rowY + rowH * 0.55 + bob, 1.4, 0, Math.PI * 2);
           ctx.fill();
+        }
+      }
+
+      // Flashes de cámaras fotográficas de los hinchas durante remates a portería
+      if (currentHighlightData && currentHighlightData.phase === "SHOT") {
+        for (let f = 0; f < 8; f++) {
+          if (Math.random() < 0.45) {
+            const fx = Math.random() * w;
+            const fy = standTopY + Math.random() * (standBotY - standTopY);
+            const fr = 2.0 + Math.random() * 3.2;
+            ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
+            ctx.beginPath();
+            ctx.arc(fx, fy, fr, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
       }
 
@@ -5961,6 +6134,40 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       // 1. Proyección de las 4 sombras del estadio (Corner Floodlights)
       drawStadiumShadows(ctx, groundX, groundY, sc, 0, 7.2);
 
+      // Anillos tácticos destacados en el suelo durante jugadas clave
+      const isShooter = currentHighlightData && currentHighlightData.shooter?.id === item.playerId;
+      const isPasser = currentHighlightData && currentHighlightData.passer?.id === item.playerId;
+      const isDefender = currentHighlightData && currentHighlightData.defender?.id === item.playerId;
+      const isHighlightedActor = isShooter || isPasser || isDefender;
+
+      if (isShooter) {
+        const pulse = Math.sin(nowMs * 0.009) * 1.8;
+        ctx.strokeStyle = "rgba(16, 185, 129, 0.95)";
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.ellipse(groundX, groundY, (13 + pulse) * sc, (5.5 + pulse * 0.4) * sc, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(16, 185, 129, 0.22)";
+        ctx.fill();
+      } else if (isPasser) {
+        const pulse = Math.cos(nowMs * 0.009) * 1.8;
+        ctx.strokeStyle = "rgba(34, 211, 238, 0.95)";
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.ellipse(groundX, groundY, (13 + pulse) * sc, (5.5 + pulse * 0.4) * sc, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(34, 211, 238, 0.20)";
+        ctx.fill();
+      } else if (isDefender) {
+        ctx.strokeStyle = "rgba(244, 63, 94, 0.90)";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.ellipse(groundX, groundY, 11.5 * sc, 5.0 * sc, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(244, 63, 94, 0.18)";
+        ctx.fill();
+      }
+
       const hipY = groundY - 12 * sc;
       const neckY = groundY - 24 * sc;
       const headY = groundY - 28.5 * sc;
@@ -6119,14 +6326,17 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       // 8. Rótulo Televisivo e Indicador de Jugada FM26
       const lastName = name ? name.split(' ').slice(-1)[0].toUpperCase() : `${number}`;
-      const tagY = headY - headR - (isCarrier ? 13 * sc : 7.5 * sc);
+      const roleText = item.roleName ? ` · ${item.roleName}` : "";
+      const isSpecial = isCarrier || isHighlightedActor;
+      const tagY = headY - headR - (isSpecial ? 13 * sc : 7.5 * sc);
 
-      if (isCarrier) {
-        // Indicador de Posesión FM26: Rombo de neón turquesa pulsante sobre el portador
+      if (isSpecial) {
+        // Indicador de Posesión FM26: Rombo de neón pulsante sobre el portador o protagonista
         const bobDiamond = Math.sin(nowMs * 0.008) * 2 * sc;
         const dY = headY - headR - 6.5 * sc + bobDiamond;
 
-        ctx.fillStyle = "#22d3ee";
+        const accentColor = isShooter ? "#10b981" : isPasser ? "#22d3ee" : isDefender ? "#f43f5e" : "#22d3ee";
+        ctx.fillStyle = accentColor;
         ctx.beginPath();
         ctx.moveTo(headX, dY - 4.5 * sc);
         ctx.lineTo(headX + 3.4 * sc, dY);
@@ -6140,18 +6350,18 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         ctx.stroke();
 
         // Rótulo destacado de transmisión en directo estilo FM26
-        const tagText = `${number} ${lastName}`;
-        ctx.font = `900 ${Math.max(9, Math.round(9.8 * sc))}px system-ui, -apple-system, sans-serif`;
+        const tagText = `${number} ${lastName}${roleText}`;
+        ctx.font = `900 ${Math.max(9, Math.round(9.5 * sc))}px system-ui, -apple-system, sans-serif`;
         const textW = ctx.measureText(tagText).width;
         const pillW = textW + 16 * sc;
         const pillH = 13 * sc;
 
-        // Píldora de cristal oscuro con ribete neón del club
-        ctx.fillStyle = "rgba(10, 15, 30, 0.90)";
+        // Píldora de cristal oscuro con ribete neón
+        ctx.fillStyle = "rgba(10, 15, 30, 0.92)";
         ctx.beginPath();
         ctx.roundRect(headX - pillW / 2, tagY - pillH / 2, pillW, pillH, pillH / 2);
         ctx.fill();
-        ctx.strokeStyle = kit.jersey;
+        ctx.strokeStyle = accentColor;
         ctx.lineWidth = 1.6;
         ctx.stroke();
 
@@ -6255,24 +6465,68 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     let replayFrameIndex = 0;
     let isKickoffInProgress = false;
     let currentHighlightStartFrame = null;
+    let currentHighlightData = null;
+    let tacticalToastTimeout = null;
 
     function handleHighlightStart(hlData) {
-      // Registrar el frame EXACTO donde arranca la jugada clave para la repetición
       currentHighlightStartFrame = Math.max(0, replayBuffer.length - 12);
+      currentHighlightData = { ...hlData };
 
-      const hlBadge = container.querySelector("#highlight-badge");
-      const hlText = container.querySelector("#highlight-badge-text");
-      if (hlBadge && hlText) {
-        hlText.textContent = `🔥 OCASIÓN CLAVE · ${hlData.atkTeam.shortName}`;
-        hlBadge.classList.remove("hidden");
+      const hud = container.querySelector("#highlight-action-hud");
+      const hudTitle = container.querySelector("#hl-hud-title");
+      const hudSub = container.querySelector("#hl-hud-subtitle");
+      if (hud && hudTitle && hudSub) {
+        hudTitle.textContent = `🎥 ENFOQUE DE ACCIÓN · ${hlData.atkTeam.shortName.toUpperCase()}`;
+        hudSub.textContent = hlData.tacticalNote || hlData.commentary || "Apertura y construcción de jugada";
+        hud.classList.remove("opacity-0", "-translate-y-2");
+        hud.classList.add("opacity-100", "translate-y-0");
       }
 
       showMatchAlert({ text: `⚡ ¡Jugada de peligro de ${hlData.atkTeam.name}!` });
     }
 
-    function handleHighlightEnd() {
-      const hlBadge = container.querySelector("#highlight-badge");
-      if (hlBadge) hlBadge.classList.add("hidden");
+    function handleHighlightPhase(phaseData) {
+      if (!currentHighlightData) currentHighlightData = {};
+      Object.assign(currentHighlightData, phaseData);
+
+      const hudSub = container.querySelector("#hl-hud-subtitle");
+      if (hudSub && phaseData.tacticalNote) {
+        hudSub.textContent = phaseData.tacticalNote;
+      }
+    }
+
+    function handleHighlightEnd(endData = null) {
+      const hud = container.querySelector("#highlight-action-hud");
+      if (hud) {
+        hud.classList.remove("opacity-100", "translate-y-0");
+        hud.classList.add("opacity-0", "-translate-y-2");
+      }
+
+      if (endData && endData.tacticalAnalysis) {
+        showTacticalToast(endData.tacticalAnalysis, endData.outcome);
+      }
+      currentHighlightData = null;
+    }
+
+    function showTacticalToast(message, outcome = "NEUTRAL") {
+      const toast = container.querySelector("#tactical-analysis-toast");
+      const icon = container.querySelector("#tactical-analysis-icon");
+      const text = container.querySelector("#tactical-analysis-text");
+      if (!toast || !text) return;
+
+      text.textContent = message;
+      if (icon) {
+        icon.textContent = outcome === "GOAL" ? "⚽" : outcome === "SAVE" ? "🧤" : outcome === "BLOCK" ? "🛡️" : "📊";
+      }
+
+      toast.classList.remove("opacity-0", "translate-y-3", "pointer-events-none");
+      toast.classList.add("opacity-100", "translate-y-0");
+
+      if (tacticalToastTimeout) clearTimeout(tacticalToastTimeout);
+      tacticalToastTimeout = setTimeout(() => {
+        toast.classList.remove("opacity-100", "translate-y-0");
+        toast.classList.add("opacity-0", "translate-y-3", "pointer-events-none");
+      }, 4500);
     }
 
     function handleGoalSequence(goalData) {
@@ -6512,17 +6766,29 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       const lookaheadX = Math.max(-8, Math.min(8, ballVelX * 10));
       const lookaheadY = Math.max(-5, Math.min(5, ballVelY * 8));
 
-      const targetCamX = Math.max(24, Math.min(76, activeBallX + lookaheadX));
-      const targetCamY = Math.max(32, Math.min(68, activeBallY + lookaheadY));
+      let targetCamX = Math.max(24, Math.min(76, activeBallX + lookaheadX));
+      let targetCamY = Math.max(32, Math.min(68, activeBallY + lookaheadY));
 
-      cameraPitchX += (targetCamX - cameraPitchX) * 0.058;
-      cameraPitchY += (targetCamY - cameraPitchY) * 0.058;
-
-      // Zoom dinámico: acercamiento sutil en jugadas de peligro / ocasiones clave para mayor impacto
       const isBoxPlay = (activeBallX < 24 || activeBallX > 76);
-      const isHighlight = (currentHighlightStartFrame !== null || isReplaying);
-      const targetZoom = (isHighlight || isBoxPlay) ? 1.15 : 1.0;
-      cameraZoom += (targetZoom - cameraZoom) * 0.04;
+      const isHighlight = (currentHighlightStartFrame !== null || isReplaying || simulator.isHighlightRunning || currentHighlightData !== null);
+      const isActionCam = cameraMode === "action";
+
+      if (isHighlight && currentHighlightData) {
+        // Enfoque táctico centrado en el área y canal activo donde sucede la jugada
+        if (currentHighlightData.attackingSide === "home") {
+          targetCamX = Math.max(66, Math.min(88, activeBallX + 5));
+        } else {
+          targetCamX = Math.max(12, Math.min(34, activeBallX - 5));
+        }
+        targetCamY = Math.max(32, Math.min(68, activeBallY));
+      }
+
+      cameraPitchX += (targetCamX - cameraPitchX) * 0.068;
+      cameraPitchY += (targetCamY - cameraPitchY) * 0.068;
+
+      // Zoom dinámico estilo Football Manager: acercamiento cinemático en jugadas clave
+      const targetZoom = isActionCam ? 1.68 : (isHighlight ? 1.60 : (isBoxPlay ? 1.24 : 1.0));
+      cameraZoom += (targetZoom - cameraZoom) * 0.055;
 
       // Desvanecimiento físico de ondulación de red tras gol
       netRippleH *= 0.95;
@@ -6549,6 +6815,31 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       // 2. Dibujar estadio, gradas, focos, vallas y terreno de juego en perspectiva 3D
       draw3DPitch(ctx, w, h);
 
+      // Dibujar vector de pase táctico animado durante jugada clave
+      if (currentHighlightData && currentHighlightData.passStart && currentHighlightData.passEnd && currentHighlightData.phase !== "BUILDUP") {
+        const pStart = toScreen3D(currentHighlightData.passStart.x, currentHighlightData.passStart.y, 0, w, h);
+        const pEnd = toScreen3D(currentHighlightData.passEnd.x, currentHighlightData.passEnd.y, 0, w, h);
+
+        ctx.save();
+        ctx.setLineDash([8, 6]);
+        ctx.lineDashOffset = -performance.now() * 0.025;
+        ctx.strokeStyle = "rgba(56, 189, 248, 0.9)";
+        ctx.lineWidth = 2.4 * pStart.scale;
+        ctx.beginPath();
+        ctx.moveTo(pStart.groundX, pStart.groundY);
+        ctx.lineTo(pEnd.groundX, pEnd.groundY);
+        ctx.stroke();
+
+        // Diana luminosa en el punto de recepción del rematador
+        const pulseR = (10 + Math.sin(performance.now() * 0.008) * 3) * pEnd.scale;
+        ctx.strokeStyle = "rgba(52, 211, 153, 0.85)";
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.ellipse(pEnd.groundX, pEnd.groundY, pulseR, pulseR * 0.45, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
       const entities = [];
 
       if (isReplaying && replayFrames.length > 0) {
@@ -6570,6 +6861,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             const pt = toScreen3D(p.curX, p.curY, 0, w, h);
             entities.push({
               type: "player",
+              playerId: p.id,
+              roleName: p.roleName,
               side: "home",
               number: p.number,
               name: p.name,
@@ -6587,6 +6880,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             const pt = toScreen3D(p.curX, p.curY, 0, w, h);
             entities.push({
               type: "player",
+              playerId: p.id,
+              roleName: p.roleName,
               side: "away",
               number: p.number,
               name: p.name,
@@ -6654,8 +6949,12 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           p.animPhase = (p.animPhase || 0) + (dist > 0.12 ? 0.22 : 0.04);
 
           const pt = toScreen3D(p.curX, p.curY, 0, w, h);
+          const pRole = simulator.getPlayerRole(p.player, "home");
           entities.push({
             type: "player",
+            playerId: p.player?.id,
+            roleName: pRole?.name || null,
+            roleTag: pRole?.tag || null,
             side: "home",
             number: p.number,
             name: p.player?.name,
@@ -6682,8 +6981,12 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           p.animPhase = (p.animPhase || 0) + (dist > 0.12 ? 0.22 : 0.04);
 
           const pt = toScreen3D(p.curX, p.curY, 0, w, h);
+          const pRole = simulator.getPlayerRole(p.player, "away");
           entities.push({
             type: "player",
+            playerId: p.player?.id,
+            roleName: pRole?.name || null,
+            roleTag: pRole?.tag || null,
             side: "away",
             number: p.number,
             name: p.player?.name,
@@ -6718,6 +7021,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               facingX: p.facingX,
               number: p.number,
               name: p.player?.name,
+              id: p.player?.id,
+              roleName: simulator.getPlayerRole(p.player, "home")?.name,
               isKeeper: p.isKeeper
             })),
             away: simulator.away2D.map(p => ({
@@ -6727,6 +7032,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               facingX: p.facingX,
               number: p.number,
               name: p.player?.name,
+              id: p.player?.id,
+              roleName: simulator.getPlayerRole(p.player, "away")?.name,
               isKeeper: p.isKeeper
             })),
             ball: { x: simulator.ball.x, y: simulator.ball.y, z: simulator.ball.z || 0 }
@@ -6766,13 +7073,17 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             ? "btn-cam px-2 py-0.5 rounded-md bg-emerald-500 text-white shadow transition"
             : "btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition";
         });
-        showMatchAlert({ text: `📷 Cámara: ${cameraMode === "broadcast" ? "TV Retransmisión" : cameraMode === "tactical" ? "Vista Táctica Elevada" : "Detrás de Portería"}` });
+        const camLabel = cameraMode === "broadcast" ? "TV Retransmisión (Zoom Dinámico)" 
+          : cameraMode === "action" ? "Acción FM (Primer Plano)" 
+          : cameraMode === "tactical" ? "Vista Táctica Elevada" 
+          : "Detrás de Portería";
+        showMatchAlert({ text: `🎥 Cámara: ${camLabel}` });
       };
     });
 
     if (canvas) {
       canvas.onclick = () => {
-        const modes = ["broadcast", "tactical", "goal"];
+        const modes = ["broadcast", "action", "tactical", "goal"];
         const curIdx = modes.indexOf(cameraMode);
         cameraMode = modes[(curIdx + 1) % modes.length];
         camBtns.forEach(b => {
@@ -6780,7 +7091,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             ? "btn-cam px-2 py-0.5 rounded-md bg-emerald-500 text-white shadow transition"
             : "btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition";
         });
-        showMatchAlert({ text: `📷 Cámara: ${cameraMode === "broadcast" ? "TV Retransmisión" : cameraMode === "tactical" ? "Vista Táctica Elevada" : "Detrás de Portería"}` });
+        const camLabel = cameraMode === "broadcast" ? "TV Retransmisión (Zoom Dinámico)" 
+          : cameraMode === "action" ? "Acción FM (Primer Plano)" 
+          : cameraMode === "tactical" ? "Vista Táctica Elevada" 
+          : "Detrás de Portería";
+        showMatchAlert({ text: `🎥 Cámara: ${camLabel}` });
       };
     }
 
