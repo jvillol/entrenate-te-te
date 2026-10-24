@@ -6438,12 +6438,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             <!-- Canvas 3D -->
             <canvas id="match-canvas" class="w-full h-full block cursor-pointer" title="Toca para cambiar de cámara"></canvas>
 
-            <!-- Selector de Cámaras FM26 (TV Isométrica / Acción / Táctica / Gol) -->
-            <div class="absolute top-2 right-2 flex items-center bg-slate-950/85 backdrop-blur-md p-0.5 rounded-lg border border-slate-700/80 z-20 text-[9px] font-bold shadow-lg">
-              <button id="cam-btn-broadcast" class="btn-cam px-2 py-0.5 rounded-md bg-emerald-500 text-white shadow transition" data-cam="broadcast">📺 TV</button>
-              <button id="cam-btn-action" class="btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition" data-cam="action">🎥 Acción</button>
-              <button id="cam-btn-tactical" class="btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition" data-cam="tactical">🦅 Táctica</button>
-              <button id="cam-btn-goal" class="btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition" data-cam="goal">🥅 Gol</button>
+            <!-- Badge de Vista 2D para simulación normal -->
+            <div class="absolute top-2 right-2 flex items-center bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-700/80 z-20 text-[9px] font-bold shadow-lg text-emerald-400">
+              <span>⚽ Simulación 2D</span>
             </div>
 
             <!-- Banner de Replay (Repetición) -->
@@ -9436,13 +9433,191 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       }
     }
 
+    // ==========================================
+    // SIMULACIÓN GENERAL EN 2D (CAMPO CENITAL Y FICHAS CIRCULARES)
+    // ==========================================
+    function drawPitch2D(ctx, w, h) {
+      const dpr = window.devicePixelRatio || 1;
+      const padX = Math.round(w * 0.038);
+      const padY = Math.round(h * 0.052);
+      const pitchW = w - padX * 2;
+      const pitchH = h - padY * 2;
+
+      // Césped de fondo con bandas alternas de siega
+      ctx.fillStyle = "#166534";
+      ctx.fillRect(0, 0, w, h);
+
+      const stripes = 10;
+      const stripeW = pitchW / stripes;
+      for (let i = 0; i < stripes; i++) {
+        ctx.fillStyle = (i % 2 === 0) ? "#15803d" : "#166534";
+        ctx.fillRect(padX + i * stripeW, padY, stripeW, pitchH);
+      }
+
+      // Líneas reglamentarias 2D
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.82)";
+      ctx.lineWidth = Math.max(1.5, 2.0 * dpr);
+      ctx.lineJoin = "round";
+
+      // Rectángulo perimetral
+      ctx.strokeRect(padX, padY, pitchW, pitchH);
+
+      // Línea de medio campo
+      const midX = padX + pitchW / 2;
+      const midY = padY + pitchH / 2;
+      ctx.beginPath();
+      ctx.moveTo(midX, padY);
+      ctx.lineTo(midX, padY + pitchH);
+      ctx.stroke();
+
+      // Círculo central y punto de saque
+      const centerR = Math.min(pitchW * 0.12, pitchH * 0.22);
+      ctx.beginPath();
+      ctx.arc(midX, midY, centerR, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = "#ffffff";
+      ctx.beginPath();
+      ctx.arc(midX, midY, 2.4 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Áreas Grandes (18 yardas)
+      const boxW = pitchW * 0.165;
+      const boxH = pitchH * 0.58;
+      const boxTopY = padY + (pitchH - boxH) / 2;
+      ctx.strokeRect(padX, boxTopY, boxW, boxH);
+      ctx.strokeRect(padX + pitchW - boxW, boxTopY, boxW, boxH);
+
+      // Áreas Pequeñas (6 yardas)
+      const sixW = pitchW * 0.058;
+      const sixH = pitchH * 0.30;
+      const sixTopY = padY + (pitchH - sixH) / 2;
+      ctx.strokeRect(padX, sixTopY, sixW, sixH);
+      ctx.strokeRect(padX + pitchW - sixW, sixTopY, sixW, sixH);
+
+      // Puntos de penalti
+      const penDist = pitchW * 0.11;
+      ctx.beginPath();
+      ctx.arc(padX + penDist, midY, 2.2 * dpr, 0, Math.PI * 2);
+      ctx.arc(padX + pitchW - penDist, midY, 2.2 * dpr, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Semicírculos del área (D)
+      ctx.beginPath();
+      ctx.arc(padX + penDist, midY, centerR * 0.85, -0.62 * Math.PI, 0.62 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(padX + pitchW - penDist, midY, centerR * 0.85, 0.38 * Math.PI, 1.62 * Math.PI);
+      ctx.stroke();
+
+      // Arcos de córner
+      const cornerR = Math.min(pitchW * 0.02, 9 * dpr);
+      ctx.beginPath();
+      ctx.arc(padX, padY, cornerR, 0, 0.5 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(padX, padY + pitchH, cornerR, 1.5 * Math.PI, 2 * Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(padX + pitchW, padY, cornerR, 0.5 * Math.PI, Math.PI);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(padX + pitchW, padY + pitchH, cornerR, Math.PI, 1.5 * Math.PI);
+      ctx.stroke();
+
+      // Porterías exteriores
+      const goalW = Math.max(4, padX * 0.68);
+      const goalH = sixH * 0.75;
+      const goalTopY = padY + (pitchH - goalH) / 2;
+      ctx.fillStyle = "rgba(255, 255, 255, 0.12)";
+      ctx.fillRect(padX - goalW, goalTopY, goalW, goalH);
+      ctx.strokeRect(padX - goalW, goalTopY, goalW, goalH);
+      ctx.fillRect(padX + pitchW, goalTopY, goalW, goalH);
+      ctx.strokeRect(padX + pitchW, goalTopY, goalW, goalH);
+
+      return { padX, padY, pitchW, pitchH, dpr };
+    }
+
+    function drawPlayerToken2D(ctx, p, side, isCarrier, padX, padY, pitchW, pitchH, dpr) {
+      const px = padX + (p.curX / 100) * pitchW;
+      const py = padY + (p.curY / 100) * pitchH;
+      const kit = side === "home" ? kits.home : kits.away;
+      const primaryColor = p.isKeeper ? (kit.keeper || "#10b981") : (kit.jersey || (side === "home" ? homeTeam.primaryColor : awayTeam.primaryColor));
+      const secondaryColor = p.isKeeper ? "#ffffff" : (kit.collar || kit.shorts || "#ffffff");
+      const numberColor = p.isKeeper ? "#0f172a" : (kit.number || "#ffffff");
+      const r = Math.max(5.5, 6.8 * dpr);
+
+      // Sombra suave en el césped
+      ctx.fillStyle = "rgba(0, 20, 6, 0.42)";
+      ctx.beginPath();
+      ctx.ellipse(px + 1.2 * dpr, py + 1.2 * dpr, r * 0.95, r * 0.65, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Halo dorado si lleva el balón
+      if (isCarrier) {
+        const pulse = Math.sin(performance.now() * 0.01) * 1.5 * dpr;
+        ctx.strokeStyle = "#fbbf24";
+        ctx.lineWidth = 2.2 * dpr;
+        ctx.beginPath();
+        ctx.arc(px, py, r + 2.8 * dpr + pulse, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = "rgba(251, 191, 36, 0.22)";
+        ctx.fill();
+      }
+
+      // Ficha circular 2D (🔴) con color de la equipación
+      ctx.beginPath();
+      ctx.arc(px, py, r, 0, Math.PI * 2);
+      ctx.fillStyle = primaryColor;
+      ctx.fill();
+
+      // Borde circular con color secundario de la equipación
+      ctx.strokeStyle = secondaryColor;
+      ctx.lineWidth = Math.max(1.2, 1.8 * dpr);
+      ctx.stroke();
+
+      // Dorsal centrado (sin nombres en el campo)
+      ctx.font = `900 ${Math.max(6.5, Math.round(r * 1.05))}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = numberColor;
+      ctx.fillText(`${p.number}`, px, py + 0.3 * dpr);
+    }
+
+    function drawBallToken2D(ctx, bxCoord, byCoord, padX, padY, pitchW, pitchH, dpr) {
+      const bx = padX + (bxCoord / 100) * pitchW;
+      const by = padY + (byCoord / 100) * pitchH;
+      const r = Math.max(3.2, 4.2 * dpr);
+
+      // Sombra sutil
+      ctx.fillStyle = "rgba(0, 20, 6, 0.42)";
+      ctx.beginPath();
+      ctx.ellipse(bx + 1.0 * dpr, by + 1.0 * dpr, r, r * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Esfera 2D
+      ctx.beginPath();
+      ctx.arc(bx, by, r, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.strokeStyle = "#0f172a";
+      ctx.lineWidth = Math.max(1.0, 1.2 * dpr);
+      ctx.stroke();
+
+      // Detalle central
+      ctx.fillStyle = "#0f172a";
+      ctx.beginPath();
+      ctx.arc(bx, by, r * 0.35, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     function drawPitch() {
       if (!ctx || !canvas) return;
       resizeCanvas();
       const w = canvas.width;
       const h = canvas.height;
 
-      // Si hay una jugada clave activa, dibujamos la cámara frontal de acción (unos 14 segundos)
+      // Si hay una jugada clave activa, dibujamos la cámara frontal cinemática 3D (unos 15 segundos)
       if (currentHighlightData && !isReplaying) {
         drawFrontalHighlightScene(ctx, w, h, currentHighlightData);
         if (!simulator.isFinished) {
@@ -9451,101 +9626,14 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         return;
       }
 
-      // 1. Seguimiento cinemático de cámara TV Broadcast FM26 con Lookahead y Zoom dinámico
-      const activeBallX = (isReplaying && replayFrames.length > 0 && replayFrames[Math.floor(replayFrameIndex)])
-        ? (replayFrames[Math.floor(replayFrameIndex)].ball?.x || 50)
-        : (simulator.ball?.x || 50);
-      const activeBallY = (isReplaying && replayFrames.length > 0 && replayFrames[Math.floor(replayFrameIndex)])
-        ? (replayFrames[Math.floor(replayFrameIndex)].ball?.y || 50)
-        : (simulator.ball?.y || 50);
-
-      // Lookahead: la cámara se anticipa sutilmente al sentido del ataque
-      const ballVelX = activeBallX - lastBallX;
-      const ballVelY = activeBallY - lastBallY;
-      const lookaheadX = Math.max(-8, Math.min(8, ballVelX * 10));
-      const lookaheadY = Math.max(-5, Math.min(5, ballVelY * 8));
-
-      let targetCamX = Math.max(24, Math.min(76, activeBallX + lookaheadX));
-      let targetCamY = Math.max(32, Math.min(68, activeBallY + lookaheadY));
-
-      const isBoxPlay = (activeBallX < 24 || activeBallX > 76);
-      const isHighlight = (currentHighlightStartFrame !== null || isReplaying || simulator.isHighlightRunning || currentHighlightData !== null);
-      const isActionCam = cameraMode === "action";
-
-      if (isHighlight && currentHighlightData) {
-        // Enfoque táctico centrado en el área y canal activo donde sucede la jugada
-        if (currentHighlightData.attackingSide === "home") {
-          targetCamX = Math.max(66, Math.min(88, activeBallX + 5));
-        } else {
-          targetCamX = Math.max(12, Math.min(34, activeBallX - 5));
-        }
-        targetCamY = Math.max(32, Math.min(68, activeBallY));
-      }
-
-      cameraPitchX += (targetCamX - cameraPitchX) * 0.068;
-      cameraPitchY += (targetCamY - cameraPitchY) * 0.068;
-
-      // Zoom dinámico estilo Football Manager: acercamiento cinemático en jugadas clave
-      const targetZoom = isActionCam ? 1.68 : (isHighlight ? 1.60 : (isBoxPlay ? 1.24 : 1.0));
-      cameraZoom += (targetZoom - cameraZoom) * 0.055;
-
-      // Desvanecimiento físico de ondulación de red tras gol
-      netRippleH *= 0.95;
-      netRippleA *= 0.95;
-
-      // Giro de rotación del balón y estela de velocidad en tiros potentes
-      const bMoveDist = Math.hypot(ballVelX, ballVelY);
-      ballRotation += (bMoveDist * 0.38) + 0.03;
-
-      if (bMoveDist > 1.3 || (simulator.ball?.z || 0) > 1.8) {
-        ballTrail.push({
-          x: activeBallX,
-          y: activeBallY,
-          z: simulator.ball?.z || 0
-        });
-        if (ballTrail.length > 7) ballTrail.shift();
-      } else {
-        if (ballTrail.length > 0) ballTrail.shift();
-      }
-
-      lastBallX = activeBallX;
-      lastBallY = activeBallY;
-
-      // 2. Dibujar estadio, gradas, focos, vallas y terreno de juego en perspectiva 3D
-      draw3DPitch(ctx, w, h);
-
-      // Dibujar vector de pase táctico animado durante jugada clave
-      if (currentHighlightData && currentHighlightData.passStart && currentHighlightData.passEnd && currentHighlightData.phase !== "BUILDUP") {
-        const pStart = toScreen3D(currentHighlightData.passStart.x, currentHighlightData.passStart.y, 0, w, h);
-        const pEnd = toScreen3D(currentHighlightData.passEnd.x, currentHighlightData.passEnd.y, 0, w, h);
-
-        ctx.save();
-        ctx.setLineDash([8, 6]);
-        ctx.lineDashOffset = -performance.now() * 0.025;
-        ctx.strokeStyle = "rgba(56, 189, 248, 0.9)";
-        ctx.lineWidth = 2.4 * pStart.scale;
-        ctx.beginPath();
-        ctx.moveTo(pStart.groundX, pStart.groundY);
-        ctx.lineTo(pEnd.groundX, pEnd.groundY);
-        ctx.stroke();
-
-        // Diana luminosa en el punto de recepción del rematador
-        const pulseR = (10 + Math.sin(performance.now() * 0.008) * 3) * pEnd.scale;
-        ctx.strokeStyle = "rgba(52, 211, 153, 0.85)";
-        ctx.lineWidth = 1.8;
-        ctx.beginPath();
-        ctx.ellipse(pEnd.groundX, pEnd.groundY, pulseR, pulseR * 0.45, 0, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.restore();
-      }
-
-      const entities = [];
+      // SIMULACIÓN GENERAL EN 2D (CAMPO CENITAL CON FICHAS CIRCULARES Y SIN NOMBRES)
+      const pDim = drawPitch2D(ctx, w, h);
+      const { padX, padY, pitchW, pitchH, dpr } = pDim;
 
       if (isReplaying && replayFrames.length > 0) {
-        // MODO REPETICIÓN A CÁMARA LENTA (0.65x)
+        // MODO REPETICIÓN 2D A CÁMARA LENTA (0.65x)
         const frame = replayFrames[Math.floor(replayFrameIndex)];
         if (frame) {
-          // Identificar portador más cercano al balón en repetición
           let closestReplayP = null;
           let minReplayDist = 999;
           [...frame.home, ...frame.away].forEach(p => {
@@ -9557,53 +9645,12 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           });
 
           frame.home.forEach(p => {
-            const pt = toScreen3D(p.curX, p.curY, 0, w, h);
-            entities.push({
-              type: "player",
-              playerId: p.id,
-              roleName: p.roleName,
-              side: "home",
-              number: p.number,
-              name: p.name,
-              isKeeper: p.isKeeper,
-              animPhase: p.animPhase || 0,
-              facingX: p.facingX || 1,
-              isCarrier: (p === closestReplayP && minReplayDist < 5.5),
-              groundX: pt.groundX,
-              groundY: pt.groundY,
-              scale: pt.scale
-            });
+            drawPlayerToken2D(ctx, p, "home", (p === closestReplayP && minReplayDist < 5.5), padX, padY, pitchW, pitchH, dpr);
           });
-
           frame.away.forEach(p => {
-            const pt = toScreen3D(p.curX, p.curY, 0, w, h);
-            entities.push({
-              type: "player",
-              playerId: p.id,
-              roleName: p.roleName,
-              side: "away",
-              number: p.number,
-              name: p.name,
-              isKeeper: p.isKeeper,
-              animPhase: p.animPhase || 0,
-              facingX: p.facingX || -1,
-              isCarrier: (p === closestReplayP && minReplayDist < 5.5),
-              groundX: pt.groundX,
-              groundY: pt.groundY,
-              scale: pt.scale
-            });
+            drawPlayerToken2D(ctx, p, "away", (p === closestReplayP && minReplayDist < 5.5), padX, padY, pitchW, pitchH, dpr);
           });
-
-          const bPos = toScreen3D(frame.ball.x, frame.ball.y, frame.ball.z || 0, w, h);
-          entities.push({
-            type: "ball",
-            groundX: bPos.groundX,
-            groundY: bPos.groundY,
-            screenX: bPos.screenX,
-            screenY: bPos.screenY,
-            scale: bPos.scale,
-            z: frame.ball.z || 0
-          });
+          drawBallToken2D(ctx, frame.ball.x, frame.ball.y, padX, padY, pitchW, pitchH, dpr);
         }
 
         replayFrameIndex += 0.65;
@@ -9611,18 +9658,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           isReplaying = false;
         }
       } else {
-        // MODO NORMAL EN DIRECTO (60 FPS FLUIDO ESTILO FOOTBALL MANAGER 26)
+        // MODO DIRECTO 2D (60 FPS FLUIDO)
         // Interpolación continua y suave del balón
         simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
         simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.16;
-        if (simulator.ball.targetZ !== undefined) {
-          simulator.ball.z += ((simulator.ball.targetZ || 0) - (simulator.ball.z || 0)) * 0.18;
-          if (Math.abs((simulator.ball.z || 0) - (simulator.ball.targetZ || 0)) < 0.2) {
-            simulator.ball.targetZ = 0;
-          }
-        } else {
-          simulator.ball.z = 0;
-        }
 
         // Buscar al futbolista que conduce o disputa el balón
         let closestLiveP = null;
@@ -9635,7 +9674,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           }
         });
 
-        // Actualizar rótulo FM inferior cuando cambia el portador del balón (manteniendo el campo 100% limpio y visible)
+        // Actualizar rótulo FM inferior cuando cambia el portador del balón (sin dibujar nombres molestos sobre el césped)
         if (closestLiveP && minLiveDist < 5.0 && closestLiveP.player?.name) {
           if (lastCarrierPlayerId !== closestLiveP.player.id && !currentHighlightData && simulator.isRunning && !isKickoffInProgress) {
             lastCarrierPlayerId = closestLiveP.player.id;
@@ -9644,80 +9683,26 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           }
         }
 
-        // Interpolación y animación de carrera suave para jugadores locales
+        // Interpolación y dibujo de posiciones para jugadores locales en 2D
         simulator.home2D.forEach(p => {
           const dx = p.targetX - p.curX;
           const dy = p.targetY - p.curY;
-          const dist = Math.hypot(dx, dy);
           p.curX += dx * 0.14;
           p.curY += dy * 0.14;
-          if (Math.abs(dx) > 0.08) {
-            p.facingX = dx > 0 ? 1 : -1;
-          }
-          p.animPhase = (p.animPhase || 0) + (dist > 0.12 ? 0.22 : 0.04);
-
-          const pt = toScreen3D(p.curX, p.curY, 0, w, h);
-          const pRole = simulator.getPlayerRole(p.player, "home");
-          entities.push({
-            type: "player",
-            playerId: p.player?.id,
-            roleName: pRole?.name || null,
-            roleTag: pRole?.tag || null,
-            side: "home",
-            number: p.number,
-            name: p.player?.name,
-            isKeeper: p.isKeeper,
-            animPhase: p.animPhase,
-            facingX: p.facingX,
-            isCarrier: (p === closestLiveP && minLiveDist < 5.5),
-            groundX: pt.groundX,
-            groundY: pt.groundY,
-            scale: pt.scale
-          });
+          drawPlayerToken2D(ctx, p, "home", (p === closestLiveP && minLiveDist < 5.5), padX, padY, pitchW, pitchH, dpr);
         });
 
-        // Interpolación y animación de carrera suave para jugadores visitantes
+        // Interpolación y dibujo de posiciones para jugadores visitantes en 2D
         simulator.away2D.forEach(p => {
           const dx = p.targetX - p.curX;
           const dy = p.targetY - p.curY;
-          const dist = Math.hypot(dx, dy);
           p.curX += dx * 0.14;
           p.curY += dy * 0.14;
-          if (Math.abs(dx) > 0.08) {
-            p.facingX = dx > 0 ? 1 : -1;
-          }
-          p.animPhase = (p.animPhase || 0) + (dist > 0.12 ? 0.22 : 0.04);
-
-          const pt = toScreen3D(p.curX, p.curY, 0, w, h);
-          const pRole = simulator.getPlayerRole(p.player, "away");
-          entities.push({
-            type: "player",
-            playerId: p.player?.id,
-            roleName: pRole?.name || null,
-            roleTag: pRole?.tag || null,
-            side: "away",
-            number: p.number,
-            name: p.player?.name,
-            isKeeper: p.isKeeper,
-            animPhase: p.animPhase,
-            facingX: p.facingX,
-            isCarrier: (p === closestLiveP && minLiveDist < 5.5),
-            groundX: pt.groundX,
-            groundY: pt.groundY,
-            scale: pt.scale
-          });
+          drawPlayerToken2D(ctx, p, "away", (p === closestLiveP && minLiveDist < 5.5), padX, padY, pitchW, pitchH, dpr);
         });
 
-        const bPos = toScreen3D(simulator.ball.x, simulator.ball.y, simulator.ball.z || 0, w, h);
-        entities.push({
-          type: "ball",
-          groundX: bPos.groundX,
-          groundY: bPos.groundY,
-          screenX: bPos.screenX,
-          screenY: bPos.screenY,
-          scale: bPos.scale,
-          z: simulator.ball.z || 0
-        });
+        // Balón 2D
+        drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
 
         // Grabar snapshot para repeticiones mientras el juego esté activo y no en saque
         if (simulator.isRunning && !isKickoffInProgress) {
@@ -9725,26 +9710,20 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             home: simulator.home2D.map(p => ({
               curX: p.curX,
               curY: p.curY,
-              animPhase: p.animPhase,
-              facingX: p.facingX,
               number: p.number,
               name: p.player?.name,
               id: p.player?.id,
-              roleName: simulator.getPlayerRole(p.player, "home")?.name,
               isKeeper: p.isKeeper
             })),
             away: simulator.away2D.map(p => ({
               curX: p.curX,
               curY: p.curY,
-              animPhase: p.animPhase,
-              facingX: p.facingX,
               number: p.number,
               name: p.player?.name,
               id: p.player?.id,
-              roleName: simulator.getPlayerRole(p.player, "away")?.name,
               isKeeper: p.isKeeper
             })),
-            ball: { x: simulator.ball.x, y: simulator.ball.y, z: simulator.ball.z || 0 }
+            ball: { x: simulator.ball.x, y: simulator.ball.y }
           });
           if (replayBuffer.length > 300) {
             replayBuffer.shift();
@@ -9752,60 +9731,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         }
       }
 
-      // Ordenar por profundidad (los que están más arriba en pantalla se dibujan primero)
-      entities.sort((a, b) => a.groundY - b.groundY);
-
-      // 3. Dibujar cada elemento en orden de profundidad
-      entities.forEach(item => {
-        if (item.type === "player") {
-          drawRealisticPlayer3D(ctx, item);
-        } else if (item.type === "ball") {
-          drawBall3D(ctx, item);
-        }
-      });
-
       if (!simulator.isFinished) {
         requestAnimationFrame(drawPitch);
       }
     }
     requestAnimationFrame(drawPitch);
-
-    // Eventos del Selector de Cámara FM26
-    const camBtns = container.querySelectorAll(".btn-cam");
-    camBtns.forEach(btn => {
-      btn.onclick = (e) => {
-        e.stopPropagation();
-        cameraMode = btn.dataset.cam;
-        camBtns.forEach(b => {
-          b.className = b.dataset.cam === cameraMode
-            ? "btn-cam px-2 py-0.5 rounded-md bg-emerald-500 text-white shadow transition"
-            : "btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition";
-        });
-        const camLabel = cameraMode === "broadcast" ? "TV Retransmisión (Zoom Dinámico)" 
-          : cameraMode === "action" ? "Acción FM (Primer Plano)" 
-          : cameraMode === "tactical" ? "Vista Táctica Elevada" 
-          : "Detrás de Portería";
-        showMatchAlert({ text: `🎥 Cámara: ${camLabel}` });
-      };
-    });
-
-    if (canvas) {
-      canvas.onclick = () => {
-        const modes = ["broadcast", "action", "tactical", "goal"];
-        const curIdx = modes.indexOf(cameraMode);
-        cameraMode = modes[(curIdx + 1) % modes.length];
-        camBtns.forEach(b => {
-          b.className = b.dataset.cam === cameraMode
-            ? "btn-cam px-2 py-0.5 rounded-md bg-emerald-500 text-white shadow transition"
-            : "btn-cam px-2 py-0.5 rounded-md text-slate-400 hover:text-white transition";
-        });
-        const camLabel = cameraMode === "broadcast" ? "TV Retransmisión (Zoom Dinámico)" 
-          : cameraMode === "action" ? "Acción FM (Primer Plano)" 
-          : cameraMode === "tactical" ? "Vista Táctica Elevada" 
-          : "Detrás de Portería";
-        showMatchAlert({ text: `🎥 Cámara: ${camLabel}` });
-      };
-    }
 
     // Actualización de UI
     function updateMatchUI(state) {
