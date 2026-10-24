@@ -541,7 +541,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           ${preMatchSubTab === 'PITCH' ? `
             <!-- Terreno de Juego Táctico Interactivo Usuario -->
             <div class="p-3 flex-1 flex flex-col justify-center">
-            <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+            <div id="pre-match-pitch-container" class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
               <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
               <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
               <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
@@ -561,7 +561,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 const fatigue = player.fatigueLoad || 0;
 
                 return `
-                  <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
+                  <div class="slot-pre-player absolute -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing flex flex-col items-center transition-transform active:scale-95 z-10 touch-none select-none"
                        style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
                        data-player-id="${player.id}"
                        data-slot-index="${index}">
@@ -650,6 +650,21 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                         ▶ Derecha
                       </button>
                     </div>
+                  </div>
+
+                  <!-- Deslizadores de ajuste fino pre-partido -->
+                  <div class="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80 text-[10px] mt-2">
+                    <div class="flex items-center justify-between text-slate-400">
+                      <span>Profundidad (Y): <b class="text-white">${effSlot.y < 35 ? 'Delantera / Ofensivo' : (effSlot.y > 65 ? 'Defensa / Retrasado' : 'Medio campo')}</b></span>
+                      <span class="font-mono text-amber-400 font-bold">${Math.round(effSlot.y)}%</span>
+                    </div>
+                    <input type="range" class="slider-pre-pos-y w-full accent-amber-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer" min="${selSlotIndex === 0 ? 82 : 12}" max="${selSlotIndex === 0 ? 90 : 88}" value="${effSlot.y}">
+
+                    <div class="flex items-center justify-between text-slate-400 pt-1">
+                      <span>Amplitud (X): <b class="text-white">${effSlot.x < 35 ? 'Banda Izquierda' : (effSlot.x > 65 ? 'Banda Derecha' : 'Interior / Centro')}</b></span>
+                      <span class="font-mono text-amber-400 font-bold">${Math.round(effSlot.x)}%</span>
+                    </div>
+                    <input type="range" class="slider-pre-pos-x w-full accent-amber-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer" min="${selSlotIndex === 0 ? 38 : 10}" max="${selSlotIndex === 0 ? 62 : 90}" value="${effSlot.x}">
                   </div>
                 </div>
 
@@ -1016,8 +1031,112 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     }
 
+    // Sliders de Posición Fina Pre-Partido
+    const sliderPreY = container.querySelector(".slider-pre-pos-y");
+    if (sliderPreY) {
+      sliderPreY.oninput = (e) => {
+        if (!selectedPreMatchPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
+        if (selSlotIndex === -1) return;
+        const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+        const val = parseInt(e.target.value, 10);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        tactics.customPositions[selSlotIndex] = { x: effSlot.x, y: val };
+        const slotEl = container.querySelector(`.slot-pre-player[data-slot-index="${selSlotIndex}"]`);
+        if (slotEl) slotEl.style.top = `${val}%`;
+      };
+      sliderPreY.onchange = () => {
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    }
+
+    const sliderPreX = container.querySelector(".slider-pre-pos-x");
+    if (sliderPreX) {
+      sliderPreX.oninput = (e) => {
+        if (!selectedPreMatchPlayerId) return;
+        const selSlotIndex = tactics.lineup.indexOf(selectedPreMatchPlayerId);
+        if (selSlotIndex === -1) return;
+        const effSlot = getEffectiveSlotCoords(formationKey, selSlotIndex, tactics.customPositions);
+        const val = parseInt(e.target.value, 10);
+        if (!tactics.customPositions) tactics.customPositions = {};
+        tactics.customPositions[selSlotIndex] = { x: val, y: effSlot.y };
+        const slotEl = container.querySelector(`.slot-pre-player[data-slot-index="${selSlotIndex}"]`);
+        if (slotEl) slotEl.style.left = `${val}%`;
+      };
+      sliderPreX.onchange = () => {
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    }
+
+    // Arrastre libre con el dedo o ratón directamente en la previa pre-partido
+    let preJustDragged = false;
+    const prePitchBox = container.querySelector("#pre-match-pitch-container");
+    if (prePitchBox) {
+      prePitchBox.querySelectorAll(".slot-pre-player").forEach(slotEl => {
+        const slotIdx = parseInt(slotEl.dataset.slotIndex, 10);
+        const pId = slotEl.dataset.playerId;
+        let dragMoved = false;
+        let startX = 0, startY = 0;
+
+        const onPointerDown = (e) => {
+          if (e.button !== 0 && e.pointerType === "mouse") return;
+          dragMoved = false;
+          startX = e.clientX;
+          startY = e.clientY;
+
+          const onPointerMove = (me) => {
+            const dist = Math.hypot(me.clientX - startX, me.clientY - startY);
+            if (!dragMoved && dist > 5) {
+              dragMoved = true;
+            }
+            if (dragMoved) {
+              const rect = prePitchBox.getBoundingClientRect();
+              let nx = ((me.clientX - rect.left) / rect.width) * 100;
+              let ny = ((me.clientY - rect.top) / rect.height) * 100;
+              const isGK = slotIdx === 0;
+              nx = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, nx));
+              ny = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, ny));
+              slotEl.style.left = `${nx}%`;
+              slotEl.style.top = `${ny}%`;
+              slotEl.dataset.dragX = nx;
+              slotEl.dataset.dragY = ny;
+            }
+          };
+
+          const onPointerUp = () => {
+            window.removeEventListener("pointermove", onPointerMove);
+            window.removeEventListener("pointerup", onPointerUp);
+            if (dragMoved) {
+              preJustDragged = true;
+              setTimeout(() => { preJustDragged = false; }, 200);
+              const finalX = parseFloat(slotEl.dataset.dragX);
+              const finalY = parseFloat(slotEl.dataset.dragY);
+              if (!isNaN(finalX) && !isNaN(finalY)) {
+                if (!tactics.customPositions) tactics.customPositions = {};
+                tactics.customPositions[slotIdx] = { x: Math.round(finalX), y: Math.round(finalY) };
+                selectedPreMatchPlayerId = pId;
+                masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+                SaveManager.saveGame(gameState);
+                renderPreMatch();
+              }
+            }
+          };
+
+          window.addEventListener("pointermove", onPointerMove);
+          window.addEventListener("pointerup", onPointerUp);
+        };
+
+        slotEl.addEventListener("pointerdown", onPointerDown);
+      });
+    }
+
     container.querySelectorAll(".slot-pre-player, .bench-pre-card").forEach(el => {
       el.onclick = () => {
+        if (preJustDragged) return;
         handlePrePlayerTap(el.dataset.playerId);
       };
     });
@@ -1711,7 +1830,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <div id="ht-pitch-wrapper" class="flex-1 flex flex-col justify-between">
               <!-- Terreno de Juego Táctico Interactivo -->
               <div class="p-3 flex-1 flex flex-col justify-center">
-                <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+                <div id="pre-match-pitch-container" class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
                   <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
                   <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
                   <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
@@ -5311,14 +5430,22 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       let htBenchIds = currentBench.map(p => p.id);
       let htSelectedPlayerId = null;
       let htSubTab = "pitch"; // "pitch" o "style"
-      let htPlayerRoles = { ...(gameState.userTactics.playerRoles || {}) };
-      let htCustomPositions = JSON.parse(JSON.stringify(gameState.userTactics.customPositions || {}));
+      let htPlayerRoles = {
+        ...(teamSide === "home" ? simulator.homePlayerRoles : simulator.awayPlayerRoles || {}),
+        ...(gameState.userTactics.playerRoles || {})
+      };
+      let htCustomPositions = JSON.parse(JSON.stringify(
+        (teamSide === "home" ? simulator.homeCustomPositions : simulator.awayCustomPositions) ||
+        gameState.userTactics.customPositions ||
+        {}
+      ));
       let htInstructions = JSON.parse(JSON.stringify(
         (teamSide === "home" ? simulator.homeInstructions : simulator.awayInstructions) ||
         gameState.userTactics.instructions ||
         getDefaultTacticalInstructions()
       ));
       let showHTAllRoles = false;
+      let htJustDragged = false;
 
       const startRemaining = isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining;
       const startWindows = isUserHome ? simulator.homeWindowsRemaining : simulator.awayWindowsRemaining;
@@ -5459,7 +5586,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const r = getRoleDetails(effSlot.pos, curRoleId);
 
             return `
-              <div class="slot-ht-player absolute -translate-x-1/2 -translate-y-1/2 cursor-pointer flex flex-col items-center transition-transform active:scale-95 z-10"
+              <div class="slot-ht-player absolute -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing flex flex-col items-center transition-transform active:scale-95 z-10 touch-none select-none"
                    style="left: ${effSlot.x}%; top: ${effSlot.y}%;"
                    data-player-id="${player.id}"
                    data-slot-index="${index}">
@@ -5483,8 +5610,67 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             `;
           }).join('');
 
+          // Arrastre libre con el dedo o ratón directamente en la pizarra de cambios/descanso
+          const htPitchBox = modalHTTactics.querySelector("#ht-pitch-slots")?.parentElement;
+          if (htPitchBox) {
+            pitchSlots.querySelectorAll(".slot-ht-player").forEach(slotEl => {
+              const slotIdx = parseInt(slotEl.dataset.slotIndex, 10);
+              const pId = slotEl.dataset.playerId;
+              let dragMoved = false;
+              let startX = 0, startY = 0;
+
+              const onPointerDown = (e) => {
+                if (e.button !== 0 && e.pointerType === "mouse") return;
+                dragMoved = false;
+                startX = e.clientX;
+                startY = e.clientY;
+
+                const onPointerMove = (me) => {
+                  const dist = Math.hypot(me.clientX - startX, me.clientY - startY);
+                  if (!dragMoved && dist > 5) {
+                    dragMoved = true;
+                  }
+                  if (dragMoved) {
+                    const rect = htPitchBox.getBoundingClientRect();
+                    let nx = ((me.clientX - rect.left) / rect.width) * 100;
+                    let ny = ((me.clientY - rect.top) / rect.height) * 100;
+                    const isGK = slotIdx === 0;
+                    nx = Math.max(isGK ? 38 : 10, Math.min(isGK ? 62 : 90, nx));
+                    ny = Math.max(isGK ? 82 : 12, Math.min(isGK ? 90 : 88, ny));
+                    slotEl.style.left = `${nx}%`;
+                    slotEl.style.top = `${ny}%`;
+                    slotEl.dataset.dragX = nx;
+                    slotEl.dataset.dragY = ny;
+                  }
+                };
+
+                const onPointerUp = () => {
+                  window.removeEventListener("pointermove", onPointerMove);
+                  window.removeEventListener("pointerup", onPointerUp);
+                  if (dragMoved) {
+                    htJustDragged = true;
+                    setTimeout(() => { htJustDragged = false; }, 200);
+                    const finalX = parseFloat(slotEl.dataset.dragX);
+                    const finalY = parseFloat(slotEl.dataset.dragY);
+                    if (!isNaN(finalX) && !isNaN(finalY)) {
+                      htCustomPositions[slotIdx] = { x: Math.round(finalX), y: Math.round(finalY) };
+                      htSelectedPlayerId = pId;
+                      renderHTTactics();
+                    }
+                  }
+                };
+
+                window.addEventListener("pointermove", onPointerMove);
+                window.addEventListener("pointerup", onPointerUp);
+              };
+
+              slotEl.addEventListener("pointerdown", onPointerDown);
+            });
+          }
+
           pitchSlots.querySelectorAll(".slot-ht-player").forEach(el => {
             el.onclick = () => {
+              if (htJustDragged) return;
               handleHTPlayerTap(el.dataset.playerId);
             };
           });
@@ -5507,35 +5693,65 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               rolePanel.innerHTML = `
                 <div class="my-2 space-y-2 animate-fadeIn">
                   <!-- Ajuste de posición manual en descanso/directo -->
-                  <div class="p-2.5 bg-slate-900 border border-amber-500/40 rounded-xl">
-                    <div class="flex items-center justify-between mb-1.5 pb-1 border-b border-slate-800">
-                      <div class="flex items-center gap-1.5">
-                        <span class="text-sm">📍</span>
-                        <span class="text-[10px] font-bold text-amber-400">Posición: ${posLabel}</span>
+                  <div class="p-3 bg-slate-900 border border-amber-500/40 rounded-2xl shadow-xl">
+                    <div class="flex items-center justify-between mb-2 pb-1.5 border-b border-slate-800">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xl">📍</span>
+                        <div>
+                          <span class="text-[9px] uppercase font-bold text-amber-400">Posición · ${selPlayer.name} (${selSlot.label})</span>
+                          <h4 class="text-xs font-black text-white">${posLabel}</h4>
+                        </div>
                       </div>
                       ${effSlot.isCustom ? `
-                        <button id="btn-ht-reset-pos" class="text-[9.5px] font-bold text-rose-400 hover:text-rose-300 px-2 py-0.5 rounded bg-rose-950/70 border border-rose-800/80 active:scale-95 transition">
-                          ↺ Restablecer
+                        <button id="btn-ht-reset-pos" class="text-[10px] font-bold text-rose-400 hover:text-rose-300 px-2 py-1 rounded-lg bg-rose-950/70 border border-rose-800/80 active:scale-95 transition flex items-center gap-1 shadow-sm">
+                          <span>↺</span> Posición base
                         </button>
                       ` : ''}
                     </div>
-                    <div class="grid grid-cols-2 gap-1.5">
-                      <div class="flex items-center gap-1">
-                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="-5">
-                          ▲ Adelantar (+DC)
-                        </button>
-                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="y" data-delta="5">
-                          ▼ Retrasar (+MC)
-                        </button>
+
+                    <div class="text-[10px] text-slate-400 mb-2 font-medium">
+                      Arrastra la ficha en el campo o ajusta con botones y deslizadores:
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 mb-2">
+                      <div class="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex flex-col gap-1.5">
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Altura (Ataque / Defensa)</span>
+                        <div class="flex items-center gap-1.5">
+                          <button class="btn-ht-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="y" data-delta="-5">
+                            <span>▲</span> Adelantar (+DC)
+                          </button>
+                          <button class="btn-ht-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="y" data-delta="5">
+                            <span>▼</span> Retrasar (+MC)
+                          </button>
+                        </div>
                       </div>
-                      <div class="flex items-center gap-1">
-                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="-5">
-                          ◀ Izquierda
-                        </button>
-                        <button class="btn-ht-nudge-pos flex-1 py-1 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[9.5px] rounded border border-slate-700 active:scale-95 transition" data-axis="x" data-delta="5">
-                          ▶ Derecha
-                        </button>
+
+                      <div class="bg-slate-950/80 p-2 rounded-xl border border-slate-800 flex flex-col gap-1.5">
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider text-center">Amplitud (Banda / Centro)</span>
+                        <div class="flex items-center gap-1.5">
+                          <button class="btn-ht-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="x" data-delta="-5">
+                            <span>◀</span> Izquierda
+                          </button>
+                          <button class="btn-ht-nudge-pos flex-1 py-1.5 px-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[10px] rounded-lg border border-slate-700 active:scale-95 transition flex items-center justify-center gap-1" data-axis="x" data-delta="5">
+                            <span>▶</span> Derecha
+                          </button>
+                        </div>
                       </div>
+                    </div>
+
+                    <!-- Deslizadores de ajuste fino en vivo -->
+                    <div class="space-y-1.5 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80 text-[10px]">
+                      <div class="flex items-center justify-between text-slate-400">
+                        <span>Profundidad en campo (Y): <b class="text-white">${effSlot.y < 35 ? 'Delantera / Ofensivo' : (effSlot.y > 65 ? 'Defensa / Retrasado' : 'Medio campo')}</b></span>
+                        <span class="font-mono text-amber-400 font-bold">${Math.round(effSlot.y)}%</span>
+                      </div>
+                      <input type="range" class="slider-ht-pos-y w-full accent-amber-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer" min="${selSlotIndex === 0 ? 82 : 12}" max="${selSlotIndex === 0 ? 90 : 88}" value="${effSlot.y}">
+
+                      <div class="flex items-center justify-between text-slate-400 pt-1">
+                        <span>Anchura / Amplitud (X): <b class="text-white">${effSlot.x < 35 ? 'Banda Izquierda' : (effSlot.x > 65 ? 'Banda Derecha' : 'Interior / Centro')}</b></span>
+                        <span class="font-mono text-amber-400 font-bold">${Math.round(effSlot.x)}%</span>
+                      </div>
+                      <input type="range" class="slider-ht-pos-x w-full accent-amber-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer" min="${selSlotIndex === 0 ? 38 : 10}" max="${selSlotIndex === 0 ? 62 : 90}" value="${effSlot.x}">
                     </div>
                   </div>
 
@@ -5572,6 +5788,33 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 btnClose.onclick = (e) => {
                   e.stopPropagation();
                   htSelectedPlayerId = null;
+                  renderHTTactics();
+                };
+              }
+
+              // Sliders de ajuste fino en vivo
+              const sliderHtY = rolePanel.querySelector(".slider-ht-pos-y");
+              if (sliderHtY) {
+                sliderHtY.oninput = (e) => {
+                  const val = parseInt(e.target.value, 10);
+                  htCustomPositions[selSlotIndex] = { x: effSlot.x, y: val };
+                  const slotEl = pitchSlots.querySelector(`.slot-ht-player[data-slot-index="${selSlotIndex}"]`);
+                  if (slotEl) slotEl.style.top = `${val}%`;
+                };
+                sliderHtY.onchange = () => {
+                  renderHTTactics();
+                };
+              }
+
+              const sliderHtX = rolePanel.querySelector(".slider-ht-pos-x");
+              if (sliderHtX) {
+                sliderHtX.oninput = (e) => {
+                  const val = parseInt(e.target.value, 10);
+                  htCustomPositions[selSlotIndex] = { x: val, y: effSlot.y };
+                  const slotEl = pitchSlots.querySelector(`.slot-ht-player[data-slot-index="${selSlotIndex}"]`);
+                  if (slotEl) slotEl.style.left = `${val}%`;
+                };
+                sliderHtX.onchange = () => {
                   renderHTTactics();
                 };
               }
@@ -5838,8 +6081,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
         if (teamSide === "home") {
           simulator.homePlayerRoles = { ...simulator.homePlayerRoles, ...htPlayerRoles };
+          simulator.homeCustomPositions = { ...htCustomPositions };
         } else {
           simulator.awayPlayerRoles = { ...simulator.awayPlayerRoles, ...htPlayerRoles };
+          simulator.awayCustomPositions = { ...htCustomPositions };
         }
 
         if (masterTacticsForNextMatches) {

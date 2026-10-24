@@ -705,6 +705,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
     }
 
     // Arrastre libre con el dedo o ratón directamente en la pizarra
+    let tacticsJustDragged = false;
     const pitchBox = container.querySelector("#tactics-pitch-container");
     if (pitchBox) {
       container.querySelectorAll(".slot-player").forEach(slotEl => {
@@ -743,6 +744,8 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
             window.removeEventListener("pointermove", onPointerMove);
             window.removeEventListener("pointerup", onPointerUp);
             if (dragMoved) {
+              tacticsJustDragged = true;
+              setTimeout(() => { tacticsJustDragged = false; }, 200);
               const finalX = parseFloat(slotEl.dataset.dragX);
               const finalY = parseFloat(slotEl.dataset.dragY);
               if (!isNaN(finalX) && !isNaN(finalY)) {
@@ -843,6 +846,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
     // Intercambio táctico al tocar jugadores en la pestaña campo
     container.querySelectorAll(".slot-player, .bench-player").forEach(el => {
       el.onclick = () => {
+        if (tacticsJustDragged) return;
         const playerId = el.dataset.playerId;
         handlePlayerTap(playerId);
       };
