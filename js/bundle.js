@@ -10374,30 +10374,34 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
 // Vista del Hub Principal del Manager
 function renderHubView(container, gameState, callbacks) {
-  const userTeam = gameState.teams.find(t => t.id === gameState.userTeamId);
-  const currentRoundIndex = gameState.currentRound - 1;
-  const currentRoundData = gameState.schedule[currentRoundIndex];
+  const userTeam = (gameState.teams || []).find(t => t.id === gameState.userTeamId) || (gameState.teams && gameState.teams[0]);
+  if (!userTeam) {
+    callbacks?.onReset?.();
+    return;
+  }
+  const currentRoundIndex = Math.max(0, (gameState.currentRound || 1) - 1);
+  const currentRoundData = (gameState.schedule || [])[currentRoundIndex];
 
   // Encontrar el partido del usuario en esta jornada
-  const userMatch = currentRoundData?.matches.find(
+  const userMatch = currentRoundData?.matches?.find(
     m => m.homeTeamId === userTeam.id || m.awayTeamId === userTeam.id
   );
 
   const isHome = userMatch?.homeTeamId === userTeam.id;
   const opponentId = isHome ? userMatch?.awayTeamId : userMatch?.homeTeamId;
-  const opponentTeam = gameState.teams.find(t => t.id === opponentId);
+  const opponentTeam = (gameState.teams || []).find(t => t.id === opponentId) || (gameState.teams || []).find(t => t.id !== userTeam.id) || userTeam;
 
   // Clasificación actual del usuario
-  const userStanding = gameState.standings.find(r => r.teamId === userTeam.id);
-  const userRank = gameState.standings.indexOf(userStanding) + 1;
-  const opponentStanding = gameState.standings.find(r => r.teamId === opponentId);
-  const opponentRank = gameState.standings.indexOf(opponentStanding) + 1;
+  const userStanding = (gameState.standings || []).find(r => r.teamId === userTeam.id) || { points: 0, played: 0 };
+  const userRank = Math.max(1, (gameState.standings || []).indexOf(userStanding) + 1);
+  const opponentStanding = (gameState.standings || []).find(r => r.teamId === opponentId) || { points: 0, played: 0 };
+  const opponentRank = Math.max(1, (gameState.standings || []).indexOf(opponentStanding) + 1);
 
   // Próximas 3 jornadas
-  const upcomingFixtures = gameState.schedule.slice(currentRoundIndex, currentRoundIndex + 3).map(round => {
-    const m = round.matches.find(x => x.homeTeamId === userTeam.id || x.awayTeamId === userTeam.id);
+  const upcomingFixtures = (gameState.schedule || []).slice(currentRoundIndex, currentRoundIndex + 3).map(round => {
+    const m = (round.matches || []).find(x => x.homeTeamId === userTeam.id || x.awayTeamId === userTeam.id);
     const opId = m?.homeTeamId === userTeam.id ? m?.awayTeamId : m?.homeTeamId;
-    const op = gameState.teams.find(t => t.id === opId);
+    const op = (gameState.teams || []).find(t => t.id === opId) || userTeam;
     return {
       round: round.roundNumber,
       isHome: m?.homeTeamId === userTeam.id,
@@ -10406,10 +10410,10 @@ function renderHubView(container, gameState, callbacks) {
   });
 
   // Goleador del equipo, enfermería y sanciones
-  const teamScorers = [...userTeam.players].sort((a, b) => (b.goals || 0) - (a.goals || 0));
-  const topTeamScorer = teamScorers[0];
-  const injuredPlayers = userTeam.players.filter(p => p.injury && p.injury.roundsLeft > 0);
-  const suspendedPlayers = userTeam.players.filter(p => p.suspension && p.suspension.roundsLeft > 0);
+  const teamScorers = [...(userTeam.players || [])].sort((a, b) => (b.goals || 0) - (a.goals || 0));
+  const topTeamScorer = teamScorers[0] || { name: "Sin datos", goals: 0 };
+  const injuredPlayers = (userTeam.players || []).filter(p => p.injury && p.injury.roundsLeft > 0);
+  const suspendedPlayers = (userTeam.players || []).filter(p => p.suspension && p.suspension.roundsLeft > 0);
 
   container.innerHTML = `
     <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-20 select-none max-w-md mx-auto">
@@ -10677,27 +10681,85 @@ class GameManager {
 
   init() {
     try {
-      // Comprobar si hay partida guardada con la versión oficial
       const saved = SaveManager.loadGame();
-      if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V8") {
+      if (
+        saved &&
+        saved.userTeamId &&
+        saved.schemaVersion === "LALIGA_REAL_V8" &&
+        Array.isArray(saved.teams) &&
+        saved.teams.length > 0 &&
+        Array.isArray(saved.standings) &&
+        Array.isArray(saved.schedule) &&
+        saved.teams.some(t => t.id === saved.userTeamId)
+      ) {
         this.state = saved;
-        if (this.state.userTactics && !this.state.userTactics.instructions) {
+        if (!this.state.userTactics) {
+          const userTeam = this.state.teams.find(t => t.id === this.state.userTeamId);
+          this.state.userTactics = {
+            formation: userTeam?.defaultFormation || "4-3-3",
+            mentality: "balanced",
+            lineup: (userTeam?.players || []).slice(0, 11).map(p => p.id),
+            bench: (userTeam?.players || []).slice(11).map(p => p.id),
+            playerRoles: {},
+            instructions: getDefaultTacticalInstructions()
+          };
+        } else if (!this.state.userTactics.instructions) {
           this.state.userTactics.instructions = getDefaultTacticalInstructions();
         }
+
         if (this.state.isSeasonOver) {
           this.currentView = "season_end";
         } else {
           this.currentView = "hub";
         }
       } else {
+        SaveManager.deleteGame();
         this.currentView = "team_select";
       }
     } catch (e) {
       console.warn("Estado previo no compatible, iniciando nueva partida:", e);
+      SaveManager.deleteGame();
       this.currentView = "team_select";
     }
 
-    this.render();
+    try {
+      this.render();
+    } catch (renderError) {
+      console.error("Error al renderizar vista inicial:", renderError);
+      SaveManager.deleteGame();
+      this.state = null;
+      this.currentView = "team_select";
+      try {
+        this.render();
+      } catch (fatalErr) {
+        this.renderFatalError(renderError);
+      }
+    }
+  }
+
+  renderFatalError(error) {
+    if (!this.container) this.container = document.getElementById("app") || document.body;
+    this.container.innerHTML = `
+      <div class="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none">
+        <div class="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-500/50 flex items-center justify-center text-3xl mb-4">
+          ⚠️
+        </div>
+        <h2 class="text-lg font-black text-white mb-2">Restableciendo Partida</h2>
+        <p class="text-xs text-slate-400 mb-6 max-w-xs leading-relaxed">
+          Se ha actualizado el simulador con nuevas mejoras tácticas. Pulsa el botón para iniciar sin errores.
+        </p>
+        <button id="btn-force-reset" class="px-6 py-3 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg active:scale-95 transition">
+          🚀 Iniciar Nueva Partida
+        </button>
+      </div>
+    `;
+    const btn = document.getElementById("btn-force-reset");
+    if (btn) {
+      btn.onclick = () => {
+        SaveManager.deleteGame();
+        location.reload();
+      };
+    }
   }
 
   startNewGame(selectedTeam) {

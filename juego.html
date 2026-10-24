@@ -5,6 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Entrenate te te</title>
   
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+
   <link rel="icon" type="image/svg+xml" href="./assets/icon.svg">
   <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#0284c7">
@@ -31,10 +35,29 @@
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
   <main id="app">
-    <!-- Renderizado dinamico -->
+    <div id="app-loading-fallback" class="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none">
+      <div class="w-16 h-16 rounded-3xl bg-sky-500/20 border-2 border-sky-500/50 flex items-center justify-center text-3xl mb-4 animate-pulse">
+        ⚽
+      </div>
+      <h1 class="text-xl font-black text-white mb-1 tracking-tight">Entrenate te te</h1>
+      <p class="text-xs text-slate-400 mb-6">Cargando simulador táctico...</p>
+      <button onclick="localStorage.clear(); location.reload(true);" class="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-xs border border-slate-700 transition">
+        🔄 Reiniciar Datos si no abre
+      </button>
+    </div>
   </main>
 
-  <!-- Script Principal Autonomo -->
-  <script src="./js/bundle.js"></script>
+  <script>
+    window.addEventListener('error', function(e) {
+      console.error("Capture global error:", e);
+      var fallback = document.getElementById('app-loading-fallback');
+      if (fallback) {
+        fallback.innerHTML = '<div class="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-500/50 flex items-center justify-center text-3xl mb-4">⚠️</div><h2 class="text-base font-black text-white mb-2">Se ha actualizado el juego</h2><p class="text-xs text-slate-400 mb-5 max-w-xs leading-relaxed">Tu navegador tenía una versión en caché. Pulsa abajo para actualizar inmediatamente.</p><button onclick="localStorage.clear();location.reload(true);" class="px-6 py-3 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg active:scale-95 transition">🚀 Actualizar y Jugar</button>';
+      }
+    });
+  </script>
+
+  <!-- Script Principal Autonomo con Cache Buster -->
+  <script src="./js/bundle.js?v=20261024_1308"></script>
 </body>
 </html>

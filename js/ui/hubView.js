@@ -1,30 +1,34 @@
 // Vista del Hub Principal del Manager
 
 export function renderHubView(container, gameState, callbacks) {
-  const userTeam = gameState.teams.find(t => t.id === gameState.userTeamId);
-  const currentRoundIndex = gameState.currentRound - 1;
-  const currentRoundData = gameState.schedule[currentRoundIndex];
+  const userTeam = (gameState.teams || []).find(t => t.id === gameState.userTeamId) || (gameState.teams && gameState.teams[0]);
+  if (!userTeam) {
+    callbacks?.onReset?.();
+    return;
+  }
+  const currentRoundIndex = Math.max(0, (gameState.currentRound || 1) - 1);
+  const currentRoundData = (gameState.schedule || [])[currentRoundIndex];
 
   // Encontrar el partido del usuario en esta jornada
-  const userMatch = currentRoundData?.matches.find(
+  const userMatch = currentRoundData?.matches?.find(
     m => m.homeTeamId === userTeam.id || m.awayTeamId === userTeam.id
   );
 
   const isHome = userMatch?.homeTeamId === userTeam.id;
   const opponentId = isHome ? userMatch?.awayTeamId : userMatch?.homeTeamId;
-  const opponentTeam = gameState.teams.find(t => t.id === opponentId);
+  const opponentTeam = (gameState.teams || []).find(t => t.id === opponentId) || (gameState.teams || []).find(t => t.id !== userTeam.id) || userTeam;
 
   // Clasificación actual del usuario
-  const userStanding = gameState.standings.find(r => r.teamId === userTeam.id);
-  const userRank = gameState.standings.indexOf(userStanding) + 1;
-  const opponentStanding = gameState.standings.find(r => r.teamId === opponentId);
-  const opponentRank = gameState.standings.indexOf(opponentStanding) + 1;
+  const userStanding = (gameState.standings || []).find(r => r.teamId === userTeam.id) || { points: 0, played: 0 };
+  const userRank = Math.max(1, (gameState.standings || []).indexOf(userStanding) + 1);
+  const opponentStanding = (gameState.standings || []).find(r => r.teamId === opponentId) || { points: 0, played: 0 };
+  const opponentRank = Math.max(1, (gameState.standings || []).indexOf(opponentStanding) + 1);
 
   // Próximas 3 jornadas
-  const upcomingFixtures = gameState.schedule.slice(currentRoundIndex, currentRoundIndex + 3).map(round => {
-    const m = round.matches.find(x => x.homeTeamId === userTeam.id || x.awayTeamId === userTeam.id);
+  const upcomingFixtures = (gameState.schedule || []).slice(currentRoundIndex, currentRoundIndex + 3).map(round => {
+    const m = (round.matches || []).find(x => x.homeTeamId === userTeam.id || x.awayTeamId === userTeam.id);
     const opId = m?.homeTeamId === userTeam.id ? m?.awayTeamId : m?.homeTeamId;
-    const op = gameState.teams.find(t => t.id === opId);
+    const op = (gameState.teams || []).find(t => t.id === opId) || userTeam;
     return {
       round: round.roundNumber,
       isHome: m?.homeTeamId === userTeam.id,
@@ -33,10 +37,10 @@ export function renderHubView(container, gameState, callbacks) {
   });
 
   // Goleador del equipo, enfermería y sanciones
-  const teamScorers = [...userTeam.players].sort((a, b) => (b.goals || 0) - (a.goals || 0));
-  const topTeamScorer = teamScorers[0];
-  const injuredPlayers = userTeam.players.filter(p => p.injury && p.injury.roundsLeft > 0);
-  const suspendedPlayers = userTeam.players.filter(p => p.suspension && p.suspension.roundsLeft > 0);
+  const teamScorers = [...(userTeam.players || [])].sort((a, b) => (b.goals || 0) - (a.goals || 0));
+  const topTeamScorer = teamScorers[0] || { name: "Sin datos", goals: 0 };
+  const injuredPlayers = (userTeam.players || []).filter(p => p.injury && p.injury.roundsLeft > 0);
+  const suspendedPlayers = (userTeam.players || []).filter(p => p.suspension && p.suspension.roundsLeft > 0);
 
   container.innerHTML = `
     <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-20 select-none max-w-md mx-auto">

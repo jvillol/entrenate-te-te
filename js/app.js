@@ -24,27 +24,85 @@ class GameManager {
 
   init() {
     try {
-      // Comprobar si hay partida guardada con la versión oficial
       const saved = SaveManager.loadGame();
-      if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V8") {
+      if (
+        saved &&
+        saved.userTeamId &&
+        saved.schemaVersion === "LALIGA_REAL_V8" &&
+        Array.isArray(saved.teams) &&
+        saved.teams.length > 0 &&
+        Array.isArray(saved.standings) &&
+        Array.isArray(saved.schedule) &&
+        saved.teams.some(t => t.id === saved.userTeamId)
+      ) {
         this.state = saved;
-        if (this.state.userTactics && !this.state.userTactics.instructions) {
+        if (!this.state.userTactics) {
+          const userTeam = this.state.teams.find(t => t.id === this.state.userTeamId);
+          this.state.userTactics = {
+            formation: userTeam?.defaultFormation || "4-3-3",
+            mentality: "balanced",
+            lineup: (userTeam?.players || []).slice(0, 11).map(p => p.id),
+            bench: (userTeam?.players || []).slice(11).map(p => p.id),
+            playerRoles: {},
+            instructions: getDefaultTacticalInstructions()
+          };
+        } else if (!this.state.userTactics.instructions) {
           this.state.userTactics.instructions = getDefaultTacticalInstructions();
         }
+
         if (this.state.isSeasonOver) {
           this.currentView = "season_end";
         } else {
           this.currentView = "hub";
         }
       } else {
+        SaveManager.deleteGame();
         this.currentView = "team_select";
       }
     } catch (e) {
       console.warn("Estado previo no compatible, iniciando nueva partida:", e);
+      SaveManager.deleteGame();
       this.currentView = "team_select";
     }
 
-    this.render();
+    try {
+      this.render();
+    } catch (renderError) {
+      console.error("Error al renderizar vista inicial:", renderError);
+      SaveManager.deleteGame();
+      this.state = null;
+      this.currentView = "team_select";
+      try {
+        this.render();
+      } catch (fatalErr) {
+        this.renderFatalError(renderError);
+      }
+    }
+  }
+
+  renderFatalError(error) {
+    if (!this.container) this.container = document.getElementById("app") || document.body;
+    this.container.innerHTML = `
+      <div class="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 text-center select-none">
+        <div class="w-16 h-16 rounded-3xl bg-amber-500/20 border-2 border-amber-500/50 flex items-center justify-center text-3xl mb-4">
+          ⚠️
+        </div>
+        <h2 class="text-lg font-black text-white mb-2">Restableciendo Partida</h2>
+        <p class="text-xs text-slate-400 mb-6 max-w-xs leading-relaxed">
+          Se ha actualizado el simulador con nuevas mejoras tácticas. Pulsa el botón para iniciar sin errores.
+        </p>
+        <button id="btn-force-reset" class="px-6 py-3 rounded-2xl bg-sky-500 hover:bg-sky-400 text-white font-extrabold text-xs shadow-lg active:scale-95 transition">
+          🚀 Iniciar Nueva Partida
+        </button>
+      </div>
+    `;
+    const btn = document.getElementById("btn-force-reset");
+    if (btn) {
+      btn.onclick = () => {
+        SaveManager.deleteGame();
+        location.reload();
+      };
+    }
   }
 
   startNewGame(selectedTeam) {
