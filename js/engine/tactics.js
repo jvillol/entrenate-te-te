@@ -265,3 +265,130 @@ export function generateRandomInjury(cause = "random") {
   };
 }
 
+// ==========================================
+// ESTILOS DE JUEGO Y DIVISIÓN TÁCTICA POR ESTADOS (CON BALÓN / TRANSICIÓN / SIN BALÓN)
+// ==========================================
+
+export const TACTICAL_PRESETS = {
+  tiki_taka: {
+    id: "tiki_taka",
+    name: "Tiki-Taka (Posesión)",
+    icon: "🧠",
+    desc: "Posesión paciente, pase corto, ritmo pausado y contrapresión instantánea tras pérdida",
+    inPossession: { passingStyle: "short", tempo: "slow", width: "balanced" },
+    inTransition: { loss: "counterpress", win: "hold" },
+    outOfPossession: { defensiveLine: "high", pressing: "high" }
+  },
+  gegenpress: {
+    id: "gegenpress",
+    name: "Gegenpress (Presión Alta)",
+    icon: "⚡",
+    desc: "Ritmo asfixiante, recuperación inmediata tras pérdida y transiciones verticales rápidas",
+    inPossession: { passingStyle: "mixed", tempo: "fast", width: "wide" },
+    inTransition: { loss: "counterpress", win: "counter" },
+    outOfPossession: { defensiveLine: "high", pressing: "high" }
+  },
+  counter_attack: {
+    id: "counter_attack",
+    name: "Contraataque Fluido",
+    icon: "🏹",
+    desc: "Bloque bajo ordenado, repliegue rápido y salida vertical fulgurante al espacio",
+    inPossession: { passingStyle: "direct", tempo: "fast", width: "wide" },
+    inTransition: { loss: "regroup", win: "counter" },
+    outOfPossession: { defensiveLine: "low", pressing: "mid" }
+  },
+  catenaccio: {
+    id: "catenaccio",
+    name: "Autobús Defensivo",
+    icon: "🛡️",
+    desc: "Bloque muy bajo, cerrojo en el área, repliegue masivo y balones largos sin riesgos",
+    inPossession: { passingStyle: "direct", tempo: "slow", width: "center" },
+    inTransition: { loss: "regroup", win: "hold" },
+    outOfPossession: { defensiveLine: "low", pressing: "low" }
+  },
+  wing_play: {
+    id: "wing_play",
+    name: "Juego por Bandas",
+    icon: "🚀",
+    desc: "Apertura a extremos y carrileros para doblar y colgar centros al área",
+    inPossession: { passingStyle: "mixed", tempo: "normal", width: "wide" },
+    inTransition: { loss: "regroup", win: "counter" },
+    outOfPossession: { defensiveLine: "mid", pressing: "mid" }
+  },
+  direct_football: {
+    id: "direct_football",
+    name: "Fútbol Directo",
+    icon: "🎯",
+    desc: "Balones largos directos a la referencia ofensiva, segundas jugadas y verticalidad",
+    inPossession: { passingStyle: "direct", tempo: "fast", width: "center" },
+    inTransition: { loss: "counterpress", win: "counter" },
+    outOfPossession: { defensiveLine: "mid", pressing: "high" }
+  }
+};
+
+export const TACTICAL_OPTIONS = {
+  // 1. Fase Ofensiva (Con Balón)
+  passingStyle: [
+    { id: "short", label: "Corto", desc: "Posesión paciente, combinar al pie y madurar", icon: "🤝" },
+    { id: "mixed", label: "Mixto", desc: "Variedad según la situación del juego", icon: "⚖️" },
+    { id: "direct", label: "Directo", desc: "Pases verticales y balones largos al espacio", icon: "🚀" }
+  ],
+  tempo: [
+    { id: "slow", label: "Pausado", desc: "Bajar el ritmo, asegurar pases y cansar al rival", icon: "🐢" },
+    { id: "normal", label: "Equilibrado", desc: "Circulación fluida estándar", icon: "⏱️" },
+    { id: "fast", label: "Rápido / Vértigo", desc: "Juego a 1-2 toques, velocidad y desmarques", icon: "⚡" }
+  ],
+  width: [
+    { id: "wide", label: "Por Bandas", desc: "Abrir el campo, buscar extremos y centros", icon: "↔️" },
+    { id: "balanced", label: "Equilibrado", desc: "Distribución armónica del ataque", icon: "📐" },
+    { id: "center", label: "Por el Centro", desc: "Paredes interiores y filtrar entre líneas", icon: "🎯" }
+  ],
+  // 2. Transición
+  transitionLoss: [
+    { id: "counterpress", label: "Presión tras Pérdida", desc: "Contrapresión instantánea en tromba para robar arriba", icon: "💥" },
+    { id: "regroup", label: "Replegarse", desc: "Retroceder ordenadamente hacia campo propio", icon: "🛡️" }
+  ],
+  transitionWin: [
+    { id: "counter", label: "Contraatacar", desc: "Lanzar el contraataque con velocidad al espacio", icon: "🏹" },
+    { id: "hold", label: "Mantener Posesión", desc: "Asegurar el cuero y reiniciar la construcción", icon: "🔄" }
+  ],
+  // 3. Fase Defensiva (Sin Balón)
+  defensiveLine: [
+    { id: "low", label: "Bloque Bajo", desc: "Línea retrasada en el borde del área, sin conceder espaldas", icon: "🧱" },
+    { id: "mid", label: "Bloque Medio", desc: "Línea en tres cuartos de campo propio", icon: "📏" },
+    { id: "high", label: "Línea Alta", desc: "Adelantar la defensa para achicar y provocar fuera de juego", icon: "🚩" }
+  ],
+  pressing: [
+    { id: "low", label: "Baja / Contención", desc: "Esperar en zona, mantener líneas juntas y no desgastarse", icon: "🧘" },
+    { id: "mid", label: "Media", desc: "Presión estándar al entrar en zona activa", icon: "🏃" },
+    { id: "high", label: "Asfixiante / Alta", desc: "Acosar la salida de balón rival en su propio campo", icon: "🔥" }
+  ]
+};
+
+export function getDefaultTacticalInstructions() {
+  return {
+    preset: "tiki_taka",
+    inPossession: { passingStyle: "short", tempo: "slow", width: "balanced" },
+    inTransition: { loss: "counterpress", win: "hold" },
+    outOfPossession: { defensiveLine: "high", pressing: "high" }
+  };
+}
+
+export function detectMatchingPreset(instructions) {
+  if (!instructions) return "custom";
+  for (const [key, p] of Object.entries(TACTICAL_PRESETS)) {
+    if (
+      instructions.inPossession?.passingStyle === p.inPossession.passingStyle &&
+      instructions.inPossession?.tempo === p.inPossession.tempo &&
+      instructions.inPossession?.width === p.inPossession.width &&
+      instructions.inTransition?.loss === p.inTransition.loss &&
+      instructions.inTransition?.win === p.inTransition.win &&
+      instructions.outOfPossession?.defensiveLine === p.outOfPossession.defensiveLine &&
+      instructions.outOfPossession?.pressing === p.outOfPossession.pressing
+    ) {
+      return key;
+    }
+  }
+  return "custom";
+}
+

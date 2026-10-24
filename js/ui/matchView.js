@@ -2,7 +2,7 @@
 
 import { MatchSimulator } from "../engine/matchEngine.js";
 import { simulateAIParties, updateStandings } from "../engine/leagueEngine.js";
-import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails } from "../engine/tactics.js";
+import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset } from "../engine/tactics.js";
 import { SaveManager } from "../engine/saveManager.js";
 
 export function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
@@ -30,6 +30,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   }
   if (!gameState.userTactics.playerRoles) {
     gameState.userTactics.playerRoles = {};
+  }
+  if (!gameState.userTactics.instructions) {
+    gameState.userTactics.instructions = getDefaultTacticalInstructions();
   }
 
   let preMatchTab = "USER"; // "USER" o "OPPONENT"
@@ -165,6 +168,22 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                   ${m.label}
                 </button>
               `).join('')}
+            </div>
+
+            <!-- Estilo Táctico Activo -->
+            <div class="flex items-center justify-between pt-1 border-t border-slate-800/80 text-xs">
+              <div class="flex items-center gap-1.5">
+                <span class="text-[10px] uppercase font-bold text-slate-500">Estilo:</span>
+                <span class="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold text-[10.5px] flex items-center gap-1">
+                  <span>${TACTICAL_PRESETS[detectMatchingPreset(tactics.instructions)] ? TACTICAL_PRESETS[detectMatchingPreset(tactics.instructions)].icon : '🧠'}</span>
+                  <span>${TACTICAL_PRESETS[detectMatchingPreset(tactics.instructions)] ? TACTICAL_PRESETS[detectMatchingPreset(tactics.instructions)].name : 'Personalizado'}</span>
+                </span>
+              </div>
+              <span class="text-[9.5px] text-slate-400">
+                ${tactics.instructions?.inPossession?.passingStyle === 'short' ? 'Pase Corto' : tactics.instructions?.inPossession?.passingStyle === 'direct' ? 'Pase Directo' : 'Pase Mixto'} · 
+                ${tactics.instructions?.inTransition?.loss === 'counterpress' ? 'Contrapresión' : 'Repliegue'} · 
+                ${tactics.instructions?.outOfPossession?.defensiveLine === 'high' ? 'Línea Alta' : tactics.instructions?.outOfPossession?.defensiveLine === 'low' ? 'Bloque Bajo' : 'Bloque Medio'}
+              </span>
             </div>
           </div>
 
@@ -819,6 +838,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       });
     }
 
+    const oppPresetKey = (opponentTeam.id === "real_madrid" || opponentTeam.id === "barcelona") ? "tiki_taka" : (opponentTeam.id === "atletico") ? "counter_attack" : (opponentTeam.id === "athletic" || opponentTeam.id === "osasuna") ? "direct_football" : "wing_play";
+    const oppInstructions = TACTICAL_PRESETS[oppPresetKey] || getDefaultTacticalInstructions();
+
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
       speed: 1, // Ritmo fluido Football Manager por defecto
       userSide: isUserHome ? "home" : "away",
@@ -828,6 +850,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       homePlayerRoles: isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
       awayPlayerRoles: !isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
+      homeInstructions: isUserHome ? gameState.userTactics.instructions : oppInstructions,
+      awayInstructions: !isUserHome ? gameState.userTactics.instructions : oppInstructions,
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
       onGoal: (goalData) => handleGoalSequence(goalData),
@@ -1267,6 +1291,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
                 <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Mentalidad:</span>
                 <div id="ht-mentality-buttons" class="flex gap-1.5 overflow-x-auto no-scrollbar"></div>
+              </div>
+              <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+                <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Estilo:</span>
+                <div id="ht-style-buttons" class="flex gap-1.5 overflow-x-auto no-scrollbar"></div>
               </div>
             </div>
 
@@ -4251,6 +4279,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       let htBenchIds = currentBench.map(p => p.id);
       let htSelectedPlayerId = null;
       let htPlayerRoles = { ...(gameState.userTactics.playerRoles || {}) };
+      let htInstructions = JSON.parse(JSON.stringify(
+        (teamSide === "home" ? simulator.homeInstructions : simulator.awayInstructions) ||
+        gameState.userTactics.instructions ||
+        getDefaultTacticalInstructions()
+      ));
       let showHTAllRoles = false;
 
       const startRemaining = isUserHome ? simulator.homeSubsRemaining : simulator.awaySubsRemaining;
@@ -4321,6 +4354,33 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             b.onclick = () => {
               htMentality = b.dataset.mentality;
               renderHTTactics();
+            };
+          });
+        }
+
+        // Estilos e Instrucciones Tácticas
+        const containerStyle = modalHTTactics.querySelector("#ht-style-buttons");
+        if (containerStyle) {
+          const currentPresetKey = detectMatchingPreset(htInstructions);
+          containerStyle.innerHTML = Object.entries(TACTICAL_PRESETS).map(([pKey, p]) => `
+            <button class="btn-ht-style px-2.5 py-0.5 rounded-lg text-[10.5px] font-semibold transition whitespace-nowrap ${currentPresetKey === pKey ? 'bg-amber-500 text-slate-950 font-bold border border-amber-400 shadow-sm' : 'bg-slate-800/80 text-slate-400 hover:text-white'}" data-preset="${pKey}">
+              ${p.icon} ${p.name.split(' ')[0]}
+            </button>
+          `).join('');
+
+          containerStyle.querySelectorAll(".btn-ht-style").forEach(b => {
+            b.onclick = () => {
+              const pKey = b.dataset.preset;
+              const preset = TACTICAL_PRESETS[pKey];
+              if (preset) {
+                htInstructions = {
+                  preset: pKey,
+                  inPossession: { ...preset.inPossession },
+                  inTransition: { ...preset.inTransition },
+                  outOfPossession: { ...preset.outOfPossession }
+                };
+                renderHTTactics();
+              }
             };
           });
         }
@@ -4653,6 +4713,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         gameState.userTactics.lineup = [...htLineupIds];
         gameState.userTactics.bench = [...htBenchIds];
         gameState.userTactics.playerRoles = { ...htPlayerRoles };
+        gameState.userTactics.instructions = JSON.parse(JSON.stringify(htInstructions));
+
+        simulator.setTacticalInstructions(teamSide, htInstructions);
 
         if (teamSide === "home") {
           simulator.homePlayerRoles = { ...simulator.homePlayerRoles, ...htPlayerRoles };
@@ -4666,6 +4729,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           masterTacticsForNextMatches.lineup = [...htLineupIds];
           masterTacticsForNextMatches.bench = [...htBenchIds];
           masterTacticsForNextMatches.playerRoles = { ...htPlayerRoles };
+          masterTacticsForNextMatches.instructions = JSON.parse(JSON.stringify(htInstructions));
         }
         SaveManager.saveGame(gameState);
 

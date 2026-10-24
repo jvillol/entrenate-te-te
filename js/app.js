@@ -3,6 +3,7 @@
 import { TEAMS_DATA } from "./data/teams.js";
 import { generateSchedule, initStandings } from "./engine/leagueEngine.js";
 import { SaveManager } from "./engine/saveManager.js";
+import { getDefaultTacticalInstructions } from "./engine/tactics.js";
 
 import { renderTeamSelect } from "./ui/teamSelectView.js";
 import { renderHubView } from "./ui/hubView.js";
@@ -27,6 +28,9 @@ class GameManager {
       const saved = SaveManager.loadGame();
       if (saved && saved.userTeamId && saved.schemaVersion === "LALIGA_REAL_V8") {
         this.state = saved;
+        if (this.state.userTactics && !this.state.userTactics.instructions) {
+          this.state.userTactics.instructions = getDefaultTacticalInstructions();
+        }
         if (this.state.isSeasonOver) {
           this.currentView = "season_end";
         } else {
@@ -60,7 +64,8 @@ class GameManager {
         mentality: "balanced",
         lineup: selectedTeam.players.slice(0, 11).map(p => p.id),
         bench: selectedTeam.players.slice(11).map(p => p.id),
-        playerRoles: {}
+        playerRoles: {},
+        instructions: getDefaultTacticalInstructions()
       },
       topScorers: {},
       isSeasonOver: false
@@ -88,7 +93,8 @@ class GameManager {
       mentality: "balanced",
       lineup: userTeam.players.slice(0, 11).map(p => p.id),
       bench: userTeam.players.slice(11).map(p => p.id),
-      playerRoles: {}
+      playerRoles: {},
+      instructions: getDefaultTacticalInstructions()
     };
 
     SaveManager.saveGame(this.state);

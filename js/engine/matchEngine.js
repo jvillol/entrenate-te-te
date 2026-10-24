@@ -1,6 +1,6 @@
 // Motor de simulación de partido 2D interactivo con cambios en vivo (sin comentarios de texto)
 
-import { FORMATIONS, getRoleDetails, generateRandomInjury } from "./tactics.js";
+import { FORMATIONS, getRoleDetails, generateRandomInjury, getDefaultTacticalInstructions } from "./tactics.js";
 
 export class MatchSimulator {
   constructor(homeTeam, awayTeam, options = {}) {
@@ -33,6 +33,11 @@ export class MatchSimulator {
 
     this.homePlayerRoles = options.homePlayerRoles || {};
     this.awayPlayerRoles = options.awayPlayerRoles || {};
+
+    // Instrucciones tácticas por estados (Con balón / Transición / Sin balón)
+    this.homeInstructions = options.homeInstructions ? JSON.parse(JSON.stringify(options.homeInstructions)) : getDefaultTacticalInstructions();
+    this.awayInstructions = options.awayInstructions ? JSON.parse(JSON.stringify(options.awayInstructions)) : getDefaultTacticalInstructions();
+    this.lastPossession = "home";
 
     // Límite de 5 cambios oficiales en 3 ventanas durante el partido (el descanso no consume ventana)
     this.homeSubsRemaining = 5;
@@ -170,6 +175,16 @@ export class MatchSimulator {
   setMentality(teamSide, mentalityId) {
     if (teamSide === "home") this.homeMentality = mentalityId;
     if (teamSide === "away") this.awayMentality = mentalityId;
+  }
+
+  setTacticalInstructions(teamSide, instructions) {
+    if (!instructions) return;
+    if (teamSide === "home") {
+      this.homeInstructions = JSON.parse(JSON.stringify(instructions));
+    } else {
+      this.awayInstructions = JSON.parse(JSON.stringify(instructions));
+    }
+    this.update2DPositions();
   }
 
   // Realizar sustitución en vivo
@@ -561,18 +576,24 @@ export class MatchSimulator {
     const homeMod = mentMods[this.homeMentality] || mentMods.balanced;
     const awayMod = mentMods[this.awayMentality] || mentMods.balanced;
 
-    // Desgaste físico gradual según atributos físicos (PHY), posición y mentalidad táctica
+    // Modificadores de fatiga según ritmo y presión táctica
+    const homePressMod = this.homeInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.homeInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
+    const homeTempoMod = this.homeInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.homeInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
+    const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
+    const awayTempoMod = this.awayInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.awayInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
+
+    // Desgaste físico gradual según atributos físicos (PHY), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
-      const rate = isGK ? 0.08 : (0.42 * phyFactor * homeMod.drain);
+      const rate = isGK ? 0.08 : (0.42 * phyFactor * homeMod.drain * homePressMod * homeTempoMod);
       p.energy = Math.max(25, (p.energy || 100) - rate);
     });
 
     this.awayPlayersOnPitch.forEach(p => {
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
-      const rate = isGK ? 0.08 : (0.42 * phyFactor * awayMod.drain);
+      const rate = isGK ? 0.08 : (0.42 * phyFactor * awayMod.drain * awayPressMod * awayTempoMod);
       p.energy = Math.max(25, (p.energy || 100) - rate);
     });
 
@@ -592,17 +613,67 @@ export class MatchSimulator {
     this.homePlayersOnPitch.forEach(p => checkFatigueInjury(p, "home"));
     this.awayPlayersOnPitch.forEach(p => checkFatigueInjury(p, "away"));
 
-    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 2) * homeMod.atk;
-    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 2) * homeMod.def;
-    const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk", "away") * awayMod.atk;
-    const awayDef = this.calcTeamPower(this.awayPlayersOnPitch, "def", "away") * awayMod.def;
+    // Modificadores de efectividad ofensiva y defensiva
+    let homeAtkBonus = 0;
+    if (this.homeInstructions?.inPossession?.passingStyle === "direct") homeAtkBonus += 0.08;
+    if (this.homeInstructions?.inPossession?.tempo === "fast") homeAtkBonus += 0.10;
+    else if (this.homeInstructions?.inPossession?.tempo === "slow") homeAtkBonus -= 0.08;
 
-    // Disputa de la posesión
+    let awayAtkBonus = 0;
+    if (this.awayInstructions?.inPossession?.passingStyle === "direct") awayAtkBonus += 0.08;
+    if (this.awayInstructions?.inPossession?.tempo === "fast") awayAtkBonus += 0.10;
+    else if (this.awayInstructions?.inPossession?.tempo === "slow") awayAtkBonus -= 0.08;
+
+    // Modificador de bloque defensivo rival
+    const homeDefBonus = this.homeInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.homeInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
+    const awayDefBonus = this.awayInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.awayInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
+
+    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 2) * (homeMod.atk + homeAtkBonus);
+    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 2) * (homeMod.def + homeDefBonus);
+    const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk", "away") * (awayMod.atk + awayAtkBonus);
+    const awayDef = this.calcTeamPower(this.awayPlayersOnPitch, "def", "away") * (awayMod.def + awayDefBonus);
+
+    // Disputa de la posesión con impacto de estilo de pase y presión alta
     const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home");
     const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid", "away");
-    const probHomePoss = (midHome / (midHome + midAway)) + 0.03; // Ligera ventaja local
 
-    const currentPoss = Math.random() < probHomePoss ? "home" : "away";
+    let possModHome = 0;
+    if (this.homeInstructions?.inPossession?.passingStyle === "short") possModHome += 0.06;
+    else if (this.homeInstructions?.inPossession?.passingStyle === "direct") possModHome -= 0.05;
+    if (this.homeInstructions?.outOfPossession?.pressing === "high") possModHome += 0.04;
+
+    let possModAway = 0;
+    if (this.awayInstructions?.inPossession?.passingStyle === "short") possModAway += 0.06;
+    else if (this.awayInstructions?.inPossession?.passingStyle === "direct") possModAway -= 0.05;
+    if (this.awayInstructions?.outOfPossession?.pressing === "high") possModAway += 0.04;
+
+    const probHomePoss = Math.max(0.20, Math.min(0.80, (midHome / (midHome + midAway)) + 0.03 + possModHome - possModAway));
+
+    let currentPoss = Math.random() < probHomePoss ? "home" : "away";
+
+    // 1. TRANSICIÓN TRAS PÉRDIDA: CONTRAPRESIÓN INSTANTÁNEA
+    if (this.lastPossession === "home" && currentPoss === "away") {
+      if (this.homeInstructions?.inTransition?.loss === "counterpress" && Math.random() < 0.35) {
+        currentPoss = "home"; // ¡Robo inmediato arriba!
+        this.triggerAlert("CONTRAPRESIÓN", `💥 ¡Presión tras pérdida de ${this.homeTeam.shortName}! Robo en campo rival`, "home", 2500);
+      }
+    } else if (this.lastPossession === "away" && currentPoss === "home") {
+      if (this.awayInstructions?.inTransition?.loss === "counterpress" && Math.random() < 0.35) {
+        currentPoss = "away"; // ¡Robo inmediato arriba!
+        this.triggerAlert("CONTRAPRESIÓN", `💥 ¡Presión tras pérdida de ${this.awayTeam.shortName}! Robo en campo rival`, "away", 2500);
+      }
+    }
+
+    // 2. TRANSICIÓN TRAS RECUPERACIÓN: CONTRAATAQUE VERTICAL
+    if (this.lastPossession !== currentPoss) {
+      const activeInst = currentPoss === "home" ? this.homeInstructions : this.awayInstructions;
+      const activeTeam = currentPoss === "home" ? this.homeTeam : this.awayTeam;
+      if (activeInst?.inTransition?.win === "counter" && Math.random() < 0.42) {
+        this.triggerAlert("CONTRAATAQUE", `🏹 ¡Contraataque veloz de ${activeTeam.shortName}!`, currentPoss, 2500);
+      }
+    }
+
+    this.lastPossession = currentPoss;
     this.ball.possession = currentPoss;
 
     if (currentPoss === "home") {
@@ -620,8 +691,16 @@ export class MatchSimulator {
 
     if (currentPoss === "home") {
       // Posición del balón en el campo atacando hacia la derecha (x: 50 -> 90)
+      const widthInst = this.homeInstructions?.inPossession?.width || "balanced";
+      let ballYTarget = 20 + Math.random() * 60;
+      if (widthInst === "wide") {
+        ballYTarget = Math.random() < 0.5 ? (12 + Math.random() * 20) : (68 + Math.random() * 20);
+      } else if (widthInst === "center") {
+        ballYTarget = 36 + Math.random() * 28;
+      }
+
       this.ball.targetX = 65 + Math.random() * 28;
-      this.ball.targetY = 20 + Math.random() * 60;
+      this.ball.targetY = ballYTarget;
 
       // Ocasión de ataque local
       const attackScore = (homeAtk / (homeAtk + awayDef)) * 0.28;
@@ -650,8 +729,16 @@ export class MatchSimulator {
       }
     } else {
       // Balón atacando hacia la izquierda (x: 50 -> 10)
+      const widthInstAway = this.awayInstructions?.inPossession?.width || "balanced";
+      let ballYTargetAway = 20 + Math.random() * 60;
+      if (widthInstAway === "wide") {
+        ballYTargetAway = Math.random() < 0.5 ? (12 + Math.random() * 20) : (68 + Math.random() * 20);
+      } else if (widthInstAway === "center") {
+        ballYTargetAway = 36 + Math.random() * 28;
+      }
+
       this.ball.targetX = 35 - Math.random() * 28;
-      this.ball.targetY = 20 + Math.random() * 60;
+      this.ball.targetY = ballYTargetAway;
 
       const attackScore = (awayAtk / (awayAtk + homeDef)) * 0.26;
       if (chanceRoll < attackScore) {
@@ -678,8 +765,13 @@ export class MatchSimulator {
       }
     }
 
-    // Posibles faltas y tarjetas (con opción de falta peligrosa a balón parado)
-    if (Math.random() < 0.065) {
+    // Posibles faltas y tarjetas (afectadas por la intensidad de presión)
+    const baseFoulChance = 0.065;
+    const pressingHome = this.homeInstructions?.outOfPossession?.pressing || "mid";
+    const pressingAway = this.awayInstructions?.outOfPossession?.pressing || "mid";
+    const pressFoulMod = (pressingHome === "high" || pressingAway === "high") ? 1.30 : ((pressingHome === "low" && pressingAway === "low") ? 0.65 : 1.0);
+
+    if (Math.random() < baseFoulChance * pressFoulMod) {
       const foulTeam = Math.random() > 0.5 ? "home" : "away";
       this.stats.fouls[foulTeam]++;
       const victimTeam = foulTeam === "home" ? "away" : "home";
@@ -1701,22 +1793,56 @@ export class MatchSimulator {
     const ballX = this.ball.targetX;
     const ballY = this.ball.targetY;
 
+    // Modificadores tácticos del equipo local (Línea defensiva, anchura y presión)
+    const homeDefLine = this.homeInstructions?.outOfPossession?.defensiveLine || "mid";
+    const homeLineShiftX = homeDefLine === "high" ? 8 : (homeDefLine === "low" ? -7 : 0);
+    const homePressing = this.homeInstructions?.outOfPossession?.pressing || "mid";
+    const homePressShiftX = (this.ball.possession === "away" && homePressing === "high") ? 5 : 0;
+    const homeWidth = this.homeInstructions?.inPossession?.width || "balanced";
+
     this.home2D.forEach((p, idx) => {
       const playerObj = this.homePlayersOnPitch[idx];
       const role = this.getPlayerRole(playerObj, "home");
       const pushMod = role?.pushMod || 0; // ej: +14 para Carrilero Ofensivo, +6 Central con Salida
-      const shiftX = (ballX - 50) * 0.35 + (pushMod * 0.35);
-      const shiftY = (ballY - 50) * 0.25;
+      const isDef = playerObj.pos === "DFC" || playerObj.pos === "LI" || playerObj.pos === "LD";
+      const isWing = playerObj.pos === "LI" || playerObj.pos === "LD" || playerObj.pos === "EI" || playerObj.pos === "ED";
+
+      const lineXMod = isDef ? homeLineShiftX : (homeLineShiftX * 0.5);
+      const shiftX = (ballX - 50) * 0.35 + (pushMod * 0.35) + lineXMod + homePressShiftX;
+
+      let shiftY = (ballY - 50) * 0.25;
+      if (this.ball.possession === "home" && isWing) {
+        if (homeWidth === "wide") shiftY += (p.baseY < 50 ? -8 : 8);
+        else if (homeWidth === "center") shiftY += (p.baseY < 50 ? 6 : -6);
+      }
+
       p.targetX = Math.max(3, Math.min(95, p.baseX + shiftX + (Math.random() * 4 - 2)));
       p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
     });
+
+    // Modificadores tácticos del equipo visitante (Línea defensiva, anchura y presión)
+    const awayDefLine = this.awayInstructions?.outOfPossession?.defensiveLine || "mid";
+    const awayLineShiftX = awayDefLine === "high" ? -8 : (awayDefLine === "low" ? 7 : 0);
+    const awayPressing = this.awayInstructions?.outOfPossession?.pressing || "mid";
+    const awayPressShiftX = (this.ball.possession === "home" && awayPressing === "high") ? -5 : 0;
+    const awayWidth = this.awayInstructions?.inPossession?.width || "balanced";
 
     this.away2D.forEach((p, idx) => {
       const playerObj = this.awayPlayersOnPitch[idx];
       const role = this.getPlayerRole(playerObj, "away");
       const pushMod = role?.pushMod || 0;
-      const shiftX = (ballX - 50) * 0.35 - (pushMod * 0.35);
-      const shiftY = (ballY - 50) * 0.25;
+      const isDef = playerObj.pos === "DFC" || playerObj.pos === "LI" || playerObj.pos === "LD";
+      const isWing = playerObj.pos === "LI" || playerObj.pos === "LD" || playerObj.pos === "EI" || playerObj.pos === "ED";
+
+      const lineXMod = isDef ? awayLineShiftX : (awayLineShiftX * 0.5);
+      const shiftX = (ballX - 50) * 0.35 - (pushMod * 0.35) + lineXMod + awayPressShiftX;
+
+      let shiftY = (ballY - 50) * 0.25;
+      if (this.ball.possession === "away" && isWing) {
+        if (awayWidth === "wide") shiftY += (p.baseY < 50 ? -8 : 8);
+        else if (awayWidth === "center") shiftY += (p.baseY < 50 ? 6 : -6);
+      }
+
       p.targetX = Math.max(5, Math.min(97, p.baseX + shiftX + (Math.random() * 4 - 2)));
       p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
     });
@@ -1805,6 +1931,8 @@ export class MatchSimulator {
       ball: this.ball,
       homeMentality: this.homeMentality,
       awayMentality: this.awayMentality,
+      homeInstructions: this.homeInstructions,
+      awayInstructions: this.awayInstructions,
       isRunning: this.isRunning,
       isHalfTime: this.isHalfTime,
       isSecondHalf: this.isSecondHalf,
