@@ -3112,308 +3112,503 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     let lastBallY = 50;
 
     // ==========================================
-    // CÁMARA FRONTAL DE JUGADAS CLAVE (SEGÚN DIBUJO DEL USUARIO)
-    // Vista frontal hacia la portería: portero bajo palos, 2 defensas en medio, 2 delanteros en primer plano
+    // CÁMARA CINEMÁTICA 3D BROADCAST (ESTILO EA SPORTS FC / PREMIER LEAGUE TV)
+    // Exclusiva para Jugadas Clave (perspectiva diagonal 3/4 hacia portería izquierda)
     // ==========================================
-    function drawFrontalBall(ctx, x, y, z, r, sc) {
-      // Sombra en el césped
+    function projectEA3D(u, v, z, w, h) {
+      // u: metros desde la línea de fondo hacia el centro del campo (0 = línea de gol, 16.5 = borde área grande, 34 = medular)
+      // v: metros a través del ancho del campo (0 = banda lejana sup-dcha, 34 = centro portería, 68 = banda cercana inf-izq)
+      // z: altura en metros sobre el césped (2.44 = larguero)
+      const uNorm = u / 32;
+      const vNorm = v / 55;
+      // Factor de expansión por cercanía a cámara (mayor cuando u y v crecen hacia abajo-izquierda/derecha)
+      const persp = 1 + uNorm * 0.22 + vNorm * 0.18;
+
+      const baseX = 0.675 * w;
+      const baseY = 0.082 * h;
+
+      // Vector a lo largo de la línea de gol (+v: baja hacia la izquierda)
+      const vx = -0.0162 * w * (1 + uNorm * 0.14);
+      const vy = 0.00565 * h * (1 + uNorm * 0.12);
+
+      // Vector hacia el interior del campo (+u: baja hacia la derecha)
+      const ux = 0.0172 * w * (1 + vNorm * 0.06);
+      const uy = 0.0156 * h * (1 + vNorm * 0.15);
+
+      const groundX = baseX + v * vx + u * ux;
+      const groundY = baseY + v * vy + u * uy;
+
+      const scale = Math.max(0.55, Math.min(1.65, 0.72 * persp));
+      const screenY = groundY - z * (0.044 * h) * scale;
+
+      return {
+        x: groundX,
+        y: screenY,
+        groundY: groundY,
+        sc: scale * Math.min(w / 480, h / 290)
+      };
+    }
+
+    function drawFrontalBall(ctx, x, y, zPx, r, sc) {
+      // Sombra proyectada sobre el césped
       ctx.save();
-      const shadowAlpha = Math.max(0.08, 0.40 - (z / (30 * sc)) * 0.3);
-      ctx.fillStyle = `rgba(0, 25, 8, ${shadowAlpha})`;
+      const shadowAlpha = Math.max(0.10, 0.48 - (zPx / (40 * sc)) * 0.32);
+      ctx.fillStyle = `rgba(6, 20, 8, ${shadowAlpha})`;
       ctx.beginPath();
-      ctx.ellipse(x, y, r * 1.3, r * 0.65, 0, 0, Math.PI * 2);
+      ctx.ellipse(x + 1.5 * sc, y + 1 * sc, r * 1.35, r * 0.62, -0.2, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
 
-      // Balón elevado (Y - Z)
-      const bY = y - z;
-      const bR = Math.max(2.5, r);
+      const bY = y - zPx;
+      const bR = Math.max(2.8, r);
 
+      // Esfera 3D con iluminación tipo balón oficial Premier/LaLiga (blanco con gráficos magenta/púrpura)
       ctx.beginPath();
       ctx.arc(x, bY, bR, 0, Math.PI * 2);
-      const bGrad = ctx.createRadialGradient(x - bR * 0.3, bY - bR * 0.3, bR * 0.1, x, bY, bR);
+      const bGrad = ctx.createRadialGradient(x - bR * 0.32, bY - bR * 0.35, bR * 0.08, x, bY, bR);
       bGrad.addColorStop(0, "#ffffff");
-      bGrad.addColorStop(0.7, "#e2e8f0");
-      bGrad.addColorStop(1, "#334155");
+      bGrad.addColorStop(0.68, "#f1f5f9");
+      bGrad.addColorStop(1, "#475569");
       ctx.fillStyle = bGrad;
       ctx.fill();
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.6)";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.65)";
+      ctx.lineWidth = Math.max(0.7, 0.85 * sc);
       ctx.stroke();
 
-      // Paneles pentagonales
-      ctx.fillStyle = "#0f172a";
+      // Anillos cromáticos estilo balón EA Sports (magenta / púrpura / cian)
+      ctx.strokeStyle = "#be185d";
+      ctx.lineWidth = Math.max(0.9, 1.1 * sc);
       ctx.beginPath();
-      for (let p = 0; p < 5; p++) {
-        const pa = (p * Math.PI * 2) / 5;
-        const px = x + Math.cos(pa) * (bR * 0.42);
-        const py = bY + Math.sin(pa) * (bR * 0.42);
-        if (p === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
+      ctx.arc(x + bR * 0.1, bY - bR * 0.05, bR * 0.52, 0.2, Math.PI * 1.35);
+      ctx.stroke();
+
+      ctx.fillStyle = "#1e1b4b";
+      ctx.beginPath();
+      ctx.arc(x - bR * 0.22, bY + bR * 0.18, bR * 0.24, 0, Math.PI * 2);
       ctx.fill();
     }
 
     function drawFrontalAthlete(ctx, ent) {
-      const { x, y, sc, kit, number, isKeeper, pose, isFromBehind } = ent;
-      const jerseyColor = isKeeper ? kit.keeper : kit.jersey;
-      const shortsColor = kit.shorts || "#ffffff";
-      const socksColor = kit.socks || jerseyColor;
-      const skinColor = isKeeper ? "#fcd34d" : (number % 2 === 0 ? "#8d5b4c" : "#fcd34d");
-      const hairColor = number % 2 === 0 ? "#1e293b" : "#451a03";
+      const { x, y, sc, kit, number, isKeeper, isReferee, isLinesman, pose, facing, name, elapsed } = ent;
+      const jerseyColor = isReferee ? "#1e293b" : (isLinesman ? "#0f172a" : (isKeeper ? (kit.keeper || "#84cc16") : kit.jersey));
+      const shortsColor = isReferee || isLinesman ? "#090d16" : (isKeeper ? (kit.keeper || "#84cc16") : (kit.shorts || "#ffffff"));
+      const socksColor = isReferee || isLinesman ? "#090d16" : (isKeeper ? "#bef264" : (kit.socks || "#ffffff"));
+      const bootColor = isReferee || isLinesman ? "#0f172a" : ((number % 3 === 0) ? "#f97316" : (number % 2 === 0 ? "#e2e8f0" : "#1e293b"));
+      const skinTones = ["#f5cba7", "#e59866", "#8d5524", "#f0b27a", "#c68642"];
+      const hairColors = ["#1c1917", "#451a03", "#78350f", "#0f172a", "#92400e", "#d97706"];
+      const skinColor = skinTones[(number || 1) % skinTones.length];
+      const hairColor = hairColors[(number || 1) % hairColors.length];
 
       ctx.save();
       ctx.translate(x, y);
 
-      // Sombra en el césped bajo los pies
-      ctx.fillStyle = "rgba(0, 25, 8, 0.35)";
+      // Sombra direccional suave sobre el césped
+      ctx.fillStyle = "rgba(8, 24, 6, 0.38)";
       ctx.beginPath();
-      ctx.ellipse(0, 0, 9 * sc, 4 * sc, 0, 0, Math.PI * 2);
+      ctx.ellipse(-1.5 * sc, 0.5 * sc, 7.5 * sc, 3.0 * sc, -0.22, 0, Math.PI * 2);
       ctx.fill();
 
-      // Si es portero lanzándose en plancha (DIVE):
+      // 1. PORTERO EN ESTIRADA (DIVE)
       if (pose === "DIVE_RIGHT" || pose === "DIVE_LEFT") {
-        const isRight = pose === "DIVE_RIGHT";
-        ctx.rotate(isRight ? 0.75 : -0.75);
+        const dir = pose === "DIVE_RIGHT" ? 1 : -1;
+        ctx.save();
+        ctx.translate(0, -9 * sc);
+        ctx.rotate(dir * 0.68);
 
-        // Cuerpo horizontal volando hacia el balón
-        const bodyY = -12 * sc;
-        ctx.strokeStyle = shortsColor;
-        ctx.lineWidth = 4 * sc;
+        // Piernas estiradas
+        ctx.strokeStyle = skinColor;
+        ctx.lineWidth = 2.6 * sc;
         ctx.beginPath();
-        ctx.moveTo(isRight ? -10 * sc : 10 * sc, bodyY);
-        ctx.lineTo(isRight ? -22 * sc : 22 * sc, bodyY + 3 * sc);
+        ctx.moveTo(-dir * 6 * sc, 0);
+        ctx.lineTo(-dir * 14 * sc, 3 * sc);
         ctx.stroke();
 
         ctx.strokeStyle = socksColor;
-        ctx.lineWidth = 3.2 * sc;
+        ctx.lineWidth = 2.6 * sc;
         ctx.beginPath();
-        ctx.moveTo(isRight ? -22 * sc : 22 * sc, bodyY + 3 * sc);
-        ctx.lineTo(isRight ? -30 * sc : 30 * sc, bodyY + 6 * sc);
+        ctx.moveTo(-dir * 14 * sc, 3 * sc);
+        ctx.lineTo(-dir * 22 * sc, 5 * sc);
         ctx.stroke();
 
-        // Torso en kit portero
+        // Pantalón y torso
+        ctx.fillStyle = shortsColor;
+        ctx.beginPath();
+        ctx.roundRect(-7 * sc, -3.5 * sc, 8 * sc, 6.5 * sc, 1.5 * sc);
+        ctx.fill();
+
         ctx.fillStyle = jerseyColor;
         ctx.beginPath();
-        ctx.roundRect(-7 * sc, bodyY - 6 * sc, 14 * sc, 11 * sc, 2.5 * sc);
+        ctx.roundRect(-2 * sc, -4.5 * sc, 12 * sc, 8.5 * sc, 2 * sc);
         ctx.fill();
 
-        // Brazos estirados al máximo
+        // Brazos hacia el balón
         ctx.strokeStyle = jerseyColor;
-        ctx.lineWidth = 3.2 * sc;
+        ctx.lineWidth = 2.6 * sc;
         ctx.beginPath();
-        ctx.moveTo(isRight ? 6 * sc : -6 * sc, bodyY - 2 * sc);
-        ctx.lineTo(isRight ? 24 * sc : -24 * sc, bodyY - 4 * sc);
+        ctx.moveTo(dir * 7 * sc, -2 * sc);
+        ctx.lineTo(dir * 20 * sc, -4 * sc);
+        ctx.moveTo(dir * 7 * sc, 2 * sc);
+        ctx.lineTo(dir * 18 * sc, 0);
         ctx.stroke();
 
-        // Guantes con palma neón extendidos para parar
-        ctx.fillStyle = "#ffffff";
+        // Guantes de portero
+        ctx.fillStyle = "#d9f99d";
         ctx.beginPath();
-        ctx.arc(isRight ? 25 * sc : -25 * sc, bodyY - 4 * sc, 3.8 * sc, 0, Math.PI * 2);
+        ctx.arc(dir * 21 * sc, -4 * sc, 2.8 * sc, 0, Math.PI * 2);
+        ctx.arc(dir * 19 * sc, 0, 2.5 * sc, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "#10b981";
-        ctx.lineWidth = 1;
-        ctx.stroke();
 
         // Cabeza
         ctx.fillStyle = skinColor;
         ctx.beginPath();
-        ctx.arc(0, bodyY - 9 * sc, 4.2 * sc, 0, Math.PI * 2);
+        ctx.arc(dir * 10 * sc, -3.5 * sc, 3.3 * sc, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = hairColor;
         ctx.beginPath();
-        ctx.arc(0, bodyY - 10.5 * sc, 4.2 * sc, Math.PI, 0);
+        ctx.arc(dir * 10 * sc, -4.5 * sc, 3.2 * sc, Math.PI, 0);
         ctx.fill();
 
+        ctx.restore();
         ctx.restore();
         return;
       }
 
-      // Si es portero en el suelo
+      // 2. PORTERO EN EL SUELO TRAS ESTIRADA
       if (pose === "GROUND_RIGHT" || pose === "GROUND_LEFT" || pose === "CONCEDED") {
+        const dir = pose === "GROUND_LEFT" ? -1 : 1;
         ctx.fillStyle = jerseyColor;
         ctx.beginPath();
-        ctx.ellipse(0, -3 * sc, 12 * sc, 5 * sc, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, -3 * sc, 10 * sc, 4 * sc, 0.1 * dir, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = shortsColor;
+        ctx.beginPath();
+        ctx.ellipse(-dir * 7 * sc, -2.5 * sc, 4.5 * sc, 3.2 * sc, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = skinColor;
         ctx.beginPath();
-        ctx.arc(pose === "GROUND_RIGHT" ? 11 * sc : -11 * sc, -3 * sc, 3.8 * sc, 0, Math.PI * 2);
+        ctx.arc(dir * 9.5 * sc, -4.5 * sc, 3.2 * sc, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
         return;
       }
 
-      // Si es central en segada defensiva (SLIDE_BLOCK):
+      // 3. CENTRAL EN SEGADA DEFENSIVA (SLIDE_BLOCK)
       if (pose === "SLIDE_BLOCK") {
         ctx.strokeStyle = socksColor;
-        ctx.lineWidth = 4 * sc;
+        ctx.lineWidth = 3.2 * sc;
         ctx.beginPath();
-        ctx.moveTo(-6 * sc, -4 * sc);
-        ctx.lineTo(18 * sc, -2 * sc);
+        ctx.moveTo(-4 * sc, -3 * sc);
+        ctx.lineTo(14 * sc, -1.5 * sc);
         ctx.stroke();
 
-        ctx.fillStyle = "#0f172a";
-        ctx.fillRect(17 * sc, -4 * sc, 6 * sc, 3 * sc);
+        ctx.fillStyle = bootColor;
+        ctx.fillRect(13 * sc, -3.5 * sc, 4.5 * sc, 2.5 * sc);
+
+        ctx.fillStyle = shortsColor;
+        ctx.beginPath();
+        ctx.roundRect(-7 * sc, -7 * sc, 8 * sc, 5.5 * sc, 1.5 * sc);
+        ctx.fill();
 
         ctx.fillStyle = jerseyColor;
         ctx.beginPath();
-        ctx.roundRect(-10 * sc, -14 * sc, 12 * sc, 10 * sc, 2 * sc);
+        ctx.roundRect(-11 * sc, -14 * sc, 9.5 * sc, 8.5 * sc, 2 * sc);
         ctx.fill();
 
         ctx.fillStyle = skinColor;
         ctx.beginPath();
-        ctx.arc(-5 * sc, -18 * sc, 3.8 * sc, 0, Math.PI * 2);
+        ctx.arc(-7 * sc, -17 * sc, 3.2 * sc, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = hairColor;
-        ctx.beginPath();
-        ctx.arc(-5 * sc, -19.5 * sc, 3.8 * sc, Math.PI, 0);
-        ctx.fill();
-
         ctx.restore();
         return;
       }
 
-      // JUGADOR DE PIE / CORRIENDO / DISPARANDO / CELEBRANDO
-      const hipY = -12 * sc;
-      const shoulderY = -23 * sc;
-      const headY = -27.5 * sc;
-      const headR = 3.8 * sc;
+      // 4. ANATOMÍA 3D DE FUTBOLISTA DE PIE / EN CARRERA / CHUTANDO / BARRERA
+      const runPhase = (elapsed || 0) * 9.5 + (number || 1) * 1.7;
+      const isMoving = pose === "DRIBBLE" || pose === "RUNNING_UP" || pose === "SPRINT";
+      const stride = isMoving ? Math.sin(runPhase) * 4.8 * sc : 0;
+      const kneeLift = isMoving ? Math.max(0, Math.cos(runPhase)) * 2.5 * sc : 0;
 
-      let lStride = 0;
-      let rStride = 0;
+      // Orientación: "BACK_LEFT" (atacante mirando hacia portería izq-arriba, vemos su espalda/dorsal y perfil izq)
+      // "FRONT_RIGHT" (defensa/portero/barrera mirando hacia el balón abajo-dcha, vemos su pecho)
+      const isBackView = facing === "BACK_LEFT";
+
+      let lFootX = -2.4 * sc;
+      let lFootY = -0.5 * sc;
+      let rFootX = 2.4 * sc;
+      let rFootY = -0.5 * sc;
+      let lKneeX = -2.4 * sc;
+      let lKneeY = -6.2 * sc;
+      let rKneeX = 2.4 * sc;
+      let rKneeY = -6.2 * sc;
+      let torsoLeanX = 0;
+
       if (pose === "WINDUP_SHOT") {
-        lStride = -2 * sc;
-        rStride = 8 * sc;
-      } else if (pose === "SHOT_FOLLOW_THROUGH") {
-        lStride = -2 * sc;
-        rStride = -8 * sc;
-      } else if (pose === "CELEBRATE_JUMP") {
-        lStride = 2 * sc;
-        rStride = -2 * sc;
+        // Pierna izquierda plantada junto al balón, pierna derecha armada atrás, brazo derecho extendido (como el #20 de la foto)
+        lFootX = -3.8 * sc;
+        lFootY = 0.5 * sc;
+        lKneeX = -3.2 * sc;
+        lKneeY = -6.0 * sc;
+        rFootX = 6.8 * sc;
+        rFootY = -5.5 * sc;
+        rKneeX = 4.2 * sc;
+        rKneeY = -7.2 * sc;
+        torsoLeanX = -1.8 * sc;
+      } else if (pose === "SHOT_FOLLOW_THROUGH" || pose === "PASS_DELIVERY") {
+        // Pierna de golpeo lanzada hacia adelante-izquierda tras impactar el balón
+        lFootX = 2.5 * sc;
+        lFootY = 1.2 * sc;
+        lKneeX = 1.2 * sc;
+        lKneeY = -5.5 * sc;
+        rFootX = -6.5 * sc;
+        rFootY = -4.2 * sc;
+        rKneeX = -3.5 * sc;
+        rKneeY = -7.5 * sc;
+        torsoLeanX = -1.2 * sc;
+      } else if (pose === "WALL_GUARD") {
+        // Barrera defensiva con piernas juntas y manos protegiendo
+        lFootX = -1.8 * sc;
+        rFootX = 1.8 * sc;
+        lKneeX = -1.8 * sc;
+        rKneeX = 1.8 * sc;
+      } else if (pose === "GK_READY" || pose === "BOUNCE") {
+        // Portero con piernas abiertas en tensión bajo palos (como en la foto)
+        lFootX = -5.2 * sc;
+        rFootX = 5.2 * sc;
+        lKneeX = -4.2 * sc;
+        rKneeX = 4.2 * sc;
+        lKneeY = -5.5 * sc;
+        rKneeY = -5.5 * sc;
+      } else if (isMoving) {
+        lFootX = -2.2 * sc - stride * 0.7;
+        lFootY = -0.5 * sc + stride * 0.35 - kneeLift * 0.4;
+        rFootX = 2.2 * sc + stride * 0.7;
+        rFootY = -0.5 * sc - stride * 0.35;
+        lKneeX = -2.0 * sc - stride * 0.35;
+        lKneeY = -6.2 * sc - kneeLift * 0.5;
+        rKneeX = 2.0 * sc + stride * 0.35;
+        rKneeY = -6.2 * sc;
+        torsoLeanX = isBackView ? -1.0 * sc : 0.8 * sc;
       }
 
-      // Muslos / Pantalón
-      ctx.strokeStyle = shortsColor;
-      ctx.lineWidth = 4.2 * sc;
+      const hipY = -11.5 * sc;
+      const shoulderY = -22.2 * sc;
+      const headY = -26.2 * sc;
+      const headR = 3.1 * sc;
+
+      // Muslos (piel + caída del pantalón)
+      ctx.lineCap = "round";
+      ctx.strokeStyle = skinColor;
+      ctx.lineWidth = 2.7 * sc;
       ctx.beginPath();
-      ctx.moveTo(-3 * sc, hipY);
-      ctx.lineTo(-3 * sc + lStride * 0.4, -6 * sc);
-      ctx.moveTo(3 * sc, hipY);
-      ctx.lineTo(3 * sc + rStride * 0.4, -6 * sc);
+      ctx.moveTo(-2.2 * sc, hipY + 2 * sc);
+      ctx.lineTo(lKneeX, lKneeY);
+      ctx.moveTo(2.2 * sc, hipY + 2 * sc);
+      ctx.lineTo(rKneeX, rKneeY);
       ctx.stroke();
 
-      // Calcetas
+      // Medias altas hasta debajo de la rodilla
       ctx.strokeStyle = socksColor;
-      ctx.lineWidth = 3.2 * sc;
+      ctx.lineWidth = 2.5 * sc;
       ctx.beginPath();
-      ctx.moveTo(-3 * sc + lStride * 0.4, -6 * sc);
-      ctx.lineTo(-3 * sc + lStride, -1 * sc);
-      ctx.moveTo(3 * sc + rStride * 0.4, -6 * sc);
-      ctx.lineTo(3 * sc + rStride, -1 * sc);
+      ctx.moveTo(lKneeX, lKneeY + 0.5 * sc);
+      ctx.lineTo(lFootX, lFootY);
+      ctx.moveTo(rKneeX, rKneeY + 0.5 * sc);
+      ctx.lineTo(rFootX, rFootY);
       ctx.stroke();
 
-      // Botas
-      ctx.fillStyle = "#0f172a";
+      // Vuelta superior de la media
+      ctx.strokeStyle = jerseyColor;
+      ctx.lineWidth = 1.0 * sc;
       ctx.beginPath();
-      ctx.ellipse(-3 * sc + lStride, -0.8 * sc, 3.4 * sc, 1.4 * sc, 0, 0, Math.PI * 2);
-      ctx.ellipse(3 * sc + rStride, -0.8 * sc, 3.4 * sc, 1.4 * sc, 0, 0, Math.PI * 2);
+      ctx.moveTo(lKneeX - 1.1 * sc, lKneeY + 1.0 * sc);
+      ctx.lineTo(lKneeX + 1.1 * sc, lKneeY + 1.0 * sc);
+      ctx.moveTo(rKneeX - 1.1 * sc, rKneeY + 1.0 * sc);
+      ctx.lineTo(rKneeX + 1.1 * sc, rKneeY + 1.0 * sc);
+      ctx.stroke();
+
+      // Botas con tacos
+      ctx.fillStyle = bootColor;
+      ctx.beginPath();
+      ctx.ellipse(lFootX - (isBackView ? 0.8 * sc : -0.8 * sc), lFootY, 2.7 * sc, 1.25 * sc, isBackView ? -0.2 : 0.2, 0, Math.PI * 2);
+      ctx.ellipse(rFootX - (isBackView ? 0.8 * sc : -0.8 * sc), rFootY, 2.7 * sc, 1.25 * sc, isBackView ? -0.2 : 0.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Pantalón corto
+      // Pantalón corto (Shorts) con perneras separadas
       ctx.fillStyle = shortsColor;
       ctx.beginPath();
-      ctx.roundRect(-5.5 * sc, hipY, 11 * sc, 6.5 * sc, 1.5 * sc);
+      ctx.moveTo(-4.4 * sc, hipY - 1.5 * sc);
+      ctx.lineTo(4.4 * sc, hipY - 1.5 * sc);
+      ctx.lineTo(4.2 * sc + (rKneeX - 2.2 * sc) * 0.45, hipY + 3.8 * sc);
+      ctx.lineTo(0.4 * sc, hipY + 3.2 * sc);
+      ctx.lineTo(0, hipY + 1.5 * sc);
+      ctx.lineTo(-0.4 * sc, hipY + 3.2 * sc);
+      ctx.lineTo(-4.2 * sc + (lKneeX + 2.2 * sc) * 0.45, hipY + 3.8 * sc);
+      ctx.closePath();
       ctx.fill();
+      ctx.strokeStyle = "rgba(15, 23, 42, 0.22)";
+      ctx.lineWidth = 0.6 * sc;
+      ctx.stroke();
 
-      // Torso y camiseta oficial
+      // Torso anatómico con volumen y sombreado lateral
+      ctx.save();
+      ctx.translate(torsoLeanX, 0);
+
+      const torsoGrad = ctx.createLinearGradient(-5.5 * sc, shoulderY, 5.5 * sc, hipY);
+      torsoGrad.addColorStop(0, jerseyColor);
+      torsoGrad.addColorStop(0.7, jerseyColor);
+      torsoGrad.addColorStop(1, "#0f172a");
       ctx.fillStyle = jerseyColor;
       ctx.beginPath();
-      ctx.roundRect(-6.5 * sc, shoulderY, 13 * sc, 12 * sc, 2.5 * sc);
+      ctx.moveTo(-5.0 * sc, shoulderY);
+      ctx.lineTo(5.0 * sc, shoulderY);
+      ctx.lineTo(4.1 * sc, hipY - 0.5 * sc);
+      ctx.lineTo(-4.1 * sc, hipY - 0.5 * sc);
+      ctx.closePath();
       ctx.fill();
 
-      // Cuello
-      ctx.fillStyle = kit.collar || "#ffffff";
+      // Sombreado sutil de pliegues en la camiseta
+      ctx.fillStyle = "rgba(0, 0, 0, 0.14)";
       ctx.beginPath();
-      ctx.ellipse(0, shoulderY + 0.5 * sc, 3 * sc, 1.4 * sc, 0, 0, Math.PI * 2);
+      ctx.moveTo(1.8 * sc, shoulderY);
+      ctx.lineTo(5.0 * sc, shoulderY);
+      ctx.lineTo(4.1 * sc, hipY - 0.5 * sc);
+      ctx.lineTo(1.2 * sc, hipY - 0.5 * sc);
+      ctx.closePath();
       ctx.fill();
 
-      // Número en la espalda para atacantes en primer plano
-      if (isFromBehind) {
+      // Cuello de la camiseta
+      ctx.strokeStyle = kit.collar || "#ffffff";
+      ctx.lineWidth = 1.1 * sc;
+      ctx.beginPath();
+      ctx.arc(0, shoulderY + 0.6 * sc, 2.1 * sc, 0.1 * Math.PI, 0.9 * Math.PI);
+      ctx.stroke();
+
+      // Dorsal y nombre en la espalda (como el #20 azul de la referencia)
+      if (isBackView && !isReferee && !isLinesman) {
         ctx.fillStyle = kit.number || "#ffffff";
-        ctx.font = `900 ${Math.round(6.5 * sc)}px monospace`;
+        ctx.font = `900 ${Math.max(6, Math.round(6.2 * sc))}px "Impact", "Arial Black", sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.fillText(`${number}`, 0, shoulderY + 6.5 * sc);
+        ctx.fillText(`${number}`, 0, shoulderY + 5.8 * sc);
+      } else if (!isBackView && !isReferee && !isLinesman && !isKeeper) {
+        // Detalle de escudo/sponsor en el pecho
+        ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
+        ctx.fillRect(-2.4 * sc, shoulderY + 3.8 * sc, 4.8 * sc, 1.2 * sc);
       }
 
-      // Brazos
-      ctx.strokeStyle = jerseyColor;
-      ctx.lineWidth = 3.2 * sc;
-      if (pose === "CELEBRATE_JUMP") {
-        ctx.beginPath();
-        ctx.moveTo(-5.5 * sc, shoulderY + 2 * sc);
-        ctx.lineTo(-11 * sc, shoulderY - 8 * sc);
-        ctx.moveTo(5.5 * sc, shoulderY + 2 * sc);
-        ctx.lineTo(11 * sc, shoulderY - 8 * sc);
-        ctx.stroke();
+      // Brazos articulados (manga corta + antebrazo piel)
+      let lArmEndX = -7.5 * sc;
+      let lArmEndY = hipY - 1.5 * sc;
+      let rArmEndX = 7.5 * sc;
+      let rArmEndY = hipY - 1.5 * sc;
+
+      if (pose === "WINDUP_SHOT" || pose === "SHOT_FOLLOW_THROUGH" || pose === "PASS_DELIVERY") {
+        // Pose icónica de golpeo: brazo derecho extendido arriba-derecha para equilibrar el cuerpo (igual al #20 de la foto)
+        lArmEndX = -8.5 * sc;
+        lArmEndY = shoulderY + 4.5 * sc;
+        rArmEndX = 12.0 * sc;
+        rArmEndY = shoulderY - 2.5 * sc;
+      } else if (pose === "WALL_GUARD") {
+        // Manos bajas juntas delante del cuerpo protegiendo en la barrera
+        lArmEndX = -1.6 * sc;
+        lArmEndY = hipY + 1.0 * sc;
+        rArmEndX = 1.6 * sc;
+        rArmEndY = hipY + 1.0 * sc;
+      } else if (pose === "CELEBRATE_JUMP") {
+        lArmEndX = -10 * sc;
+        lArmEndY = shoulderY - 7 * sc;
+        rArmEndX = 10 * sc;
+        rArmEndY = shoulderY - 7 * sc;
       } else if (pose === "HANDS_ON_HEAD") {
-        ctx.beginPath();
-        ctx.moveTo(-5.5 * sc, shoulderY + 2 * sc);
-        ctx.lineTo(-7 * sc, headY);
-        ctx.moveTo(5.5 * sc, shoulderY + 2 * sc);
-        ctx.lineTo(7 * sc, headY);
-        ctx.stroke();
-      } else {
-        ctx.beginPath();
-        ctx.moveTo(-5.5 * sc, shoulderY + 2 * sc);
-        ctx.lineTo(-9 * sc, hipY);
-        ctx.moveTo(5.5 * sc, shoulderY + 2 * sc);
-        ctx.lineTo(9 * sc, hipY);
-        ctx.stroke();
+        lArmEndX = -3.5 * sc;
+        lArmEndY = headY;
+        rArmEndX = 3.5 * sc;
+        rArmEndY = headY;
+      } else if (isMoving) {
+        lArmEndX = -6.8 * sc + stride * 0.45;
+        lArmEndY = shoulderY + 6.5 * sc - stride * 0.3;
+        rArmEndX = 6.8 * sc - stride * 0.45;
+        rArmEndY = shoulderY + 6.5 * sc + stride * 0.3;
       }
 
-      // Guantes de portero
-      if (isKeeper) {
-        ctx.fillStyle = "#ffffff";
+      // Mangas
+      const lElbX = (-4.8 * sc + lArmEndX) * 0.5;
+      const lElbY = (shoulderY + 1.5 * sc + lArmEndY) * 0.5;
+      const rElbX = (4.8 * sc + rArmEndX) * 0.5;
+      const rElbY = (shoulderY + 1.5 * sc + rArmEndY) * 0.5;
+
+      ctx.strokeStyle = jerseyColor;
+      ctx.lineWidth = 2.6 * sc;
+      ctx.beginPath();
+      ctx.moveTo(-4.8 * sc, shoulderY + 1.2 * sc);
+      ctx.lineTo(lElbX, lElbY);
+      ctx.moveTo(4.8 * sc, shoulderY + 1.2 * sc);
+      ctx.lineTo(rElbX, rElbY);
+      ctx.stroke();
+
+      // Antebrazos piel (o manga larga si es portero/árbitro)
+      ctx.strokeStyle = (isKeeper || isReferee) ? jerseyColor : skinColor;
+      ctx.lineWidth = 2.0 * sc;
+      ctx.beginPath();
+      ctx.moveTo(lElbX, lElbY);
+      ctx.lineTo(lArmEndX, lArmEndY);
+      ctx.moveTo(rElbX, rElbY);
+      ctx.lineTo(rArmEndX, rArmEndY);
+      ctx.stroke();
+
+      // Manos o guantes
+      ctx.fillStyle = isKeeper ? "#bef264" : skinColor;
+      ctx.beginPath();
+      ctx.arc(lArmEndX, lArmEndY, (isKeeper ? 2.1 : 1.3) * sc, 0, Math.PI * 2);
+      ctx.arc(rArmEndX, rArmEndY, (isKeeper ? 2.1 : 1.3) * sc, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Banderín de juez de línea si es linier
+      if (isLinesman) {
+        ctx.strokeStyle = "#e2e8f0";
+        ctx.lineWidth = 1.0 * sc;
         ctx.beginPath();
-        ctx.arc(-9 * sc, hipY, 2.8 * sc, 0, Math.PI * 2);
-        ctx.arc(9 * sc, hipY, 2.8 * sc, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = "#10b981";
-        ctx.lineWidth = 0.8;
+        ctx.moveTo(rArmEndX, rArmEndY);
+        ctx.lineTo(rArmEndX + 2.5 * sc, rArmEndY + 5.5 * sc);
         ctx.stroke();
+        ctx.fillStyle = "#ef4444";
+        ctx.fillRect(rArmEndX + 1.0 * sc, rArmEndY + 3.0 * sc, 3.2 * sc, 2.5 * sc);
+        ctx.fillStyle = "#facc15";
+        ctx.fillRect(rArmEndX + 2.6 * sc, rArmEndY + 3.0 * sc, 1.6 * sc, 2.5 * sc);
       }
 
-      // Cabeza y pelo
+      // Cuello y Cabeza con corte de pelo realista
       ctx.fillStyle = skinColor;
+      ctx.fillRect(-1.2 * sc, headY + 1.8 * sc, 2.4 * sc, 2.5 * sc);
       ctx.beginPath();
       ctx.arc(0, headY, headR, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.fillStyle = hairColor;
       ctx.beginPath();
-      if (isFromBehind) {
-        ctx.arc(0, headY - 0.5 * sc, headR * 0.98, 0, Math.PI * 2);
-      } else {
-        ctx.arc(0, headY - 1 * sc, headR * 0.95, Math.PI, 0);
-      }
-      ctx.fill();
-
-      // Rótulo con el nombre del jugador
-      if (ent.name) {
-        ctx.fillStyle = "rgba(15, 23, 42, 0.75)";
-        ctx.font = `bold ${Math.max(9, Math.round(5.5 * sc))}px sans-serif`;
-        const textW = ctx.measureText(ent.name).width;
-        ctx.beginPath();
-        ctx.roundRect(-textW / 2 - 3, headY - 9 * sc, textW + 6, 8 * sc, 2);
+      if (isBackView) {
+        ctx.arc(0.2 * sc, headY - 0.4 * sc, headR * 0.96, 0.85 * Math.PI, 2.15 * Math.PI);
         ctx.fill();
-        ctx.fillStyle = "#ffffff";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(ent.name, 0, headY - 5 * sc);
+        ctx.beginPath();
+        ctx.arc(0.3 * sc, headY + 0.2 * sc, headR * 0.85, -0.2 * Math.PI, 0.85 * Math.PI);
+        ctx.fill();
+      } else {
+        ctx.arc(0, headY - 0.8 * sc, headR * 0.96, Math.PI, 0);
+        ctx.fill();
       }
 
+      // Indicador sutil sobre el jugador activo con balón (estilo cursor EA FC)
+      if (ent.isActiveCarrier) {
+        ctx.fillStyle = "#38bdf8";
+        ctx.beginPath();
+        ctx.moveTo(0, headY - 6.2 * sc);
+        ctx.lineTo(-2.6 * sc, headY - 9.8 * sc);
+        ctx.lineTo(2.6 * sc, headY - 9.8 * sc);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      ctx.restore();
       ctx.restore();
     }
 
@@ -3432,636 +3627,864 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const defKit = isHome ? kits.away : kits.home;
 
       const sc = Math.min(w / 460, h / 290);
-
-      // Helper de interpolación lineal
       const lerp = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
+      const p3d = (u, v, z = 0) => projectEA3D(u, v, z, w, h);
 
-      // 1. FONDO: ESTADIO, GRADAS Y AMBIENTE
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.22);
-      skyGrad.addColorStop(0, "#030712");
-      skyGrad.addColorStop(0.6, "#0f172a");
-      skyGrad.addColorStop(1, "#1e293b");
-      ctx.fillStyle = skyGrad;
+      // 1. FONDO DE GRADAS EN PERSPECTIVA DIAGONAL (FIEL A LA IMAGEN DE REFERENCIA)
+      ctx.fillStyle = "#18181b";
       ctx.fillRect(0, 0, w, h);
 
-      // Gradas superiores detrás de la portería
-      const standTopY = h * 0.02;
-      const standBotY = h * 0.16;
-      const numRows = 6;
-      for (let r = 0; r < numRows; r++) {
-        const ry = standTopY + (r / numRows) * (standBotY - standTopY);
-        const rh = (standBotY - standTopY) / numRows;
-        ctx.fillStyle = r % 2 === 0 ? "#0f172a" : "#1e293b";
-        ctx.fillRect(0, ry, w, rh);
+      // Polígono de la grada tras la línea de fondo (izquierda a centro-arriba) y banda lejana (centro-arriba a derecha)
+      const cornerAdBase = p3d(-1.5, -1.2, 0);
+      const leftAdBase = p3d(-1.5, 48, 0);
+      const rightAdBase = p3d(38, -1.2, 0);
 
-        const dots = Math.floor(w / 7);
-        for (let d = 0; d < dots; d++) {
-          const dx = d * 7 + (r % 2 === 0 ? 3.5 : 0);
-          const colorSeed = (d * 17 + r * 31) % 9;
-          const fanColor = colorSeed < 3 ? (atkTeam.primaryColor || "#38bdf8")
-            : colorSeed < 5 ? (defTeam.primaryColor || "#ef4444")
-            : colorSeed < 7 ? "#f8fafc" : "#475569";
-          ctx.fillStyle = fanColor;
+      // Grada de fondo (detrás de la portería, desde x=0 hasta el córner en x≈0.67w)
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(w, 0);
+      ctx.lineTo(rightAdBase.x, rightAdBase.y);
+      ctx.lineTo(cornerAdBase.x, cornerAdBase.y);
+      ctx.lineTo(leftAdBase.x, leftAdBase.y);
+      ctx.lineTo(0, leftAdBase.y + 20 * sc);
+      ctx.closePath();
+      ctx.clip();
+
+      // Base de hormigón y asientos rojos/grises del estadio
+      const standGrad = ctx.createLinearGradient(0, 0, 0, h * 0.36);
+      standGrad.addColorStop(0, "#1e1b24");
+      standGrad.addColorStop(0.5, "#27272a");
+      standGrad.addColorStop(1, "#3f3f46");
+      ctx.fillStyle = standGrad;
+      ctx.fillRect(0, 0, w, h * 0.42);
+
+      // Bloques de asientos rojos visibles entre aficionados (como en la foto)
+      for (let r = 0; r < 9; r++) {
+        const rowT = r / 9;
+        const yLeft = lerp(4 * sc, leftAdBase.y - 14 * sc, rowT);
+        const yCorner = lerp(-18 * sc, cornerAdBase.y - 11 * sc, rowT);
+        const yRight = lerp(-10 * sc, rightAdBase.y - 11 * sc, rowT);
+
+        // Filas de grada tras portería
+        ctx.strokeStyle = r % 2 === 0 ? "#dc2626" : "#991b1b";
+        ctx.lineWidth = 4.2 * sc;
+        ctx.beginPath();
+        ctx.moveTo(0, yLeft);
+        ctx.lineTo(cornerAdBase.x, yCorner);
+        ctx.lineTo(w, yRight);
+        ctx.stroke();
+      }
+
+      // Escaleras de hormigón con bordes amarillos de seguridad y vomitorios (como en la parte superior central de la foto)
+      const drawStairway = (topX, topY, botX, botY, stairW) => {
+        ctx.fillStyle = "#52525b";
+        ctx.beginPath();
+        ctx.moveTo(topX - stairW * 0.45, topY);
+        ctx.lineTo(topX + stairW * 0.45, topY);
+        ctx.lineTo(botX + stairW * 0.55, botY);
+        ctx.lineTo(botX - stairW * 0.55, botY);
+        ctx.closePath();
+        ctx.fill();
+
+        const steps = 8;
+        for (let s = 0; s <= steps; s++) {
+          const st = s / steps;
+          const sx = lerp(topX, botX, st);
+          const sy = lerp(topY, botY, st);
+          const sw = lerp(stairW * 0.45, stairW * 0.55, st);
+          ctx.strokeStyle = "#eab308";
+          ctx.lineWidth = 1.3 * sc;
           ctx.beginPath();
-          ctx.arc(dx, ry + rh * 0.55, 1.2 * sc, 0, Math.PI * 2);
+          ctx.moveTo(sx - sw, sy);
+          ctx.lineTo(sx + sw, sy);
+          ctx.stroke();
+        }
+      };
+
+      drawStairway(w * 0.15, -5 * sc, w * 0.21, lerp(leftAdBase.y, cornerAdBase.y, 0.34) - 8 * sc, 15 * sc);
+      drawStairway(w * 0.36, -5 * sc, w * 0.41, lerp(leftAdBase.y, cornerAdBase.y, 0.63) - 8 * sc, 14 * sc);
+      drawStairway(w * 0.91, -5 * sc, w * 0.93, lerp(cornerAdBase.y, rightAdBase.y, 0.78) - 8 * sc, 16 * sc);
+
+      // Vomitorio / túnel de esquina (arriba al centro-derecha, igual que en la foto)
+      ctx.fillStyle = "#d4d4d8";
+      ctx.fillRect(w * 0.56, 0, w * 0.14, cornerAdBase.y - 4 * sc);
+      ctx.fillStyle = "#18181b";
+      ctx.fillRect(w * 0.585, 0, w * 0.055, cornerAdBase.y - 12 * sc);
+      drawStairway(w * 0.565, 0, w * 0.58, cornerAdBase.y - 8 * sc, 11 * sc);
+      drawStairway(w * 0.685, 0, w * 0.70, cornerAdBase.y - 8 * sc, 12 * sc);
+
+      // Multitud detallada (cabezas y torsos con camisetas granates, rosas, blancas, azules y chaquetas oscuras)
+      const fanPalette = ["#881337", "#be123c", "#f472b6", "#fbcfe8", "#e2e8f0", "#1e293b", "#334155", "#7f1d1d", "#2563eb", "#d97706"];
+      const crowdCelebrate = (elapsed > 12.4 && outcome === "GOAL") ? Math.abs(Math.sin(now * 0.015)) * 2.5 * sc : 0;
+
+      for (let row = 0; row < 10; row++) {
+        const rowT = (row + 0.4) / 10;
+        // Grada izquierda (tras portería)
+        const numLeftFans = 58;
+        for (let i = 0; i < numLeftFans; i++) {
+          const uFan = i / numLeftFans;
+          const fx = lerp(0, cornerAdBase.x - 22 * sc, uFan);
+          // Saltar huecos de escaleras y vomitorio
+          if ((fx > w * 0.16 && fx < w * 0.21) || (fx > w * 0.37 && fx < w * 0.41) || (fx > w * 0.55 && fx < w * 0.71)) continue;
+          const fyBase = lerp(lerp(4 * sc, leftAdBase.y - 12 * sc, rowT), lerp(-16 * sc, cornerAdBase.y - 10 * sc, rowT), uFan);
+          const seed = (row * 73 + i * 31) % 100;
+          if (seed < 12) continue; // Asiento libre ocasional mostrando butaca roja
+          const jump = (seed % 3 === 0) ? crowdCelebrate : 0;
+          const fy = fyBase - jump;
+          const shirtCol = fanPalette[seed % fanPalette.length];
+
+          // Torso del aficionado
+          ctx.fillStyle = shirtCol;
+          ctx.beginPath();
+          ctx.roundRect(fx - 2.3 * sc, fy - 4.5 * sc, 4.6 * sc, 5.2 * sc, 1.2 * sc);
+          ctx.fill();
+          // Cabeza del aficionado
+          ctx.fillStyle = seed % 4 === 0 ? "#8d5524" : "#f5cba7";
+          ctx.beginPath();
+          ctx.arc(fx, fy - 5.8 * sc, 1.55 * sc, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = seed % 2 === 0 ? "#1c1917" : "#451a03";
+          ctx.beginPath();
+          ctx.arc(fx, fy - 6.2 * sc, 1.5 * sc, Math.PI, 0);
+          ctx.fill();
+        }
+
+        // Grada derecha (banda lateral superior)
+        const numRightFans = 28;
+        for (let i = 0; i < numRightFans; i++) {
+          const uFan = i / numRightFans;
+          const fx = lerp(cornerAdBase.x + 26 * sc, w, uFan);
+          if (fx > w * 0.90 && fx < w * 0.95) continue;
+          const fyBase = lerp(lerp(-12 * sc, cornerAdBase.y - 10 * sc, rowT), lerp(-6 * sc, rightAdBase.y - 10 * sc, rowT), uFan);
+          const seed = (row * 53 + i * 29) % 100;
+          if (seed < 14) continue;
+          const fy = fyBase - ((seed % 2 === 0) ? crowdCelebrate : 0);
+          ctx.fillStyle = fanPalette[(seed + 3) % fanPalette.length];
+          ctx.beginPath();
+          ctx.roundRect(fx - 2.3 * sc, fy - 4.5 * sc, 4.6 * sc, 5.2 * sc, 1.2 * sc);
+          ctx.fill();
+          ctx.fillStyle = "#f5cba7";
+          ctx.beginPath();
+          ctx.arc(fx, fy - 5.8 * sc, 1.5 * sc, 0, Math.PI * 2);
           ctx.fill();
         }
       }
 
-      // Vallas publicitarias LED luminosas tras la línea de fondo
-      const adY = h * 0.17;
-      const adH = h * 0.055;
-      ctx.fillStyle = "#020617";
-      ctx.fillRect(w * 0.10, adY, w * 0.80, adH);
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.6)";
-      ctx.lineWidth = 1.2 * sc;
-      ctx.strokeRect(w * 0.10, adY, w * 0.80, adH);
-
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = `bold ${Math.round(7.5 * sc)}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const ledText = (elapsed > 11.5 && outcome === "GOAL")
-        ? `⚽ ¡GOOOOOOL DE ${atkTeam.shortName.toUpperCase()}! ⚽`
-        : `⚡ FOOTBALL MANAGER MOBILE  •  ${atkTeam.shortName.toUpperCase()} vs ${defTeam.shortName.toUpperCase()}`;
-      ctx.fillText(ledText, w * 0.50, adY + adH * 0.52);
-
-      // Flashes de cámaras durante el remate a puerta (segundos 11.5 a 14.0)
-      if (elapsed >= 11.5 && elapsed <= 14.0) {
-        for (let f = 0; f < 6; f++) {
-          if (Math.random() < 0.45) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-            ctx.beginPath();
-            ctx.arc(Math.random() * w, standTopY + Math.random() * (standBotY - standTopY), (2.0 + Math.random() * 2.5) * sc, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      }
-
-      // Focos del estadio
-      const floodlights = [{ x: w * 0.08, y: h * 0.04 }, { x: w * 0.92, y: h * 0.04 }];
-      floodlights.forEach(fl => {
-        const beam = ctx.createRadialGradient(fl.x, fl.y, 4, fl.x, h * 0.55, w * 0.6);
-        beam.addColorStop(0, "rgba(255, 255, 255, 0.45)");
-        beam.addColorStop(0.3, "rgba(224, 242, 254, 0.15)");
-        beam.addColorStop(1, "rgba(224, 242, 254, 0)");
-        ctx.fillStyle = beam;
+      // Stewards / Miembros de seguridad con chaleco reflectante naranja y amarillo frente a la valla (igual que en la foto)
+      const stewards = [0.22, 0.42, 0.59, 0.62, 0.68, 0.72, 0.75];
+      stewards.forEach((stPos, idx) => {
+        const sx = w * stPos;
+        const sy = stPos < 0.67
+          ? lerp(leftAdBase.y, cornerAdBase.y, stPos / 0.67) - 3 * sc
+          : lerp(cornerAdBase.y, rightAdBase.y, (stPos - 0.67) / 0.33) - 3 * sc;
+        ctx.fillStyle = idx === 5 ? "#bef264" : "#f97316";
         ctx.beginPath();
-        ctx.arc(fl.x, fl.y, w * 0.55, 0, Math.PI * 2);
+        ctx.roundRect(sx - 2.2 * sc, sy - 6 * sc, 4.4 * sc, 5.5 * sc, 1 * sc);
+        ctx.fill();
+        ctx.fillStyle = "#f5cba7";
+        ctx.beginPath();
+        ctx.arc(sx, sy - 7.5 * sc, 1.5 * sc, 0, Math.PI * 2);
         ctx.fill();
       });
+      ctx.restore();
 
-      // 2. CÉSPED FRONTAL Y LÍNEAS DE CAL EN PERSPECTIVA (DESDE ATRÁS HACIA LA PORTERÍA)
-      const horizonY = h * 0.22;
-      const goalLineY = h * 0.26;
+      // 2. CÉSPED 3D CON FRANJAS DE CORTE TRANSVERSALES Y LONGITUDINALES (EXACTO A LA REFERENCIA)
+      const pitchPolyTL = p3d(-3, -3, 0);
+      const pitchPolyBL = p3d(-3, 62, 0);
+      const pitchPolyBR = p3d(42, 62, 0);
+      const pitchPolyTR = p3d(42, -3, 0);
 
-      const numLawnBands = 12;
-      for (let b = 0; b < numLawnBands; b++) {
-        const topBX1 = (w / 2) + ((b - numLawnBands / 2) / (numLawnBands / 2)) * (w * 0.38);
-        const topBX2 = (w / 2) + ((b + 1 - numLawnBands / 2) / (numLawnBands / 2)) * (w * 0.38);
-        const botBX1 = (w / 2) + ((b - numLawnBands / 2) / (numLawnBands / 2)) * (w * 0.76);
-        const botBX2 = (w / 2) + ((b + 1 - numLawnBands / 2) / (numLawnBands / 2)) * (w * 0.76);
+      ctx.fillStyle = "#2d6a22";
+      ctx.beginPath();
+      ctx.moveTo(pitchPolyTL.x, pitchPolyTL.y);
+      ctx.lineTo(pitchPolyTR.x, pitchPolyTR.y);
+      ctx.lineTo(pitchPolyBR.x, pitchPolyBR.y);
+      ctx.lineTo(pitchPolyBL.x, pitchPolyBL.y);
+      ctx.closePath();
+      ctx.fill();
 
-        ctx.fillStyle = b % 2 === 0 ? "#206e2e" : "#287d37";
+      // Bandas de siega paralelas a la línea de gol (cada 5.5m desde u = -3 hasta u = 40)
+      const stripeWidthU = 5.5;
+      for (let s = -1; s < 8; s++) {
+        const u0 = s * stripeWidthU;
+        const u1 = (s + 1) * stripeWidthU;
+        const q1 = p3d(u0, -3.5, 0);
+        const q2 = p3d(u1, -3.5, 0);
+        const q3 = p3d(u1, 64, 0);
+        const q4 = p3d(u0, 64, 0);
+
+        ctx.fillStyle = (s % 2 === 0) ? "#2d6b22" : "#357a28";
         ctx.beginPath();
-        ctx.moveTo(topBX1, horizonY);
-        ctx.lineTo(topBX2, horizonY);
-        ctx.lineTo(botBX2, h);
-        ctx.lineTo(botBX1, h);
+        ctx.moveTo(q1.x, q1.y);
+        ctx.lineTo(q2.x, q2.y);
+        ctx.lineTo(q3.x, q3.y);
+        ctx.lineTo(q4.x, q4.y);
         ctx.closePath();
         ctx.fill();
       }
 
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-      ctx.lineWidth = 2.2 * sc;
+      // Pasadas longitudinales sutiles de cortacésped (paralelas a la banda)
+      for (let lv = 0; lv < 14; lv++) {
+        if (lv % 2 === 0) continue;
+        const v0 = lv * 5.0;
+        const v1 = (lv + 1) * 5.0;
+        const l1 = p3d(-3, v0, 0);
+        const l2 = p3d(42, v0, 0);
+        const l3 = p3d(42, v1, 0);
+        const l4 = p3d(-3, v1, 0);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.025)";
+        ctx.beginPath();
+        ctx.moveTo(l1.x, l1.y);
+        ctx.lineTo(l2.x, l2.y);
+        ctx.lineTo(l3.x, l3.y);
+        ctx.lineTo(l4.x, l4.y);
+        ctx.closePath();
+        ctx.fill();
+      }
 
-      // Línea de fondo
+      // Iluminación ambiental de estadio sobre el terreno de juego
+      const grassLight = ctx.createRadialGradient(w * 0.45, h * 0.48, w * 0.05, w * 0.45, h * 0.48, w * 0.65);
+      grassLight.addColorStop(0, "rgba(255, 255, 255, 0.06)");
+      grassLight.addColorStop(0.6, "rgba(255, 255, 255, 0.0)");
+      grassLight.addColorStop(1, "rgba(0, 15, 5, 0.22)");
+      ctx.fillStyle = grassLight;
+      ctx.fillRect(0, 0, w, h);
+
+      // 3. VALLAS PUBLICITARIAS LED 3D EN ÁNGULO (ESTILO PREMIER LEAGUE / EA SPORTS)
+      const draw3DBannerSegment = (pA_bot, pB_bot, pB_top, pA_top, index) => {
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(pA_bot.x, pA_bot.y);
+        ctx.lineTo(pB_bot.x, pB_bot.y);
+        ctx.lineTo(pB_top.x, pB_top.y);
+        ctx.lineTo(pA_top.x, pA_top.y);
+        ctx.closePath();
+        ctx.clip();
+
+        // Fondo blanco luminoso con bloques diagonales púrpura, magenta, cian y verde lima (idéntico a la foto)
+        ctx.fillStyle = "#f8fafc";
+        ctx.fill();
+
+        const segGrad = ctx.createLinearGradient(pA_bot.x, pA_bot.y, pB_bot.x, pB_bot.y);
+        if (index % 2 === 0) {
+          segGrad.addColorStop(0, "#3b0764");
+          segGrad.addColorStop(0.24, "#3b0764");
+          segGrad.addColorStop(0.26, "#ffffff");
+          segGrad.addColorStop(0.72, "#ffffff");
+          segGrad.addColorStop(0.75, "#ec4899");
+          segGrad.addColorStop(0.88, "#f97316");
+          segGrad.addColorStop(1, "#84cc16");
+        } else {
+          segGrad.addColorStop(0, "#38bdf8");
+          segGrad.addColorStop(0.18, "#3b0764");
+          segGrad.addColorStop(0.22, "#ffffff");
+          segGrad.addColorStop(0.74, "#ffffff");
+          segGrad.addColorStop(0.78, "#a855f7");
+          segGrad.addColorStop(1, "#22c55e");
+        }
+        ctx.fillStyle = segGrad;
+        ctx.fill();
+
+        // Texto rotado siguiendo el ángulo exacto de la valla LED
+        const midX = (pA_bot.x + pB_bot.x + pA_top.x + pB_top.x) * 0.25;
+        const midY = (pA_bot.y + pB_bot.y + pA_top.y + pB_top.y) * 0.25;
+        const angle = Math.atan2(pB_bot.y - pA_bot.y, pB_bot.x - pA_bot.x);
+        const segLen = Math.hypot(pB_bot.x - pA_bot.x, pB_bot.y - pA_bot.y);
+
+        ctx.translate(midX, midY);
+        if (Math.abs(angle) > Math.PI / 2) {
+          ctx.rotate(angle + Math.PI);
+        } else {
+          ctx.rotate(angle);
+        }
+
+        ctx.fillStyle = "#2e1065";
+        ctx.font = `900 ${Math.max(6, Math.round(segLen * 0.11))}px "Trebuchet MS", sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const label = (elapsed > 12.4 && outcome === "GOAL")
+          ? `¡GOOOL! ${atkTeam.shortName}`
+          : "Premier  •  League";
+        ctx.fillText(label, 0, 0);
+        ctx.restore();
+
+        // Borde superior oscuro de la pantalla LED
+        ctx.strokeStyle = "#0f172a";
+        ctx.lineWidth = 1.0 * sc;
+        ctx.beginPath();
+        ctx.moveTo(pA_top.x, pA_top.y);
+        ctx.lineTo(pB_top.x, pB_top.y);
+        ctx.stroke();
+      };
+
+      // Vallas LED a lo largo de la línea de fondo (desde v = 46 hasta el córner en v = -1.2)
+      const goalLineSegs = 5;
+      for (let i = 0; i < goalLineSegs; i++) {
+        const vStart = 46 - i * (47.2 / goalLineSegs);
+        const vEnd = 46 - (i + 1) * (47.2 / goalLineSegs);
+        draw3DBannerSegment(
+          p3d(-1.4, vStart, 0),
+          p3d(-1.4, vEnd, 0),
+          p3d(-1.4, vEnd, 1.05),
+          p3d(-1.4, vStart, 1.05),
+          i
+        );
+      }
+
+      // Vallas LED a lo largo de la banda lejana (desde u = -1.4 hasta u = 34)
+      const touchLineSegs = 3;
+      for (let i = 0; i < touchLineSegs; i++) {
+        const uStart = -1.4 + i * (35.4 / touchLineSegs);
+        const uEnd = -1.4 + (i + 1) * (35.4 / touchLineSegs);
+        draw3DBannerSegment(
+          p3d(uStart, -1.2, 0),
+          p3d(uEnd, -1.2, 0),
+          p3d(uEnd, -1.2, 1.05),
+          p3d(uStart, -1.2, 1.05),
+          i + 1
+        );
+      }
+
+      // 4. LÍNEAS DE CAL EN PERSPECTIVA 3D EXACTA
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.88)";
+      ctx.lineWidth = 1.8 * sc;
+      ctx.lineJoin = "round";
+
+      const drawPitchLine3D = (u1, v1, u2, v2) => {
+        const p1 = p3d(u1, v1, 0);
+        const p2 = p3d(u2, v2, 0);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      };
+
+      // Línea de gol (u = 0) y línea de banda lejana (v = 0)
+      drawPitchLine3D(0, 0, 0, 58);
+      drawPitchLine3D(0, 0, 42, 0);
+
+      // Área Grande (18 yardas: u = 0..16.5, v = 13.84..54.16)
+      drawPitchLine3D(0, 13.84, 16.5, 13.84);
+      drawPitchLine3D(16.5, 13.84, 16.5, 54.16);
+      drawPitchLine3D(16.5, 54.16, 0, 54.16);
+
+      // Área Pequeña (6 yardas: u = 0..5.5, v = 24.84..43.16)
+      drawPitchLine3D(0, 24.84, 5.5, 24.84);
+      drawPitchLine3D(5.5, 24.84, 5.5, 43.16);
+      drawPitchLine3D(5.5, 43.16, 0, 43.16);
+
+      // Punto de penalti (u = 11.0, v = 34.0)
+      const penSpot = p3d(11.0, 34.0, 0);
+      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
       ctx.beginPath();
-      ctx.moveTo(w * 0.14, goalLineY);
-      ctx.lineTo(w * 0.86, goalLineY);
-      ctx.stroke();
-
-      // Área pequeña (6 yardas)
-      const sixBoxL = w * 0.38;
-      const sixBoxR = w * 0.62;
-      const sixBoxBotY = h * 0.34;
-      ctx.strokeRect(sixBoxL, goalLineY, sixBoxR - sixBoxL, sixBoxBotY - goalLineY);
-
-      // Área grande (18 yardas)
-      const penBoxL = w * 0.22;
-      const penBoxR = w * 0.78;
-      const penBoxBotY = h * 0.54;
-      ctx.strokeRect(penBoxL, goalLineY, penBoxR - penBoxL, penBoxBotY - goalLineY);
-
-      // Punto de penalti
-      const penSpotX = w * 0.50;
-      const penSpotY = h * 0.44;
-      ctx.fillStyle = "#ffffff";
-      ctx.beginPath();
-      ctx.arc(penSpotX, penSpotY, 2.5 * sc, 0, Math.PI * 2);
+      ctx.ellipse(penSpot.x, penSpot.y, 2.2 * sc, 1.3 * sc, -0.2, 0, Math.PI * 2);
       ctx.fill();
 
-      // Semicírculo del área grande
+      // Semicírculo del área grande (D-Arc: radio 9.15m desde (11, 34), para u >= 16.5)
       ctx.beginPath();
-      ctx.arc(penSpotX, penSpotY, (penBoxBotY - penSpotY), 0.18 * Math.PI, 0.82 * Math.PI);
+      const maxAngle = Math.acos((16.5 - 11.0) / 9.15); // ~0.926 rad
+      const arcSteps = 28;
+      for (let s = 0; s <= arcSteps; s++) {
+        const ang = -maxAngle + (s / arcSteps) * (2 * maxAngle);
+        const au = 11.0 + Math.cos(ang) * 9.15;
+        const av = 34.0 + Math.sin(ang) * 9.15;
+        const ap = p3d(au, av, 0);
+        if (s === 0) ctx.moveTo(ap.x, ap.y);
+        else ctx.lineTo(ap.x, ap.y);
+      }
       ctx.stroke();
 
-      // 3. LA PORTERÍA 3D
-      const postLX = w * 0.35;
-      const postRX = w * 0.65;
-      const postGroundY = goalLineY;
-      const crossbarY = h * 0.13;
-
-      const netBackY = h * 0.09;
-      const netBackLX = w * 0.37;
-      const netBackRX = w * 0.63;
-
-      // Efecto elástico de red sacudida al marcar gol
-      const isGoalScored = outcome === "GOAL" && elapsed >= 12.5;
-      const netRippleFactor = isGoalScored ? Math.max(0, 1 - (elapsed - 12.5) * 0.5) : 0;
-      const rippleOffsetX = netRippleFactor * (targetCorner.includes("RIGHT") ? 14 : -14) * Math.sin((elapsed - 12.5) * 16) * sc;
-      const rippleOffsetY = netRippleFactor * 8 * Math.cos((elapsed - 12.5) * 16) * sc;
-
-      ctx.fillStyle = "rgba(240, 249, 255, 0.22)";
+      // Arco de córner en (0, 0) y banderín de córner
       ctx.beginPath();
-      ctx.moveTo(postLX, crossbarY);
-      ctx.lineTo(postRX, crossbarY);
-      ctx.lineTo(netBackRX + rippleOffsetX, netBackY + rippleOffsetY);
-      ctx.lineTo(netBackLX + rippleOffsetX, netBackY + rippleOffsetY);
+      for (let s = 0; s <= 10; s++) {
+        const ang = (s / 10) * (Math.PI / 2);
+        const cp = p3d(Math.cos(ang) * 1.2, Math.sin(ang) * 1.2, 0);
+        if (s === 0) ctx.moveTo(cp.x, cp.y);
+        else ctx.lineTo(cp.x, cp.y);
+      }
+      ctx.stroke();
+
+      const cFlagBot = p3d(0, 0, 0);
+      const cFlagTop = p3d(0, 0, 1.5);
+      ctx.strokeStyle = "#f8fafc";
+      ctx.lineWidth = 1.2 * sc;
+      ctx.beginPath();
+      ctx.moveTo(cFlagBot.x, cFlagBot.y);
+      ctx.lineTo(cFlagTop.x, cFlagTop.y);
+      ctx.stroke();
+      ctx.fillStyle = "#ef4444";
+      ctx.beginPath();
+      ctx.moveTo(cFlagTop.x, cFlagTop.y);
+      ctx.lineTo(cFlagTop.x + 4.5 * sc, cFlagTop.y + 1.8 * sc);
+      ctx.lineTo(cFlagTop.x, cFlagTop.y + 3.6 * sc);
       ctx.closePath();
       ctx.fill();
 
-      // Malla de la red
-      ctx.strokeStyle = "rgba(240, 249, 255, 0.35)";
-      ctx.lineWidth = 1.0 * sc;
-      const netCols = 16;
-      for (let c = 1; c < netCols; c++) {
-        const topX = postLX + (c / netCols) * (postRX - postLX);
-        const botX = postLX + (c / netCols) * (postRX - postLX);
-        ctx.beginPath();
-        ctx.moveTo(topX, crossbarY);
-        ctx.lineTo(botX + (c === 8 ? rippleOffsetX * 0.5 : 0), postGroundY);
-        ctx.stroke();
-      }
-      const netRows = 8;
-      for (let r = 1; r < netRows; r++) {
-        const ny = crossbarY + (r / netRows) * (postGroundY - crossbarY);
-        ctx.beginPath();
-        ctx.moveTo(postLX, ny);
-        ctx.lineTo(postRX, ny);
-        ctx.stroke();
-      }
+      // 5. PORTERÍA 3D CON CAJA DE RED PROFUNDA (u = 0, v = 30.34..37.66, z = 0..2.44)
+      const vPostRight = 30.34; // Poste derecho (más cercano al córner superior)
+      const vPostLeft = 37.66;  // Poste izquierdo (más cercano al primer plano inferior-izquierdo)
+      const goalDepthU = -2.15; // Profundidad hacia atrás de la red
 
-      // Tirantes de sujeción
-      ctx.strokeStyle = "rgba(203, 213, 225, 0.7)";
-      ctx.lineWidth = 2.0 * sc;
+      const pFrontR_bot = p3d(0, vPostRight, 0);
+      const pFrontR_top = p3d(0, vPostRight, 2.44);
+      const pFrontL_bot = p3d(0, vPostLeft, 0);
+      const pFrontL_top = p3d(0, vPostLeft, 2.44);
+
+      const isGoalScored = outcome === "GOAL" && elapsed >= 12.5;
+      const netRipple = isGoalScored ? Math.max(0, 1 - (elapsed - 12.5) * 0.45) * Math.sin((elapsed - 12.5) * 18) * 0.35 : 0;
+
+      const pBackR_bot = p3d(goalDepthU - netRipple, vPostRight, 0);
+      const pBackR_top = p3d(goalDepthU - netRipple, vPostRight, 2.38);
+      const pBackL_bot = p3d(goalDepthU - netRipple, vPostLeft, 0);
+      const pBackL_top = p3d(goalDepthU - netRipple, vPostLeft, 2.38);
+
+      // Sombra de los postes y red en el césped
+      ctx.strokeStyle = "rgba(0, 20, 5, 0.28)";
+      ctx.lineWidth = 2.5 * sc;
       ctx.beginPath();
-      ctx.moveTo(postLX, crossbarY);
-      ctx.lineTo(netBackLX, netBackY);
-      ctx.lineTo(netBackLX, postGroundY);
-      ctx.moveTo(postRX, crossbarY);
-      ctx.lineTo(netBackRX, netBackY);
-      ctx.lineTo(netBackRX, postGroundY);
+      ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
+      ctx.lineTo(pBackL_bot.x, pBackL_bot.y);
+      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
+      ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
       ctx.stroke();
 
-      // Postes y larguero cilíndricos blancos
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 4.8 * sc;
-      ctx.lineCap = "round";
+      // Soportes traseros oscuros/metálicos de la red
+      ctx.strokeStyle = "rgba(148, 163, 184, 0.75)";
+      ctx.lineWidth = 1.6 * sc;
       ctx.beginPath();
-      ctx.moveTo(postLX, postGroundY);
-      ctx.lineTo(postLX, crossbarY);
-      ctx.lineTo(postRX, crossbarY);
-      ctx.lineTo(postRX, postGroundY);
+      ctx.moveTo(pFrontR_top.x, pFrontR_top.y);
+      ctx.lineTo(pBackR_top.x, pBackR_top.y);
+      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
+      ctx.moveTo(pFrontL_top.x, pFrontL_top.y);
+      ctx.lineTo(pBackL_top.x, pBackL_top.y);
+      ctx.lineTo(pBackL_bot.x, pBackL_bot.y);
+      ctx.moveTo(pBackL_bot.x, pBackL_bot.y);
+      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
+      ctx.moveTo(pBackL_top.x, pBackL_top.y);
+      ctx.lineTo(pBackR_top.x, pBackR_top.y);
       ctx.stroke();
 
-      ctx.strokeStyle = "rgba(241, 245, 249, 0.95)";
-      ctx.lineWidth = 2.0 * sc;
-      ctx.stroke();
-
-      // Chispazo de impacto en el poste si el balón da a la madera
-      const isPostHit = outcome === "POST" && elapsed >= 12.4 && elapsed <= 13.4;
-      if (isPostHit) {
-        const postHitX = targetCorner.includes("RIGHT") ? postRX : postLX;
-        const postHitY = targetCorner.includes("TOP") ? crossbarY : (postGroundY + crossbarY) / 2;
-        ctx.fillStyle = "rgba(254, 240, 138, 0.95)";
+      // Función auxiliar para tejer malla 3D en un cuadrilátero de la red
+      const drawNetQuadMesh = (qTL, qTR, qBR, qBL, cols, rows, alpha) => {
+        ctx.fillStyle = `rgba(241, 245, 249, ${alpha * 0.45})`;
         ctx.beginPath();
-        ctx.arc(postHitX, postHitY, 14 * sc, 0, Math.PI * 2);
+        ctx.moveTo(qTL.x, qTL.y);
+        ctx.lineTo(qTR.x, qTR.y);
+        ctx.lineTo(qBR.x, qBR.y);
+        ctx.lineTo(qBL.x, qBL.y);
+        ctx.closePath();
         ctx.fill();
-        ctx.fillStyle = "#ffffff";
+
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineWidth = 0.75 * sc;
         ctx.beginPath();
-        ctx.arc(postHitX, postHitY, 8 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      }
+        for (let c = 0; c <= cols; c++) {
+          const tc = c / cols;
+          const sx = lerp(qTL.x, qTR.x, tc);
+          const sy = lerp(qTL.y, qTR.y, tc);
+          const ex = lerp(qBL.x, qBR.x, tc);
+          const ey = lerp(qBL.y, qBR.y, tc);
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+        }
+        for (let r = 0; r <= rows; r++) {
+          const tr = r / rows;
+          const sx = lerp(qTL.x, qBL.x, tr);
+          const sy = lerp(qTL.y, qBL.y, tr);
+          const ex = lerp(qTR.x, qBR.x, tr);
+          const ey = lerp(qTR.y, qBR.y, tr);
+          ctx.moveTo(sx, sy);
+          ctx.lineTo(ex, ey);
+        }
+        ctx.stroke();
+      };
 
-      // 4. ANIMACIÓN Y COORDINACIÓN DE LOS 15 SEGUNDOS COMPLETOS DE LA JUGADA
+      // Red lateral derecha (fondo), red trasera, red superior (techo) y red lateral izquierda (primer plano)
+      drawNetQuadMesh(pBackR_top, pFrontR_top, pFrontR_bot, pBackR_bot, 7, 10, 0.36);
+      drawNetQuadMesh(pBackL_top, pBackR_top, pBackR_bot, pBackL_bot, 22, 10, 0.44);
+      drawNetQuadMesh(pBackL_top, pBackR_top, pFrontR_top, pFrontL_top, 20, 6, 0.38);
 
-      // 4.1 EL PIVOTE / MEDIOCENTRO ORGANIZADOR (Inicia la jugada desde la medular en primer plano)
-      let pivotX = w * 0.46;
-      let pivotY = h * 0.88;
-      let pivotPose = "DRIBBLE";
+      // Función que dibuja el marco frontal blanco brillante (postes y larguero) y el lateral izquierdo de la red
+      const drawGoalFrontFrame = () => {
+        drawNetQuadMesh(pBackL_top, pFrontL_top, pFrontL_bot, pBackL_bot, 7, 10, 0.42);
 
+        // Postes y larguero cilíndricos blancos con volumen
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.25)";
+        ctx.lineWidth = 4.6 * sc;
+        ctx.lineCap = "round";
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
+        ctx.lineTo(pFrontL_top.x, pFrontL_top.y);
+        ctx.lineTo(pFrontR_top.x, pFrontR_top.y);
+        ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
+        ctx.stroke();
+
+        ctx.strokeStyle = "#ffffff";
+        ctx.lineWidth = 3.4 * sc;
+        ctx.beginPath();
+        ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
+        ctx.lineTo(pFrontL_top.x, pFrontL_top.y);
+        ctx.lineTo(pFrontR_top.x, pFrontR_top.y);
+        ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
+        ctx.stroke();
+      };
+
+      // 6. COREOGRAFÍA 3D DE LOS 15 SEGUNDOS DE LA JUGADA EN COORDENADAS DEL CAMPO (u, v, z)
+      // - u = distancia a línea de gol (0 = portería, 11 = penalti, 16.5 = frontal área, 22 = zona de disparo #20)
+      // - v = posición lateral (0 = banda sup-dcha, 34 = centro portería, 42 = interior izquierdo primer plano)
+
+      // 6.1 Pivote organizador (#6)
+      let pivU = 29.0, pivV = 30.0, pivPose = "DRIBBLE";
       if (elapsed < 2.2) {
-        const pProg = elapsed / 2.2;
-        pivotX = lerp(w * 0.46, w * 0.42, pProg);
-        pivotY = lerp(h * 0.88, h * 0.82, pProg);
-        pivotPose = "DRIBBLE";
+        const t = elapsed / 2.2;
+        pivU = lerp(29.5, 26.0, t);
+        pivV = lerp(31.0, 27.5, t);
+        pivPose = "DRIBBLE";
       } else if (elapsed < 2.8) {
-        pivotX = w * 0.42;
-        pivotY = h * 0.82;
-        pivotPose = "PASS_DELIVERY";
+        pivU = 26.0; pivV = 27.5;
+        pivPose = "PASS_DELIVERY";
       } else if (elapsed < 8.5) {
-        const pProg = (elapsed - 2.8) / 5.7;
-        pivotX = lerp(w * 0.42, w * 0.46, pProg);
-        pivotY = lerp(h * 0.82, h * 0.72, pProg);
-        pivotPose = "RUNNING_UP";
+        const t = (elapsed - 2.8) / 5.7;
+        pivU = lerp(26.0, 22.5, t);
+        pivV = lerp(27.5, 24.0, t);
+        pivPose = "RUNNING_UP";
       } else {
-        pivotX = w * 0.46;
-        pivotY = h * 0.72;
-        if (elapsed > 12.5 && outcome === "GOAL") pivotPose = "CELEBRATE_JUMP";
-        else if (elapsed > 12.5 && outcome === "WIDE") pivotPose = "HANDS_ON_HEAD";
-        else pivotPose = "READY";
+        pivU = 22.5; pivV = 24.0;
+        pivPose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
       }
 
-      // 4.2 EL EXTREMO / ASISTENTE EN BANDA (Desborda y pone el pase clave al área)
-      let wingerX = w * 0.16;
-      let wingerY = h * 0.80;
-      let wingerPose = "RUNNING_UP";
-
+      // 6.2 Extremo / Creador por banda (#7)
+      let winU = 23.0, winV = 14.0, winPose = "RUNNING_UP";
       if (elapsed < 3.8) {
-        const wProg = elapsed / 3.8;
-        wingerX = lerp(w * 0.16, w * 0.19, wProg);
-        wingerY = lerp(h * 0.80, h * 0.68, wProg);
-        wingerPose = "RUNNING_UP";
+        const t = elapsed / 3.8;
+        winU = lerp(24.0, 19.5, t);
+        winV = lerp(15.5, 13.5, t);
+        winPose = "RUNNING_UP";
       } else if (elapsed < 4.5) {
-        wingerX = w * 0.19;
-        wingerY = h * 0.68;
-        wingerPose = "CONTROL";
+        winU = 19.5; winV = 13.5;
+        winPose = "CONTROL";
       } else if (elapsed < 8.5) {
-        const wProg = (elapsed - 4.5) / 4.0;
-        wingerX = lerp(w * 0.19, w * 0.25, wProg);
-        wingerY = lerp(h * 0.68, h * 0.52, wProg);
-        wingerPose = "DRIBBLE";
+        const t = (elapsed - 4.5) / 4.0;
+        winU = lerp(19.5, 13.5, t);
+        winV = lerp(13.5, 18.0, t);
+        winPose = "DRIBBLE";
       } else if (elapsed < 9.2) {
-        wingerX = w * 0.25;
-        wingerY = h * 0.52;
-        wingerPose = "PASS_DELIVERY";
+        winU = 13.5; winV = 18.0;
+        winPose = "PASS_DELIVERY";
       } else {
-        wingerX = w * 0.25;
-        wingerY = h * 0.52;
-        if (elapsed > 12.5 && outcome === "GOAL") wingerPose = "CELEBRATE_JUMP";
-        else if (elapsed > 12.5 && outcome === "WIDE") wingerPose = "HANDS_ON_HEAD";
-        else wingerPose = "READY";
+        winU = lerp(13.5, 11.5, Math.min(1, (elapsed - 9.2) / 3.0));
+        winV = lerp(18.0, 19.5, Math.min(1, (elapsed - 9.2) / 3.0));
+        winPose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
       }
 
-      // 4.3 EL DELANTERO CENTRO (Desmarque entre centrales, control y remate)
-      let strikerX = w * 0.56;
-      let strikerY = h * 0.64;
-      let strikerPose = "READY";
-
+      // 6.3 Lanzador / Rematador estrella en la frontal izquierda (#20 / #9 - posición exacta del jugador #20 en la foto)
+      let strU = 23.5, strV = 42.5, strPose = "RUNNING_UP";
       if (elapsed < 4.5) {
-        strikerX = w * 0.56;
-        strikerY = h * 0.64;
-        strikerPose = "READY";
+        strU = lerp(24.5, 22.5, elapsed / 4.5);
+        strV = lerp(43.5, 42.0, elapsed / 4.5);
+        strPose = "RUNNING_UP";
       } else if (elapsed < 8.5) {
-        // Desmarque de ruptura al corazón del área
-        const sProg = (elapsed - 4.5) / 4.0;
-        strikerX = lerp(w * 0.56, w * 0.48, sProg);
-        strikerY = lerp(h * 0.64, h * 0.44, sProg);
-        strikerPose = "SPRINT";
+        const t = (elapsed - 4.5) / 4.0;
+        strU = lerp(22.5, 19.2, t);
+        strV = lerp(42.0, 41.2, t);
+        strPose = "SPRINT";
       } else if (elapsed < 10.4) {
-        strikerX = w * 0.48;
-        strikerY = h * 0.44;
-        strikerPose = "RUNNING_UP";
+        strU = 19.2; strV = 41.2;
+        strPose = "READY";
       } else if (elapsed < 11.0) {
-        strikerX = w * 0.48;
-        strikerY = h * 0.44;
-        strikerPose = "CONTROL";
+        strU = 19.0; strV = 41.0;
+        strPose = "CONTROL";
       } else if (elapsed < 11.5) {
-        strikerX = w * 0.48;
-        strikerY = h * 0.44;
-        strikerPose = "WINDUP_SHOT";
-      } else if (elapsed < 12.5) {
-        strikerX = w * 0.48;
-        strikerY = h * 0.44;
-        strikerPose = "SHOT_FOLLOW_THROUGH";
+        strU = 18.6; strV = 40.8;
+        strPose = "WINDUP_SHOT";
+      } else if (elapsed < 12.6) {
+        strU = 18.3; strV = 40.5;
+        strPose = "SHOT_FOLLOW_THROUGH";
       } else {
-        strikerX = w * 0.48;
-        strikerY = h * 0.44;
-        if (outcome === "GOAL") {
-          strikerPose = "CELEBRATE_JUMP";
-        } else {
-          strikerPose = "HANDS_ON_HEAD";
-        }
+        strU = 18.3; strV = 40.5;
+        strPose = outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD";
       }
 
-      // 4.4 CENTROCAMPISTA DE APOYO / MEDIAPUNTA (Acompaña la jugada al borde del área)
-      let supportX = w * 0.68;
-      let supportY = h * 0.74;
-      let supportPose = "RUNNING_UP";
+      // 6.4 Delantero / Atacantes dentro del área buscando el remate o arrastrando marcas (como los 4 atacantes azules en el área de la foto)
+      const atkBox1U = lerp(13.0, 9.8, Math.min(1, elapsed / 10));
+      const atkBox1V = lerp(38.0, 36.2, Math.min(1, elapsed / 10));
+      const atkBox2U = lerp(14.5, 10.6, Math.min(1, elapsed / 10));
+      const atkBox2V = lerp(33.5, 32.0, Math.min(1, elapsed / 10));
+      const atkBox3U = lerp(15.2, 11.2, Math.min(1, elapsed / 10));
+      const atkBox3V = lerp(28.5, 27.5, Math.min(1, elapsed / 10));
 
-      if (elapsed < 4.5) {
-        supportX = lerp(w * 0.68, w * 0.65, elapsed / 4.5);
-        supportY = lerp(h * 0.74, h * 0.65, elapsed / 4.5);
-      } else if (elapsed < 8.5) {
-        supportX = lerp(w * 0.65, w * 0.63, (elapsed - 4.5) / 4.0);
-        supportY = lerp(h * 0.65, h * 0.58, (elapsed - 4.5) / 4.0);
+      // 6.5 Defensores en el área y barrera de 3 hombres (idéntico a la foto de referencia)
+      // Barrera de 3 defensores rojos frente al lanzador #20 (en torno a u = 11.5..12.5, v = 40.5..43.2)
+      const wallBaseU = 11.6;
+      const wall1V = 43.2;
+      const wall2V = 41.8;
+      const wall3V = 40.4;
+      const wallPose = (elapsed >= 10.5 && elapsed <= 12.6)
+        ? (outcome === "BLOCK" ? "SLIDE_BLOCK" : "WALL_GUARD")
+        : "JOCKEY";
+
+      // Defensores marcando dentro del área (como los 5 defensores rojos dentro del área en la foto)
+      const defBox1U = lerp(9.5, 7.2, Math.min(1, elapsed / 10));
+      const defBox1V = 38.2;
+      const defBox2U = lerp(9.8, 7.6, Math.min(1, elapsed / 10));
+      const defBox2V = 34.5;
+      const defBox3U = lerp(10.2, 8.2, Math.min(1, elapsed / 10));
+      const defBox3V = 30.8;
+      const defBox4U = lerp(10.5, 8.5, Math.min(1, elapsed / 10));
+      const defBox4V = 24.8;
+      const defBox5U = lerp(11.2, 9.2, Math.min(1, elapsed / 10));
+      const defBox5V = 22.5;
+
+      // Jugador rival descolgado abajo a la derecha (como el jugador rojo en la esquina inferior derecha de la foto)
+      const trailingDefU = 31.5;
+      const trailingDefV = 39.5;
+
+      // Árbitro principal en la media luna del área (vestido de negro/gris oscuro como en la foto) y Juez de línea en banda
+      const refU = 15.8;
+      const refV = 25.0;
+      const linesmanU = 8.2;
+      const linesmanV = -0.5;
+
+      // 6.6 Guardameta bajo palos (u = 0.8, v = 34.0)
+      let gkU = 0.85, gkV = 34.0, gkZ = 0, gkPose = "GK_READY";
+      const targetShotV = targetCorner.includes("LEFT") ? (vPostLeft - 0.85) : (vPostRight + 0.85);
+      const targetShotZ = targetCorner.includes("TOP") ? 2.05 : 0.45;
+      const isDiveLeft = targetShotV > 34.0; // Hacia el poste izquierdo (abajo-izquierda en pantalla)
+
+      if (elapsed < 11.5) {
+        gkU = 0.85;
+        gkV = 34.0 + Math.sin(now * 0.004) * 0.6;
+        gkPose = "GK_READY";
       } else {
-        supportX = w * 0.63;
-        supportY = h * 0.58;
-        if (elapsed > 12.5 && outcome === "GOAL") supportPose = "CELEBRATE_JUMP";
-        else if (elapsed > 12.5 && outcome === "WIDE") supportPose = "HANDS_ON_HEAD";
-        else supportPose = "READY";
-      }
-
-      // 4.5 DEFENSORES RIVALES
-      // Lateral que cubre la banda
-      let fbX = w * 0.28;
-      let fbY = h * 0.62;
-      let fbPose = "JOCKEY";
-      if (elapsed < 4.5) {
-        fbX = lerp(w * 0.28, w * 0.27, elapsed / 4.5);
-        fbY = lerp(h * 0.62, h * 0.55, elapsed / 4.5);
-      } else if (elapsed < 8.5) {
-        fbX = lerp(w * 0.27, w * 0.28, (elapsed - 4.5) / 4.0);
-        fbY = lerp(h * 0.55, h * 0.52, (elapsed - 4.5) / 4.0);
-      } else {
-        fbX = w * 0.28;
-        fbY = h * 0.52;
-      }
-
-      // Central 1 (Marcador directo del delantero)
-      let def1X = w * 0.44;
-      let def1Y = h * 0.48;
-      let def1Pose = "JOCKEY";
-
-      if (elapsed < 4.5) {
-        def1X = lerp(w * 0.48, w * 0.44, elapsed / 4.5);
-        def1Y = h * 0.48;
-      } else if (elapsed < 8.5) {
-        def1X = lerp(w * 0.44, w * 0.45, (elapsed - 4.5) / 4.0);
-        def1Y = lerp(h * 0.48, h * 0.46, (elapsed - 4.5) / 4.0);
-      } else if (elapsed < 11.5) {
-        def1X = w * 0.45;
-        def1Y = h * 0.46;
-      } else {
-        if (outcome === "BLOCK") {
-          def1X = w * 0.46;
-          def1Y = h * 0.45;
-          def1Pose = "SLIDE_BLOCK";
-        } else {
-          def1X = w * 0.45;
-          def1Y = h * 0.46;
-          def1Pose = "JOCKEY";
-        }
-      }
-
-      // Central 2 (Cobertura)
-      let def2X = w * 0.56;
-      let def2Y = h * 0.47;
-      let def2Pose = "JOCKEY";
-      if (elapsed < 8.5) {
-        def2X = lerp(w * 0.56, w * 0.53, elapsed / 8.5);
-      } else {
-        def2X = w * 0.53;
-      }
-
-      // 4.6 EL GUARDAMETA RIVAL
-      let gkX = w * 0.50;
-      let gkY = postGroundY - 2 * sc;
-      let gkPose = "READY";
-
-      const targetShotX = targetCorner.includes("LEFT") ? postLX + 0.05 * w : postRX - 0.05 * w;
-      const targetShotY = targetCorner.includes("TOP") ? crossbarY + 0.03 * h : postGroundY - 0.02 * h;
-
-      if (elapsed < 8.5) {
-        gkX = w * 0.50 + Math.sin(now * 0.004) * 8 * sc;
-        gkY = postGroundY - 2 * sc;
-        gkPose = "BOUNCE";
-      } else if (elapsed < 11.5) {
-        // El portero achica 2 pasos hacia adelante
-        const stepP = (elapsed - 8.5) / 3.0;
-        gkX = w * 0.50;
-        gkY = lerp(postGroundY - 2 * sc, postGroundY + 0.02 * h, stepP);
-        gkPose = "READY";
-      } else {
-        // Resolución física del portero durante el disparo (segundos 11.5 a 15.0)
-        const shotProgress = Math.min(1.0, (elapsed - 11.5) / 1.0);
-        const isRight = targetShotX > w * 0.50;
-
+        const shotProgress = Math.min(1.0, (elapsed - 11.5) / 0.95);
         if (outcome === "SAVE") {
-          if (shotProgress < 0.8) {
-            const diveP = shotProgress / 0.8;
-            gkX = lerp(w * 0.50, targetShotX, diveP);
-            gkY = lerp(postGroundY + 0.02 * h, postGroundY - 2 * sc, diveP) - Math.sin(diveP * Math.PI) * 16 * sc;
-            gkPose = isRight ? "DIVE_RIGHT" : "DIVE_LEFT";
+          if (shotProgress < 0.82) {
+            const dp = shotProgress / 0.82;
+            gkU = 0.95;
+            gkV = lerp(34.0, targetShotV, dp);
+            gkZ = Math.sin(dp * Math.PI) * (targetCorner.includes("TOP") ? 1.15 : 0.45);
+            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
           } else {
-            gkX = targetShotX;
-            gkY = postGroundY + 3 * sc;
-            gkPose = isRight ? "GROUND_RIGHT" : "GROUND_LEFT";
+            gkU = 0.95;
+            gkV = targetShotV;
+            gkZ = 0;
+            gkPose = isDiveLeft ? "GROUND_LEFT" : "GROUND_RIGHT";
           }
         } else if (outcome === "GOAL") {
-          if (shotProgress < 0.9) {
-            const diveP = shotProgress / 0.9;
-            gkX = lerp(w * 0.50, targetShotX * 0.85 + (w * 0.50) * 0.15, diveP);
-            gkY = lerp(postGroundY + 0.02 * h, postGroundY - 2 * sc, diveP) - Math.sin(diveP * Math.PI) * 12 * sc;
-            gkPose = isRight ? "DIVE_RIGHT" : "DIVE_LEFT";
+          if (shotProgress < 0.88) {
+            const dp = shotProgress / 0.88;
+            gkU = 0.85;
+            gkV = lerp(34.0, lerp(34.0, targetShotV, 0.65), dp);
+            gkZ = Math.sin(dp * Math.PI) * 0.65;
+            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
           } else {
+            gkU = 0.85;
+            gkV = lerp(34.0, targetShotV, 0.65);
             gkPose = "CONCEDED";
           }
         } else if (outcome === "POST") {
           if (shotProgress < 0.85) {
-            gkX = lerp(w * 0.50, targetShotX * 0.7 + (w * 0.50) * 0.3, shotProgress / 0.85);
-            gkPose = isRight ? "DIVE_RIGHT" : "DIVE_LEFT";
+            gkV = lerp(34.0, targetShotV, (shotProgress / 0.85) * 0.7);
+            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
           } else {
-            gkPose = "LOOK_POST";
+            gkPose = "GK_READY";
           }
         } else if (outcome === "WIDE") {
-          // El portero acompaña el balón con la vista sabiendo que va fuera, sin tirarse en vano
-          gkPose = "LOOK_WIDE";
-          gkX = w * 0.50 + (wideDirection === "RIGHT" ? 8 * sc : -8 * sc);
-          gkY = postGroundY;
+          gkV = 34.0 + (wideDirection === "LEFT" ? 1.4 : -1.4);
+          gkPose = "GK_READY";
         } else {
-          // Bloqueo
-          gkPose = "READY";
-          gkX = w * 0.50;
-          gkY = postGroundY + 0.02 * h;
+          gkPose = "GK_READY";
         }
       }
 
-      // 4.7 TRAYECTORIA Y FÍSICA DEL BALÓN 3D EN CADA FASE
-      let ballX = pivotX;
-      let ballY = pivotY;
-      let ballZ = 0;
-      let ballRadius = 6.8 * sc;
-
+      // 6.7 TRAYECTORIA 3D DEL BALÓN (100% SINCRONIZADA CON EL RESULTADO DEL MOTOR)
+      let ballU = pivU, ballV = pivV, ballZ = 0;
       if (elapsed < 2.2) {
-        // En los pies del pivote
-        ballX = pivotX + 3 * sc;
-        ballY = pivotY + 3 * sc;
+        ballU = pivU - 0.6;
+        ballV = pivV + 0.5;
         ballZ = 0;
-        ballRadius = 6.8 * sc;
       } else if (elapsed < 3.8) {
-        // Pase rodando por el césped del pivote al extremo
-        const passProg = (elapsed - 2.2) / 1.6;
-        ballX = lerp(w * 0.42, w * 0.19, passProg);
-        ballY = lerp(h * 0.82, h * 0.68, passProg);
+        const t = (elapsed - 2.2) / 1.6;
+        ballU = lerp(25.4, 19.5, t);
+        ballV = lerp(28.0, 14.2, t);
         ballZ = 0;
-        ballRadius = lerp(6.8 * sc, 5.2 * sc, passProg);
       } else if (elapsed < 4.5) {
-        // Control del extremo
-        ballX = wingerX + 2 * sc;
-        ballY = wingerY + 3 * sc;
+        ballU = winU - 0.5;
+        ballV = winV + 0.6;
         ballZ = 0;
-        ballRadius = 5.2 * sc;
       } else if (elapsed < 8.5) {
-        // Conducción veloz del extremo
-        ballX = wingerX + 3 * sc;
-        ballY = wingerY + 2 * sc;
+        ballU = winU - 0.6;
+        ballV = winV + 0.7;
         ballZ = 0;
-        ballRadius = lerp(5.2 * sc, 4.4 * sc, (elapsed - 4.5) / 4.0);
       } else if (elapsed < 10.4) {
-        // Pase filtrado medido del extremo al punto de penalti
-        const assistProg = (elapsed - 8.5) / 1.9;
-        ballX = lerp(w * 0.25, w * 0.48, assistProg);
-        ballY = lerp(h * 0.52, h * 0.44, assistProg);
-        ballZ = Math.sin(assistProg * Math.PI) * 3.5 * sc;
-        ballRadius = lerp(4.4 * sc, 4.0 * sc, assistProg);
+        const t = (elapsed - 8.5) / 1.9;
+        ballU = lerp(13.2, 18.8, t);
+        ballV = lerp(18.5, 41.4, t);
+        ballZ = Math.sin(t * Math.PI) * 0.45;
       } else if (elapsed < 11.5) {
-        // En los pies del delantero centro acomodándose
-        ballX = strikerX + 2 * sc;
-        ballY = strikerY + 2 * sc;
+        // Balón plantado frente al pie izquierdo del lanzador #20 (exacto a la foto)
+        ballU = strU - 0.65;
+        ballV = strV + 1.05;
         ballZ = 0;
-        ballRadius = 4.0 * sc;
       } else {
-        // SEGUNDOS 11.5 A 15.0: DISPARO FÍSICO A PUERTA (100% FIEL A LA NARRACIÓN)
-        const shotProg = Math.min(1.0, (elapsed - 11.5) / 1.0);
+        const shotProg = Math.min(1.0, (elapsed - 11.5) / 0.95);
+        const startU = 17.65;
+        const startV = 41.55;
 
         if (outcome === "GOAL") {
-          // GOL: El balón viaja a la red, entra DENTRO de los postes y sacude la malla
           if (shotProg < 1.0) {
-            ballX = lerp(strikerX, targetShotX, shotProg);
-            ballY = lerp(strikerY, postGroundY, shotProg);
-            ballZ = lerp(0, (postGroundY - targetShotY), shotProg);
-            ballRadius = lerp(4.0 * sc, 3.2 * sc, shotProg);
+            ballU = lerp(startU, -0.35, shotProg);
+            ballV = lerp(startV, targetShotV, shotProg);
+            ballZ = lerp(0, targetShotZ, shotProg) + Math.sin(shotProg * Math.PI) * 0.85;
           } else {
-            // Balón dentro de la portería cayendo al suelo
-            const dropProg = Math.min(1.0, (elapsed - 12.5) / 1.2);
-            ballX = targetShotX + Math.sin(dropProg * 6) * 1.5 * sc;
-            ballY = lerp(postGroundY, netBackY + 0.04 * h, dropProg * 0.35);
-            ballZ = lerp(postGroundY - targetShotY, 0, dropProg);
-            ballRadius = 3.2 * sc;
-          }
-        } else if (outcome === "WIDE") {
-          // DISPARO FUERA: El balón viaja CLARAMENTE FUERA de los postes o por encima del larguero
-          // NUNCA jamás entra en el rectángulo de portería
-          let flyTargetX = postRX + 0.16 * w;
-          let flyTargetY = crossbarY - 0.02 * h;
-
-          if (wideDirection === "LEFT") {
-            flyTargetX = postLX - 0.16 * w;
-          } else if (wideDirection === "HIGH") {
-            flyTargetX = w * 0.50;
-            flyTargetY = crossbarY - 0.20 * h;
-          }
-
-          if (shotProg < 1.0) {
-            ballX = lerp(strikerX, flyTargetX, shotProg);
-            ballY = lerp(strikerY, postGroundY, shotProg);
-            ballZ = lerp(0, (postGroundY - flyTargetY), shotProg);
-            ballRadius = lerp(4.0 * sc, 3.0 * sc, shotProg);
-          } else {
-            // El balón continúa su vuelo hacia la valla publicitaria / fondo
-            const extraP = (elapsed - 12.5) / 2.0;
-            ballX = flyTargetX + (wideDirection === "RIGHT" ? 1 : (wideDirection === "LEFT" ? -1 : 0)) * extraP * 0.08 * w;
-            ballY = postGroundY - extraP * 0.04 * h;
-            ballZ = Math.max(0, (postGroundY - flyTargetY) * (1 - extraP * 0.7));
-            ballRadius = 2.8 * sc;
+            const dropP = Math.min(1.0, (elapsed - 12.45) / 1.1);
+            ballU = lerp(-0.35, -1.65, dropP * 0.7);
+            ballV = targetShotV + Math.sin(dropP * 5) * 0.35;
+            ballZ = Math.max(0, lerp(targetShotZ, 0, dropP));
           }
         } else if (outcome === "SAVE") {
-          // PARADÓN: El portero intercepta el balón con los guantes y lo desvía a córner
-          if (shotProg < 0.8) {
-            const sp = shotProg / 0.8;
-            ballX = lerp(strikerX, targetShotX, sp);
-            ballY = lerp(strikerY, postGroundY + 0.02 * h, sp);
-            ballZ = lerp(0, (postGroundY - targetShotY), sp);
-            ballRadius = lerp(4.0 * sc, 3.4 * sc, sp);
+          if (shotProg < 0.82) {
+            const sp = shotProg / 0.82;
+            ballU = lerp(startU, 0.85, sp);
+            ballV = lerp(startV, targetShotV, sp);
+            ballZ = lerp(0, targetShotZ, sp) + Math.sin(sp * Math.PI) * 0.65;
           } else {
-            // Contacto con guantes y desvío a córner fuera del poste
-            const defProg = (shotProg - 0.8) / 0.2;
-            const defDir = targetShotX > w * 0.5 ? 1 : -1;
-            ballX = targetShotX + defDir * defProg * 0.18 * w;
-            ballY = postGroundY - defProg * 0.06 * h;
-            ballZ = Math.max(0, 10 * sc - defProg * 10 * sc);
-            ballRadius = 3.2 * sc;
-
-            // Chispazo de parada en guantes
-            if (elapsed >= 12.3 && elapsed <= 12.9) {
-              ctx.fillStyle = "rgba(16, 185, 129, 0.9)";
-              ctx.beginPath();
-              ctx.arc(targetShotX, targetShotY, 12 * sc, 0, Math.PI * 2);
-              ctx.fill();
-            }
+            // Despeje del portero por línea de fondo a córner
+            const defP = Math.min(1.5, (elapsed - 12.28) / 1.2);
+            const cornerDir = isDiveLeft ? 1 : -1;
+            ballU = lerp(0.85, -2.5, defP);
+            ballV = targetShotV + cornerDir * defP * 6.5;
+            ballZ = Math.max(0, lerp(targetShotZ, 0.2, defP));
           }
         } else if (outcome === "POST") {
-          // AL PALO: Impacto en el poste y rebote hacia el área
-          const hitPostX = targetCorner.includes("RIGHT") ? postRX : postLX;
-          const hitPostY = targetCorner.includes("TOP") ? crossbarY : (postGroundY + crossbarY) / 2;
-
-          if (shotProg < 0.9) {
-            const sp = shotProg / 0.9;
-            ballX = lerp(strikerX, hitPostX, sp);
-            ballY = lerp(strikerY, postGroundY, sp);
-            ballZ = lerp(0, (postGroundY - hitPostY), sp);
-            ballRadius = lerp(4.0 * sc, 3.4 * sc, sp);
+          const postV = targetCorner.includes("LEFT") ? vPostLeft : vPostRight;
+          const postZ = targetCorner.includes("TOP") ? 2.42 : 1.35;
+          if (shotProg < 0.88) {
+            const sp = shotProg / 0.88;
+            ballU = lerp(startU, 0, sp);
+            ballV = lerp(startV, postV, sp);
+            ballZ = lerp(0, postZ, sp) + Math.sin(sp * Math.PI) * 0.55;
           } else {
-            // Rebote violento de la madera hacia afuera
-            const rebProg = (shotProg - 0.9) / 0.1;
-            ballX = hitPostX + (hitPostX > w * 0.5 ? -1 : 1) * rebProg * 0.14 * w;
-            ballY = postGroundY + rebProg * 0.18 * h;
-            ballZ = Math.max(0, 8 * sc - rebProg * 8 * sc);
-            ballRadius = 3.6 * sc;
+            const rebP = Math.min(1.4, (elapsed - 12.34) / 1.2);
+            ballU = lerp(0, 7.5, rebP);
+            ballV = postV + (postV > 34 ? 1 : -1) * rebP * 4.2;
+            ballZ = Math.max(0, lerp(postZ, 0, rebP));
           }
+        } else if (outcome === "WIDE") {
+          const wideV = wideDirection === "LEFT" ? (vPostLeft + 4.8) : (wideDirection === "RIGHT" ? (vPostRight - 4.8) : 34.0);
+          const wideZ = wideDirection === "HIGH" ? 4.2 : 1.6;
+          const totalP = Math.min(1.5, (elapsed - 11.5) / 1.0);
+          ballU = lerp(startU, -2.8, totalP);
+          ballV = lerp(startV, wideV, totalP);
+          ballZ = Math.max(0, lerp(0, wideZ, Math.min(1, totalP)) + Math.sin(Math.min(1, totalP) * Math.PI) * 0.7);
         } else if (outcome === "BLOCK") {
-          // BLOQUEO: El central se tira en segada delante del delantero y frena el tiro
-          if (shotProg < 0.4) {
-            const bp = shotProg / 0.4;
-            ballX = lerp(strikerX, def1X, bp);
-            ballY = lerp(strikerY, def1Y, bp);
-            ballZ = Math.sin(bp * Math.PI) * 4 * sc;
-            ballRadius = 4.0 * sc;
+          if (shotProg < 0.38) {
+            const bp = shotProg / 0.38;
+            ballU = lerp(startU, wallBaseU, bp);
+            ballV = lerp(startV, wall2V, bp);
+            ballZ = Math.sin(bp * Math.PI) * 0.55;
           } else {
-            const rebP = (shotProg - 0.4) / 0.6;
-            ballX = def1X - rebP * 0.05 * w;
-            ballY = def1Y + rebP * 0.04 * h;
-            ballZ = 0;
-            ballRadius = 4.0 * sc;
+            const rebP = Math.min(1.2, (shotProg - 0.38) / 0.62);
+            ballU = lerp(wallBaseU, 15.8, rebP);
+            ballV = lerp(wall2V, 45.0, rebP);
+            ballZ = Math.max(0, (1 - rebP) * 0.4);
           }
         }
       }
 
-      // 5. RENDERIZADO DE JUGADORES ORDENADOS POR PROFUNDIDAD Y
-      const entities = [
-        { type: "GK", x: gkX, y: gkY, sc: 0.85 * sc, kit: defKit, name: hlData.goalkeeper?.name, number: 1, isKeeper: true, pose: gkPose, isFromBehind: false },
-        { type: "DEF2", x: def2X, y: def2Y, sc: 1.05 * sc, kit: defKit, name: hlData.defender2?.name || "CENTRAL", number: 5, isKeeper: false, pose: def2Pose, isFromBehind: false },
-        { type: "DEF1", x: def1X, y: def1Y, sc: 1.05 * sc, kit: defKit, name: hlData.defender?.name, number: 4, isKeeper: false, pose: def1Pose, isFromBehind: false },
-        { type: "FULLBACK", x: fbX, y: fbY, sc: 1.15 * sc, kit: defKit, name: "LATERAL", number: 2, isKeeper: false, pose: fbPose, isFromBehind: false },
-        { type: "STRIKER", x: strikerX, y: strikerY, sc: 1.25 * sc, kit: atkKit, name: hlData.shooter?.name, number: 9, isKeeper: false, pose: strikerPose, isFromBehind: true },
-        { type: "WINGER", x: wingerX, y: wingerY, sc: 1.35 * sc, kit: atkKit, name: hlData.passer?.name, number: 7, isKeeper: false, pose: wingerPose, isFromBehind: true },
-        { type: "SUPPORT", x: supportX, y: supportY, sc: 1.28 * sc, kit: atkKit, name: hlData.supportAttacker?.name, number: 10, isKeeper: false, pose: supportPose, isFromBehind: true },
-        { type: "PIVOT", x: pivotX, y: pivotY, sc: 1.55 * sc, kit: atkKit, name: hlData.pivot?.name, number: 6, isKeeper: false, pose: pivotPose, isFromBehind: true },
-        { type: "BALL", x: ballX, y: ballY, z: ballZ, r: ballRadius, sc: sc }
+      // 7. CONSTRUCCIÓN Y ORDENACIÓN POR PROFUNDIDAD (PAINTER'S ALGORITHM)
+      const createEnt = (id, u, v, z, kit, num, pose, facing, opts = {}) => {
+        const pt = p3d(u, v, z);
+        return {
+          id,
+          x: pt.x,
+          y: pt.groundY,
+          zPx: pt.groundY - pt.y,
+          sc: pt.sc,
+          kit,
+          number: num,
+          pose,
+          facing,
+          elapsed,
+          ...opts
+        };
+      };
+
+      const activePhase = elapsed < 2.8 ? "PIVOT" : (elapsed < 9.2 ? "WINGER" : "STRIKER");
+
+      const sceneEntities = [
+        // Guardameta bajo palos
+        createEnt("GK", gkU, gkV, gkZ, defKit, 1, gkPose, "FRONT_RIGHT", { isKeeper: true, name: hlData.goalkeeper?.name }),
+        // Línea defensiva dentro del área (5 defensores como en la imagen)
+        createEnt("DEF_BOX1", defBox1U, defBox1V, 0, defKit, 2, "JOCKEY", "FRONT_RIGHT"),
+        createEnt("DEF_BOX2", defBox2U, defBox2V, 0, defKit, 4, "JOCKEY", "FRONT_RIGHT", { name: hlData.defender?.name }),
+        createEnt("DEF_BOX3", defBox3U, defBox3V, 0, defKit, 5, "JOCKEY", "FRONT_RIGHT"),
+        createEnt("DEF_BOX4", defBox4U, defBox4V, 0, defKit, 6, "JOCKEY", "FRONT_RIGHT"),
+        createEnt("DEF_BOX5", defBox5U, defBox5V, 0, defKit, 3, "JOCKEY", "FRONT_RIGHT"),
+        // Barrera de 3 hombres frente al balón
+        createEnt("WALL1", wallBaseU - 0.3, wall1V, 0, defKit, 8, wallPose, "FRONT_RIGHT"),
+        createEnt("WALL2", wallBaseU, wall2V, 0, defKit, 14, wallPose, "FRONT_RIGHT"),
+        createEnt("WALL3", wallBaseU + 0.3, wall3V, 0, defKit, 18, wallPose, "FRONT_RIGHT"),
+        // Defensor descolgado en esquina inferior derecha (exacto a la foto)
+        createEnt("DEF_TRAIL", trailingDefU, trailingDefV, 0, defKit, 17, "READY", "BACK_LEFT"),
+
+        // Atacantes al remate en el área y en creación
+        createEnt("ATK_BOX1", atkBox1U, atkBox1V, 0, atkKit, 9, elapsed > 12.5 && outcome === "GOAL" ? "CELEBRATE_JUMP" : "RUNNING_UP", "BACK_LEFT"),
+        createEnt("ATK_BOX2", atkBox2U, atkBox2V, 0, atkKit, 11, elapsed > 12.5 && outcome === "GOAL" ? "CELEBRATE_JUMP" : "RUNNING_UP", "BACK_LEFT"),
+        createEnt("ATK_BOX3", atkBox3U, atkBox3V, 0, atkKit, 8, "RUNNING_UP", "BACK_LEFT"),
+        createEnt("WINGER", winU, winV, 0, atkKit, 7, winPose, "BACK_LEFT", { isActiveCarrier: activePhase === "WINGER", name: hlData.passer?.name }),
+        createEnt("PIVOT", pivU, pivV, 0, atkKit, 10, pivPose, "BACK_LEFT", { isActiveCarrier: activePhase === "PIVOT", name: hlData.pivot?.name }),
+        // Protagonista del disparo (#20 en primer plano)
+        createEnt("STRIKER", strU, strV, 0, atkKit, 20, strPose, "BACK_LEFT", { isActiveCarrier: activePhase === "STRIKER", name: hlData.shooter?.name }),
+
+        // Árbitro principal en el semicírculo y Juez de línea en banda
+        createEnt("REFEREE", refU, refV, 0, defKit, 99, "READY", "FRONT_RIGHT", { isReferee: true }),
+        createEnt("LINESMAN", linesmanU, linesmanV, 0, defKit, 98, "READY", "FRONT_RIGHT", { isLinesman: true }),
+
+        // Balón 3D
+        (() => {
+          const bPt = p3d(ballU, ballV, ballZ);
+          return {
+            id: "BALL",
+            isBall: true,
+            x: bPt.x,
+            y: bPt.groundY,
+            zPx: bPt.groundY - bPt.y,
+            r: 4.1 * bPt.sc,
+            sc: bPt.sc
+          };
+        })()
       ];
 
-      entities.sort((a, b) => a.y - b.y);
+      // Ordenar por coordenada Y en pantalla para superposición 3D natural
+      sceneEntities.sort((a, b) => a.y - b.y);
 
-      entities.forEach(ent => {
-        if (ent.type === "BALL") {
-          drawFrontalBall(ctx, ent.x, ent.y, ent.z, ent.r, ent.sc);
+      let goalFrameDrawn = false;
+      sceneEntities.forEach(ent => {
+        if (!goalFrameDrawn && ent.y > pFrontL_bot.y) {
+          drawGoalFrontFrame();
+          goalFrameDrawn = true;
+        }
+        if (ent.isBall) {
+          drawFrontalBall(ctx, ent.x, ent.y, ent.zPx, ent.r, ent.sc);
         } else {
           drawFrontalAthlete(ctx, ent);
         }
       });
+      if (!goalFrameDrawn) {
+        drawGoalFrontFrame();
+      }
+
+      // Chispazo de impacto en el poste si da a la madera
+      if (outcome === "POST" && elapsed >= 12.3 && elapsed <= 13.1) {
+        const hitPt = p3d(0, targetCorner.includes("LEFT") ? vPostLeft : vPostRight, targetCorner.includes("TOP") ? 2.42 : 1.35);
+        ctx.fillStyle = "rgba(254, 240, 138, 0.92)";
+        ctx.beginPath();
+        ctx.arc(hitPt.x, hitPt.y, 11 * sc, 0, Math.PI * 2);
+        ctx.fill();
+      }
     }
 
     function drawPitch() {
