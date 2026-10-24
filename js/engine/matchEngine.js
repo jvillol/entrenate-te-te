@@ -96,6 +96,7 @@ export class MatchSimulator {
 
     this.onSetPiece = options.onSetPiece || (() => {});
     this.isSetPieceRunning = false;
+    this.pauseRequested = false;
 
     this.onInjury = options.onInjury || (() => {});
     this.onCard = options.onCard || (() => {});
@@ -175,6 +176,15 @@ export class MatchSimulator {
       clearTimeout(this.loopTimeout);
       this.loopTimeout = null;
     }
+    if (this.onTick) this.onTick(this.getState());
+  }
+
+  start() {
+    if (this.isRunning) return;
+    this.isRunning = true;
+    this.pauseRequested = false;
+    this.loop();
+    if (this.onTick) this.onTick(this.getState());
   }
 
   setSpeed(speedMultiplier) {
@@ -732,6 +742,12 @@ export class MatchSimulator {
             this.onHalfTime(this.getState());
             return;
           }
+          if (this.pauseRequested) {
+            this.pauseRequested = false;
+            this.pause();
+            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
+            return;
+          }
           if (this.isRunning && !this.isFinished) {
             this.loop();
           }
@@ -767,6 +783,12 @@ export class MatchSimulator {
             this.isHalfTime = true;
             this.pause();
             this.onHalfTime(this.getState());
+            return;
+          }
+          if (this.pauseRequested) {
+            this.pauseRequested = false;
+            this.pause();
+            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
             return;
           }
           if (this.isRunning && !this.isFinished) {
@@ -1461,7 +1483,7 @@ export class MatchSimulator {
                 onComplete: () => {
                   // Tras la parada en jugada clave, el balón sale a córner y se permite sacar la jugada ensayada
                   if (!this.isFinished && !this.isHalfTime) {
-                    this.triggerSetPiece(attackingSide, "CORNER");
+                    this.triggerSetPiece(attackingSide, "CORNER", null, onComplete);
                   } else if (onComplete) {
                     onComplete();
                   }
@@ -1542,7 +1564,8 @@ export class MatchSimulator {
     if (this.onHighlightEnd) {
       this.onHighlightEnd({
         outcome,
-        tacticalAnalysis
+        tacticalAnalysis,
+        pauseRequested: this.pauseRequested
       });
     }
 
@@ -1601,7 +1624,7 @@ export class MatchSimulator {
   }
 
   // Activar jugada a balón parado (Córner o Falta peligrosa)
-  triggerSetPiece(attackingSide, type = "CORNER", customSpotData = null) {
+  triggerSetPiece(attackingSide, type = "CORNER", customSpotData = null, postSetPieceCallback = null) {
     if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return;
 
     const isHome = attackingSide === "home";
@@ -1637,6 +1660,7 @@ export class MatchSimulator {
 
     this.isSetPieceRunning = true;
 
+    const cornerSide = spotY < 50 ? "banda izquierda" : "banda derecha";
     const setPieceInfo = {
       type,
       attackingSide,
@@ -1646,6 +1670,7 @@ export class MatchSimulator {
       defPlayers,
       spot: { x: spotX, y: spotY },
       distanceMeters,
+      cornerSide,
       minute: this.minute
     };
 
@@ -1658,8 +1683,19 @@ export class MatchSimulator {
       const aiSetup = this.buildAISetPieceSetup(setPieceInfo);
       this.executeSetPiece(aiSetup, () => {
         this.isSetPieceRunning = false;
-        if (!this.isFinished && !this.isHalfTime && this.isRunning) {
-          this.loop();
+        if (!this.isFinished && !this.isHalfTime) {
+          if (this.pauseRequested) {
+            this.pauseRequested = false;
+            this.pause();
+            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
+            if (postSetPieceCallback) postSetPieceCallback();
+            return;
+          }
+          if (this.isRunning) {
+            this.loop();
+          } else if (postSetPieceCallback) {
+            postSetPieceCallback();
+          }
         }
       });
     }
@@ -1777,7 +1813,10 @@ export class MatchSimulator {
       }
     });
 
-    this.triggerAlert("BALÓN PARADO", `⚽ ${type === "CORNER" ? "Córner" : "Falta"} de ${atkTeam.shortName}`, attackingSide, 2600);
+    const isLeftCorner = spot.y < 50;
+    const cornerSideLabel = isLeftCorner ? "banda izquierda" : "banda derecha";
+    const spAlertTitle = type === "CORNER" ? `Córner (${cornerSideLabel})` : "Falta";
+    this.triggerAlert("BALÓN PARADO", `⚽ ${spAlertTitle} de ${atkTeam.shortName}`, attackingSide, 2600);
 
     // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos
     setTimeout(() => {
@@ -1979,13 +2018,18 @@ export class MatchSimulator {
           return;
         }
 
-        if (onDone) onDone();
-
-        // Reanudar la simulación activa para que el partido continúe con total fluidez
         if (!this.isFinished && !this.isHalfTime) {
+          if (this.pauseRequested) {
+            this.pauseRequested = false;
+            this.pause();
+            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
+            if (onDone) onDone();
+            return;
+          }
           this.isRunning = true;
           this.loop();
         }
+        if (onDone) onDone();
       }, outcome === "GOAL_KICK" ? 1600 : 1100);
     }, 1000);
   }

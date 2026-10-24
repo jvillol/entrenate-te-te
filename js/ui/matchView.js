@@ -2838,6 +2838,18 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         showTacticalToast(endData.tacticalAnalysis, endData.outcome);
       }
       currentHighlightData = null;
+
+      // Si el usuario había pedido pausa durante la visualización de la jugada clave
+      // y la jugada no termina en parada a córner ni gol (que tienen su propia secuencia posterior):
+      if (simulator.pauseRequested && endData?.outcome !== "SAVE" && endData?.outcome !== "GOAL") {
+        simulator.pauseRequested = false;
+        simulator.pause();
+        const iconPP = container.querySelector("#play-pause-icon");
+        const textPP = container.querySelector("#play-pause-text");
+        if (iconPP) iconPP.textContent = "▶";
+        if (textPP) textPP.textContent = "Reanudar";
+        showMatchAlert({ text: "⏸ Partido en pausa tras la jugada clave" });
+      }
     }
 
     function showTacticalToast(message, outcome = "NEUTRAL") {
@@ -2936,6 +2948,17 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             return;
           }
 
+          if (simulator.pauseRequested || !simulator.isRunning) {
+            simulator.pauseRequested = false;
+            simulator.pause();
+            const iconPP = container.querySelector("#play-pause-icon");
+            const textPP = container.querySelector("#play-pause-text");
+            if (iconPP) iconPP.textContent = "▶";
+            if (textPP) textPP.textContent = "Reanudar";
+            showMatchAlert({ text: "⏸ Partido en pausa tras la reanudación" });
+            return;
+          }
+
           if (!simulator.isFinished) {
             simulator.start();
             const iconPP = container.querySelector("#play-pause-icon");
@@ -2950,6 +2973,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     function handleSubstitutionChyron(subData) {
       showSubstitutionChyron(subData, () => {
         if (!simulator.isFinished && !simulator.isHalfTime) {
+          if (simulator.pauseRequested || !simulator.isRunning) {
+            simulator.pauseRequested = false;
+            simulator.pause();
+            const iconPP = container.querySelector("#play-pause-icon");
+            const textPP = container.querySelector("#play-pause-text");
+            if (iconPP) iconPP.textContent = "▶";
+            if (textPP) textPP.textContent = "Reanudar";
+            return;
+          }
           simulator.start();
           const iconPP = container.querySelector("#play-pause-icon");
           const textPP = container.querySelector("#play-pause-text");
@@ -5855,6 +5887,27 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           subsBadge.className = "px-2 py-0.5 rounded-full bg-black/40 text-[10px] font-mono";
         }
       }
+
+      // Sincronización continua del botón de pausa / reanudar
+      const elIconPP = container.querySelector("#play-pause-icon");
+      const elTextPP = container.querySelector("#play-pause-text");
+      if (elIconPP && elTextPP) {
+        if (simulator.isHighlightRunning || simulator.isSetPieceRunning) {
+          if (simulator.pauseRequested) {
+            elIconPP.textContent = "▶";
+            elTextPP.textContent = "Pausa pedida";
+          } else {
+            elIconPP.textContent = "⏸";
+            elTextPP.textContent = "Pausar";
+          }
+        } else if (!simulator.isRunning || simulator.isHalfTime) {
+          elIconPP.textContent = "▶";
+          elTextPP.textContent = "Reanudar";
+        } else {
+          elIconPP.textContent = "⏸";
+          elTextPP.textContent = "Pausar";
+        }
+      }
     }
 
     function handleHalfTimeSequence(htState) {
@@ -5921,13 +5974,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     const textPP = container.querySelector("#play-pause-text");
 
     btnPlayPause.onclick = () => {
-      if (simulator.isSetPieceRunning) return;
       if (simulator.isHalfTime) {
         container.querySelector("#modal-halftime")?.classList.add("hidden");
         simulator.resumeSecondHalf();
         iconPP.textContent = "⏸";
         textPP.textContent = "Pausar";
         showMatchAlert({ text: "📣 ¡Comienza la 2ª Parte!" });
+        return;
+      }
+      if (simulator.isHighlightRunning || simulator.isSetPieceRunning) {
+        if (!simulator.pauseRequested) {
+          simulator.pauseRequested = true;
+          iconPP.textContent = "▶";
+          textPP.textContent = "Pausa pedida";
+          showMatchAlert({ text: "⏸ Pausa solicitada: se pausará al terminar la jugada" });
+        } else {
+          simulator.pauseRequested = false;
+          iconPP.textContent = "⏸";
+          textPP.textContent = "Pausar";
+          showMatchAlert({ text: "▶ Pausa cancelada: el juego continuará" });
+        }
         return;
       }
       if (simulator.isRunning) {
@@ -6836,10 +6902,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       const isCorner = spInfo.type === "CORNER";
       const isHome = spInfo.attackingSide === "home";
+      const isLeftCorner = spInfo.spot.y < 50;
 
       if (badgeType) {
         badgeType.textContent = isCorner 
-          ? `🚩 CÓRNER A FAVOR (${spInfo.minute}')` 
+          ? `🚩 CÓRNER BANDA ${isLeftCorner ? "IZQUIERDA" : "DERECHA"} (${spInfo.minute}')` 
           : `🎯 FALTA PELIGROSA (${spInfo.distanceMeters ? spInfo.distanceMeters + 'm · ' : ''}${spInfo.minute}')`;
         badgeType.className = isCorner
           ? "text-[10px] uppercase font-black text-sky-400 bg-sky-400/10 border border-sky-400/30 px-2.5 py-0.5 rounded-full"
@@ -6847,15 +6914,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       }
       if (title) {
         title.textContent = isCorner 
-          ? "Pizarra Táctica · Saque de Esquina" 
+          ? `Pizarra Táctica · Saque de Esquina (${isLeftCorner ? "Banda Izquierda" : "Banda Derecha"})` 
           : `Pizarra Táctica · Falta a ${spInfo.distanceMeters || 24} metros`;
       }
 
       // Ubicación física del balón en la mini pizarra del área
       if (ballSpot) {
         if (isCorner) {
-          const isLeft = spInfo.spot.y < 50;
-          ballSpot.style.left = isLeft ? "12px" : "calc(100% - 24px)";
+          ballSpot.style.left = isLeftCorner ? "12px" : "calc(100% - 24px)";
           ballSpot.style.top = "10px";
         } else {
           const pctY = Math.max(16, Math.min(84, spInfo.spot.y));
@@ -6893,8 +6959,16 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       const strategies = isCorner ? [
         { id: "PENALTY_SPOT", label: "🎯 Al Punto de Penalti", desc: "Balón colgado al centro del área" },
-        { id: "NEAR_POST", label: "📐 Al Primer Palo", desc: "Envío tenso con rosca para prolongar" },
-        { id: "FAR_POST", label: "📐 Al Segundo Palo", desc: "Balón templado al palo largo" },
+        { 
+          id: "NEAR_POST", 
+          label: isLeftCorner ? "📐 1er Palo (Palo Izq.)" : "📐 1er Palo (Palo Dcho.)", 
+          desc: isLeftCorner ? "Envío tenso al palo corto izquierdo" : "Envío tenso al palo corto derecho" 
+        },
+        { 
+          id: "FAR_POST", 
+          label: isLeftCorner ? "📐 2º Palo (Palo Dcho.)" : "📐 2º Palo (Palo Izq.)", 
+          desc: isLeftCorner ? "Balón colgado al segundo poste derecho" : "Balón colgado al segundo poste izquierdo" 
+        },
         { id: "SHORT_PASS", label: "🤝 Saque en Corto", desc: "Pase en corto para abrir ángulo" }
       ] : [
         { id: "DIRECT_SHOT", label: "💥 Disparo Directo", desc: "Tiro a la escuadra o palo del portero" },
@@ -6909,12 +6983,27 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         currentStrategy = savedSP.strategy;
       }
 
+      // El 1er palo se ubica siempre en el poste más cercano a la esquina donde se saca el córner
       const zoneDefs = [
-        { id: "NEAR_POST", name: "1er Palo", x: 26, y: 24, desc: "Anticipación", color: "text-amber-300" },
+        { 
+          id: "NEAR_POST", 
+          name: "1er Palo", 
+          x: isLeftCorner ? 26 : 74, 
+          y: 24, 
+          desc: isCorner ? (isLeftCorner ? "Palo corto (Izq.)" : "Palo corto (Dcho.)") : "Anticipación", 
+          color: "text-amber-300" 
+        },
         { id: "PENALTY_SPOT", name: "Pto. Penalti", x: 50, y: 40, desc: "Rematador principal", color: "text-emerald-300" },
-        { id: "FAR_POST", name: "2º Palo", x: 74, y: 24, desc: "Llegada desde atrás", color: "text-amber-300" },
+        { 
+          id: "FAR_POST", 
+          name: "2º Palo", 
+          x: isLeftCorner ? 74 : 26, 
+          y: 24, 
+          desc: isCorner ? (isLeftCorner ? "Palo largo (Dcho.)" : "Palo largo (Izq.)") : "Llegada desde atrás", 
+          color: "text-amber-300" 
+        },
         { id: "EDGE_BOX", name: "Frontal", x: 50, y: 64, desc: "Tiro de rechace", color: "text-sky-300" },
-        { id: "SHORT_OPTION", name: "En Corto", x: (spInfo.spot.y < 50 ? 18 : 82), y: isCorner ? 26 : 58, desc: "Apoyo para pase", color: "text-indigo-300" },
+        { id: "SHORT_OPTION", name: "En Corto", x: (isLeftCorner ? 18 : 82), y: isCorner ? 26 : 58, desc: "Apoyo para pase", color: "text-indigo-300" },
         { id: "STAY_BACK", name: "Cierre", x: 50, y: 84, desc: "Contención defensiva", color: "text-slate-300" }
       ];
 
@@ -7196,8 +7285,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           const stratObj = strategies.find(s => s.id === currentStrategy);
           showMatchAlert({ text: `⚽ ¡${currentTaker.name} listo para ejecutar! Estrategia: ${stratObj?.label || 'Balón al área'}` });
 
-          if (iconPP) iconPP.textContent = "⏸";
-          if (textPP) textPP.textContent = "Pausar";
+          if (simulator.pauseRequested) {
+            if (iconPP) iconPP.textContent = "▶";
+            if (textPP) textPP.textContent = "Pausa pedida";
+          } else {
+            if (iconPP) iconPP.textContent = "⏸";
+            if (textPP) textPP.textContent = "Pausar";
+          }
 
           simulator.executeSetPiece({
             type: spInfo.type,
@@ -7209,8 +7303,16 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             placements: resolvedPlacements
           }, () => {
             if (!simulator.isFinished && !simulator.isHalfTime) {
-              if (iconPP) iconPP.textContent = "⏸";
-              if (textPP) textPP.textContent = "Pausar";
+              if (simulator.pauseRequested || !simulator.isRunning) {
+                simulator.pauseRequested = false;
+                simulator.pause();
+                if (iconPP) iconPP.textContent = "▶";
+                if (textPP) textPP.textContent = "Reanudar";
+                showMatchAlert({ text: "⏸ Partido en pausa tras el córner" });
+              } else {
+                if (iconPP) iconPP.textContent = "⏸";
+                if (textPP) textPP.textContent = "Pausar";
+              }
             }
           });
         };
