@@ -2409,13 +2409,23 @@ class MatchSimulator {
             this.ball.targetZ = 5;
 
             setTimeout(() => {
-              this.triggerAlert("PARADÓN", `🧤 ¡Paradón providencial de ${goalkeeper.name} ante ${shooter.name}!`, isHome ? "away" : "home", 3500);
-              this.stats.corners[attackingSide]++;
+              this.triggerAlert("PARADÓN", `🧤 ¡Paradón providencial de ${goalkeeper.name} ante ${shooter.name}! ¡El balón sale a córner!`, isHome ? "away" : "home", 3200);
               const analysis = attackingSide === this.userSide
-                ? `🧤 ¡Paradón de ${goalkeeper.name}! Estirada espectacular a mano cambiada desviando el balón.`
-                : `🧤 ¡Intervención salvadora de ${goalkeeper.name}! Tu portero voló para evitar el gol.`;
+                ? `🧤 ¡Paradón de ${goalkeeper.name}! Estirada espectacular desviando el tiro a saque de esquina.`
+                : `🧤 ¡Intervención salvadora de ${goalkeeper.name}! Tu portero voló para desviar el balón a córner.`;
 
-              this.concludeHighlight({ outcome: "SAVE", tacticalAnalysis: analysis, onComplete });
+              this.concludeHighlight({
+                outcome: "SAVE",
+                tacticalAnalysis: analysis,
+                onComplete: () => {
+                  // Tras la parada en jugada clave, el balón sale a córner y se permite sacar la jugada ensayada
+                  if (!this.isFinished && !this.isHalfTime) {
+                    this.triggerSetPiece(attackingSide, "CORNER");
+                  } else if (onComplete) {
+                    onComplete();
+                  }
+                }
+              });
             }, 3500);
 
           } else {
@@ -2512,10 +2522,46 @@ class MatchSimulator {
     if (onComplete) onComplete();
   }
 
+  // Generar punto y distancia real en metros de una falta con distribución aleatoria
+  generateFreeKickSpot(attackingSide) {
+    const isHome = attackingSide === "home";
+
+    // Generar distancia al azar entre 17m y 60m:
+    // ~35% faltas directas peligrosas al borde del área (17m - 25m)
+    // ~35% faltas para centro / colgar al área (26m - 34m)
+    // ~30% faltas lejanas en medio campo (35m - 60m)
+    const roll = Math.random();
+    let targetDist;
+    if (roll < 0.35) {
+      targetDist = 17 + Math.random() * 8.5; // 17m a 25.5m (muy peligrosas para tiro directo)
+    } else if (roll < 0.70) {
+      targetDist = 26 + Math.random() * 8.5; // 26m a 34.5m (peligrosas para centro al área)
+    } else {
+      targetDist = 35 + Math.random() * 25;  // 35m a 60m (faltas en la medular)
+    }
+
+    const maxAngle = Math.min(0.95, 28 / targetDist);
+    const angle = (Math.random() * 2 - 1) * maxAngle;
+
+    const dxMeters = targetDist * Math.cos(angle);
+    const dyMeters = targetDist * Math.sin(angle);
+
+    const pitchX = isHome ? (100 - dxMeters / 1.05) : (dxMeters / 1.05);
+    const pitchY = 50 + (dyMeters / 0.68);
+
+    const spotX = Math.max(8, Math.min(92, pitchX));
+    const spotY = Math.max(14, Math.min(86, pitchY));
+
+    const realDx = (isHome ? (100 - spotX) : spotX) * 1.05;
+    const realDy = (50 - spotY) * 0.68;
+    const distanceMeters = Math.round(Math.sqrt(realDx * realDx + realDy * realDy));
+
+    return { spot: { x: spotX, y: spotY }, distanceMeters };
+  }
+
   // Activar jugada a balón parado (Córner o Falta peligrosa)
-  triggerSetPiece(attackingSide, type = "CORNER") {
+  triggerSetPiece(attackingSide, type = "CORNER", customSpotData = null) {
     if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return;
-    this.isSetPieceRunning = true;
 
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
@@ -2523,14 +2569,32 @@ class MatchSimulator {
     const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
 
-    let spotX, spotY;
+    let spotX, spotY, distanceMeters = null;
     if (type === "CORNER") {
       spotX = isHome ? 99.5 : 0.5;
       spotY = Math.random() < 0.5 ? 0.8 : 99.2;
     } else {
-      spotX = isHome ? (73 + Math.random() * 8) : (27 - Math.random() * 8);
-      spotY = 30 + Math.random() * 40;
+      const fkData = customSpotData || this.generateFreeKickSpot(attackingSide);
+      spotX = fkData.spot.x;
+      spotY = fkData.spot.y;
+      distanceMeters = fkData.distanceMeters;
+
+      // REQUISITO: Si la falta no es peligrosa (>34m), es falta lejana en la medular.
+      // Se saca rápido sin interrumpir con la pizarra táctica de jugada ensayada.
+      if (distanceMeters > 34) {
+        this.ball.x = spotX;
+        this.ball.y = spotY;
+        this.ball.z = 0;
+        this.ball.targetX = spotX;
+        this.ball.targetY = spotY;
+        this.ball.targetZ = 0;
+        this.ball.possession = attackingSide;
+        this.triggerAlert("FALTA", `⚠️ Falta a ${distanceMeters}m de portería cometida sobre ${atkTeam.shortName}. Saque rápido.`, attackingSide, 2600);
+        return;
+      }
     }
+
+    this.isSetPieceRunning = true;
 
     const setPieceInfo = {
       type,
@@ -2540,6 +2604,7 @@ class MatchSimulator {
       atkPlayers,
       defPlayers,
       spot: { x: spotX, y: spotY },
+      distanceMeters,
       minute: this.minute
     };
 
@@ -2566,9 +2631,16 @@ class MatchSimulator {
     const taker = sortedKickers[0] || outfield[0];
 
     const nonTakers = outfield.filter(p => p.id !== taker.id);
-    const strategies = info.type === "FREE_KICK"
-      ? ["DIRECT_SHOT", "NEAR_POST", "PENALTY_SPOT", "FAR_POST", "SHORT_PASS"]
-      : ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "SHORT_PASS"];
+    let strategies;
+    if (info.type === "FREE_KICK") {
+      if (info.distanceMeters && info.distanceMeters <= 24) {
+        strategies = ["DIRECT_SHOT", "DIRECT_SHOT", "NEAR_POST", "PENALTY_SPOT"];
+      } else {
+        strategies = ["PENALTY_SPOT", "FAR_POST", "NEAR_POST", "DIRECT_SHOT", "SHORT_PASS"];
+      }
+    } else {
+      strategies = ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "SHORT_PASS"];
+    }
     const targetStrategy = strategies[Math.floor(Math.random() * strategies.length)];
 
     const zones = ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "EDGE_BOX", "SHORT_OPTION", "STAY_BACK"];
@@ -2583,6 +2655,7 @@ class MatchSimulator {
       type: info.type,
       attackingSide: info.attackingSide,
       spot: info.spot,
+      distanceMeters: info.distanceMeters,
       taker,
       targetStrategy,
       placements
@@ -8943,13 +9016,15 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       if (badgeType) {
         badgeType.textContent = isCorner 
           ? `🚩 CÓRNER A FAVOR (${spInfo.minute}')` 
-          : `🎯 FALTA PELIGROSA A FAVOR (${spInfo.minute}')`;
+          : `🎯 FALTA PELIGROSA (${spInfo.distanceMeters ? spInfo.distanceMeters + 'm · ' : ''}${spInfo.minute}')`;
         badgeType.className = isCorner
           ? "text-[10px] uppercase font-black text-sky-400 bg-sky-400/10 border border-sky-400/30 px-2.5 py-0.5 rounded-full"
           : "text-[10px] uppercase font-black text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2.5 py-0.5 rounded-full";
       }
       if (title) {
-        title.textContent = isCorner ? "Pizarra Táctica · Saque de Esquina" : "Pizarra Táctica · Falta Peligrosa";
+        title.textContent = isCorner 
+          ? "Pizarra Táctica · Saque de Esquina" 
+          : `Pizarra Táctica · Falta a ${spInfo.distanceMeters || 24} metros`;
       }
 
       // Ubicación física del balón en la mini pizarra del área
@@ -8960,8 +9035,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           ballSpot.style.top = "10px";
         } else {
           const pctY = Math.max(16, Math.min(84, spInfo.spot.y));
+          const distM = spInfo.distanceMeters || 24;
+          const topPct = Math.max(54, Math.min(92, 52 + (distM - 16) * 2.1));
           ballSpot.style.left = `${pctY}%`;
-          ballSpot.style.top = "76%";
+          ballSpot.style.top = `${topPct}%`;
         }
       }
 
@@ -9302,6 +9379,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             type: spInfo.type,
             attackingSide: spInfo.attackingSide,
             spot: spInfo.spot,
+            distanceMeters: spInfo.distanceMeters,
             taker: currentTaker,
             targetStrategy: currentStrategy,
             placements: resolvedPlacements

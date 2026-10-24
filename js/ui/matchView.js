@@ -4763,13 +4763,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (badgeType) {
         badgeType.textContent = isCorner 
           ? `🚩 CÓRNER A FAVOR (${spInfo.minute}')` 
-          : `🎯 FALTA PELIGROSA A FAVOR (${spInfo.minute}')`;
+          : `🎯 FALTA PELIGROSA (${spInfo.distanceMeters ? spInfo.distanceMeters + 'm · ' : ''}${spInfo.minute}')`;
         badgeType.className = isCorner
           ? "text-[10px] uppercase font-black text-sky-400 bg-sky-400/10 border border-sky-400/30 px-2.5 py-0.5 rounded-full"
           : "text-[10px] uppercase font-black text-amber-400 bg-amber-400/10 border border-amber-400/30 px-2.5 py-0.5 rounded-full";
       }
       if (title) {
-        title.textContent = isCorner ? "Pizarra Táctica · Saque de Esquina" : "Pizarra Táctica · Falta Peligrosa";
+        title.textContent = isCorner 
+          ? "Pizarra Táctica · Saque de Esquina" 
+          : `Pizarra Táctica · Falta a ${spInfo.distanceMeters || 24} metros`;
       }
 
       // Ubicación física del balón en la mini pizarra del área
@@ -4780,8 +4782,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           ballSpot.style.top = "10px";
         } else {
           const pctY = Math.max(16, Math.min(84, spInfo.spot.y));
+          const distM = spInfo.distanceMeters || 24;
+          const topPct = Math.max(54, Math.min(92, 52 + (distM - 16) * 2.1));
           ballSpot.style.left = `${pctY}%`;
-          ballSpot.style.top = "76%";
+          ballSpot.style.top = `${topPct}%`;
         }
       }
 
@@ -5122,6 +5126,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             type: spInfo.type,
             attackingSide: spInfo.attackingSide,
             spot: spInfo.spot,
+            distanceMeters: spInfo.distanceMeters,
             taker: currentTaker,
             targetStrategy: currentStrategy,
             placements: resolvedPlacements
