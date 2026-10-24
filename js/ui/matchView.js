@@ -3426,17 +3426,25 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       ctx.arc(0, shoulderY + 0.6 * sc, 2.1 * sc, 0.1 * Math.PI, 0.9 * Math.PI);
       ctx.stroke();
 
-      // Dorsal y nombre en la espalda (como el #20 azul de la referencia)
+      // Dorsal real en la espalda (como el #20 azul de la referencia) con reborde de contraste
       if (isBackView && !isReferee && !isLinesman) {
-        ctx.fillStyle = kit.number || "#ffffff";
-        ctx.font = `900 ${Math.max(6, Math.round(6.2 * sc))}px "Impact", "Arial Black", sans-serif`;
+        ctx.font = `900 ${Math.max(6, Math.round(6.4 * sc))}px "Impact", "Arial Black", sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.72)";
+        ctx.lineWidth = Math.max(1.0, 1.3 * sc);
+        ctx.strokeText(`${number}`, 0, shoulderY + 5.8 * sc);
+        ctx.fillStyle = kit.number || "#ffffff";
         ctx.fillText(`${number}`, 0, shoulderY + 5.8 * sc);
       } else if (!isBackView && !isReferee && !isLinesman && !isKeeper) {
-        // Detalle de escudo/sponsor en el pecho
+        // Detalle de escudo/sponsor en el pecho y dorsal pequeño en el pantalón
         ctx.fillStyle = "rgba(255, 255, 255, 0.75)";
         ctx.fillRect(-2.4 * sc, shoulderY + 3.8 * sc, 4.8 * sc, 1.2 * sc);
+        ctx.font = `800 ${Math.max(4, Math.round(3.4 * sc))}px sans-serif`;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = kit.jersey || "#0f172a";
+        ctx.fillText(`${number}`, -2.1 * sc, hipY + 1.8 * sc);
       }
 
       // Brazos articulados (manga corta + antebrazo piel)
@@ -4542,27 +4550,28 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
 
       } else if (playPattern === "INDIVIDUAL_SLALOM") {
-        // PATRÓN 5: Slalom individual en diagonal desde la derecha hacia la frontal, pared corta y disparo con rosca
+        // PATRÓN 5: Slalom individual en diagonal desde la derecha hacia la frontal, pared corta con WINGER (passer) y disparo con rosca
         shotOriginU = 15.2;
         shotOriginV = 36.2 + vJit * 0.5;
         shotOriginZ = 0;
         blockDefIdx = 1;
 
-        // Pivote y extremo inician en corto por la derecha (0 - 3.2s)
+        // Pivote inicia en corto por la derecha (0 - 2.2s)
         pivU = lerp(27.0, 22.5, Math.min(1, elapsed / 8));
         pivV = 24.0;
         pivPose = elapsed < 2.0 ? "PASS_DELIVERY" : "RUNNING_UP";
 
-        winU = lerp(21.0, 12.0, Math.min(1, elapsed / 9));
-        winV = lerp(11.0, 8.5, Math.min(1, elapsed / 9));
-        winPose = "RUNNING_UP";
+        // Apoyo abierto en banda derecha arrastrando al lateral
+        supU = lerp(21.0, 12.0, Math.min(1, elapsed / 9));
+        supV = lerp(11.0, 8.5, Math.min(1, elapsed / 9));
+        supPose = "RUNNING_UP";
 
-        // Mediapunta/Boya (SUPPORT) en la frontal devuelve una pared de tacón entre los segundos 6.2 y 7.4
-        supU = 13.8;
-        supV = 31.5;
-        supPose = (elapsed >= 6.2 && elapsed <= 7.5) ? "PASS_DELIVERY" : "READY";
+        // Boya/Asistente (WINGER = hlData.passer) en la frontal devuelve la pared de tacón entre los segundos 6.2 y 7.4
+        winU = 13.8;
+        winV = 31.5;
+        winPose = (elapsed >= 6.2 && elapsed <= 7.5) ? "PASS_DELIVERY" : "READY";
 
-        // Protagonista (STRIKER) hace la diagonal sorteando rivales de v=14 a v=36.2
+        // Protagonista (STRIKER = hlData.shooter) hace la diagonal sorteando rivales de v=15 a v=36.2
         if (elapsed < 2.2) {
           strU = lerp(23.5, 21.5, elapsed / 2.2);
           strV = lerp(15.0, 16.0, elapsed / 2.2);
@@ -4579,7 +4588,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           strU = lerp(16.8, 15.8, t);
           strV = lerp(28.5, 33.5, t);
           strPose = "SPRINT";
-          activeCarrierId = "SUPPORT";
+          activeCarrierId = "WINGER";
         } else if (elapsed < 11.0) {
           const t = (elapsed - 7.4) / 3.6;
           strU = lerp(15.8, shotOriginU, t);
@@ -4631,12 +4640,596 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           ballU = strU - 0.55; ballV = strV + 0.65; ballZ = 0;
         }
 
+      } else if (playPattern === "FALSE_NINE_DROP_AND_SPLIT") {
+        // PATRÓN 7: Falso 9 (WINGER = passer) baja a recibir entre líneas arrastrando marca, gira y filtra en diagonal para STRIKER
+        shotOriginU = 10.4;
+        shotOriginV = 36.8 + vJit * 0.4;
+        shotOriginZ = 0;
+        blockDefIdx = 1;
+
+        if (elapsed < 2.4) {
+          const t = elapsed / 2.4;
+          pivU = lerp(28.5, 24.5, t);
+          pivV = lerp(29.0, 31.0, t);
+          pivPose = "DRIBBLE";
+          activeCarrierId = "PIVOT";
+        } else {
+          pivU = lerp(24.5, 21.0, Math.min(1, (elapsed - 2.4) / 6.0));
+          pivV = 30.5;
+          pivPose = elapsed < 3.0 ? "PASS_DELIVERY" : "RUNNING_UP";
+        }
+
+        // Falso 9 (WINGER = passer) parte de la línea de centrales (u=14) y baja hasta u=19.2 a recibir, gira y filtra
+        if (elapsed < 3.6) {
+          const t = elapsed / 3.6;
+          winU = lerp(13.8, 19.2, t);
+          winV = lerp(34.5, 32.5 + vJit * 0.4, t);
+          winPose = "RUNNING_UP";
+        } else if (elapsed < 8.4) {
+          const t = (elapsed - 3.6) / 4.8;
+          winU = lerp(19.2, 16.5, t);
+          winV = lerp(32.5 + vJit * 0.4, 30.8 + vJit * 0.4, t);
+          winPose = "DRIBBLE";
+          activeCarrierId = "WINGER";
+        } else if (elapsed < 9.2) {
+          winU = 16.5;
+          winV = 30.8 + vJit * 0.4;
+          winPose = "PASS_DELIVERY";
+          activeCarrierId = "WINGER";
+        } else {
+          winU = 15.8;
+          winV = 30.5;
+          winPose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
+        }
+
+        // Atacante en ruptura (STRIKER = shooter) traza diagonal desde la banda izquierda (v=49) al hueco central dejado por el Falso 9
+        if (elapsed < 5.2) {
+          const t = elapsed / 5.2;
+          strU = lerp(21.0, 17.2, t);
+          strV = lerp(49.0, 44.5, t);
+          strPose = "RUNNING_UP";
+        } else if (elapsed < 10.4) {
+          const t = (elapsed - 5.2) / 5.2;
+          strU = lerp(17.2, shotOriginU + 0.5, t);
+          strV = lerp(44.5, shotOriginV, t);
+          strPose = "SPRINT";
+          if (elapsed >= 9.2) activeCarrierId = "STRIKER";
+        } else if (elapsed < 11.5) {
+          strU = shotOriginU;
+          strV = shotOriginV;
+          strPose = elapsed < 11.0 ? "CONTROL" : "WINDUP_SHOT";
+          activeCarrierId = "STRIKER";
+        } else {
+          strU = shotOriginU - 0.3;
+          strV = shotOriginV;
+          strPose = elapsed < 12.6 ? "SHOT_FOLLOW_THROUGH" : (outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD");
+          activeCarrierId = "STRIKER";
+        }
+
+        const f9T = Math.min(1, elapsed / 10.5);
+        supU = lerp(20.0, 11.5, f9T);
+        supV = lerp(14.0, 21.0, f9T);
+        supPose = "SPRINT";
+        atkBox1U = lerp(22.0, 12.5, f9T);
+        atkBox1V = lerp(42.0, 43.0, f9T);
+        atkBox2U = lerp(24.0, 15.0, f9T);
+        atkBox2V = lerp(23.0, 25.5, f9T);
+
+        // El central defs[2] sale arrastrado por el Falso 9 hasta u=16.5 dejando el hueco a su espalda
+        defs = [
+          { u: lerp(13.5, 9.5, f9T), v: lerp(44.0, 41.5, f9T), pose: "SPRINT", facing: "FRONT_RIGHT", num: 2 },
+          { u: lerp(12.2, 9.2, f9T), v: lerp(38.0, shotOriginV + 1.1, f9T), pose: (outcome === "BLOCK" && elapsed >= 11.3) ? "SLIDE_BLOCK" : "SPRINT", facing: "FRONT_RIGHT", num: 4, name: hlData.defender?.name },
+          { u: elapsed < 6.5 ? lerp(12.5, 16.8, elapsed / 6.5) : lerp(16.8, 12.5, (elapsed - 6.5) / 4.5), v: 32.5, pose: "SPRINT", facing: "FRONT_RIGHT", num: 5 },
+          { u: lerp(12.5, 9.8, f9T), v: lerp(22.0, 23.5, f9T), pose: "JOCKEY", facing: "FRONT_RIGHT", num: 3 },
+          { u: lerp(18.0, 15.5, f9T), v: 36.0, pose: "RUNNING_UP", facing: "BACK_LEFT", num: 6 },
+          { u: lerp(18.5, 15.0, f9T), v: 27.5, pose: "RUNNING_UP", facing: "FRONT_RIGHT", num: 8 },
+          { u: 19.5, v: 18.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 14 },
+          { u: 28.5, v: 39.0, pose: "READY", facing: "BACK_LEFT", num: 17 }
+        ];
+
+        if (elapsed < 2.4) {
+          ballU = pivU - 0.6; ballV = pivV + 0.4; ballZ = 0;
+        } else if (elapsed < 3.6) {
+          const t = (elapsed - 2.4) / 1.2;
+          ballU = lerp(24.0, 19.2, t); ballV = lerp(31.0, 32.5 + vJit * 0.4, t); ballZ = 0;
+        } else if (elapsed < 8.4) {
+          ballU = winU - 0.5; ballV = winV + 0.4; ballZ = 0;
+        } else if (elapsed < 10.4) {
+          const t = (elapsed - 8.4) / 2.0;
+          ballU = lerp(16.2, shotOriginU + 0.2, t);
+          ballV = lerp(31.0 + vJit * 0.4, shotOriginV + 0.4, t);
+          ballZ = 0;
+        } else if (elapsed < 11.5) {
+          ballU = shotOriginU - 0.3; ballV = shotOriginV + 0.4; ballZ = 0;
+        }
+
+      } else if (playPattern === "OVERLAPPING_FULLBACK_CROSS") {
+        // PATRÓN 8: Extremo (PIVOT) aguanta en banda, espera la doblada del Carrilero Ofensivo (WINGER = passer) y centro raso al 1er palo
+        shotOriginU = 6.8;
+        shotOriginV = 29.8 + vJit * 0.4;
+        shotOriginZ = 0.15;
+        blockDefIdx = 1;
+
+        // Extremo (PIVOT) conduce y retiene en banda derecha (0 - 3.8s)
+        if (elapsed < 3.4) {
+          const t = elapsed / 3.4;
+          pivU = lerp(22.0, 17.2, t);
+          pivV = lerp(14.5, 12.5, t);
+          pivPose = "DRIBBLE";
+          activeCarrierId = "PIVOT";
+        } else {
+          pivU = lerp(17.2, 14.5, Math.min(1, (elapsed - 3.4) / 5.0));
+          pivV = 14.0;
+          pivPose = elapsed < 4.2 ? "PASS_DELIVERY" : "READY";
+        }
+
+        // Carrilero Ofensivo (WINGER = passer) dobla como un avión por fuera (v = 5.2) hasta el fondo y centra raso tenso
+        if (elapsed < 3.8) {
+          const t = elapsed / 3.8;
+          winU = lerp(29.5, 16.0, t);
+          winV = lerp(7.0, 5.2, t);
+          winPose = "SPRINT";
+        } else if (elapsed < 8.5) {
+          const t = (elapsed - 3.8) / 4.7;
+          winU = lerp(16.0, 4.8, t);
+          winV = lerp(5.2, 6.8, t);
+          winPose = "SPRINT";
+          activeCarrierId = "WINGER";
+        } else if (elapsed < 9.3) {
+          winU = 4.8; winV = 6.8;
+          winPose = "PASS_DELIVERY";
+          activeCarrierId = "WINGER";
+        } else {
+          winU = 4.5; winV = 7.5;
+          winPose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
+        }
+
+        // Rematador (STRIKER = shooter) ataca el primer palo anticipando al central
+        if (elapsed < 5.5) {
+          strU = lerp(21.0, 15.5, elapsed / 5.5);
+          strV = lerp(35.5, 33.5, elapsed / 5.5);
+          strPose = "RUNNING_UP";
+        } else if (elapsed < 10.7) {
+          const t = (elapsed - 5.5) / 5.2;
+          strU = lerp(15.5, shotOriginU + 0.4, t);
+          strV = lerp(33.5, shotOriginV, t);
+          strPose = "SPRINT";
+          if (elapsed >= 9.3) activeCarrierId = "STRIKER";
+        } else if (elapsed < 11.5) {
+          strU = shotOriginU;
+          strV = shotOriginV;
+          strPose = "WINDUP_SHOT";
+          activeCarrierId = "STRIKER";
+        } else {
+          strU = shotOriginU - 0.3;
+          strV = shotOriginV;
+          strPose = elapsed < 12.6 ? "SHOT_FOLLOW_THROUGH" : (outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD");
+          activeCarrierId = "STRIKER";
+        }
+
+        const ovT = Math.min(1, elapsed / 10.0);
+        supU = lerp(22.0, 7.8, ovT);
+        supV = lerp(41.0, 38.5, ovT);
+        supPose = "SPRINT";
+        atkBox1U = lerp(23.5, 11.5, ovT);
+        atkBox1V = lerp(31.0, 34.5, ovT);
+        atkBox2U = lerp(25.0, 15.5, ovT);
+        atkBox2V = lerp(24.0, 25.0, ovT);
+
+        defs = [
+          { u: lerp(16.5, 13.5, ovT), v: lerp(13.0, 12.5, ovT), pose: "JOCKEY", facing: "FRONT_RIGHT", num: 3 },
+          { u: lerp(13.5, 6.2, ovT), v: lerp(32.5, shotOriginV + 1.1, ovT), pose: (outcome === "BLOCK" && elapsed >= 11.3) ? "SLIDE_BLOCK" : "SPRINT", facing: "FRONT_RIGHT", num: 4, name: hlData.defender?.name },
+          { u: lerp(13.5, 6.8, ovT), v: lerp(37.5, 37.0, ovT), pose: "JOCKEY", facing: "FRONT_RIGHT", num: 5 },
+          { u: lerp(14.5, 8.2, ovT), v: lerp(43.0, 42.0, ovT), pose: "JOCKEY", facing: "FRONT_RIGHT", num: 2 },
+          { u: lerp(18.0, 7.2, ovT), v: lerp(10.0, 9.2, ovT), pose: "SPRINT", facing: "BACK_LEFT", num: 6 },
+          { u: lerp(19.0, 12.5, ovT), v: 28.0, pose: "RUNNING_UP", facing: "BACK_LEFT", num: 8 },
+          { u: lerp(21.5, 15.8, ovT), v: 36.0, pose: "RUNNING_UP", facing: "BACK_LEFT", num: 14 },
+          { u: 28.5, v: 42.0, pose: "READY", facing: "BACK_LEFT", num: 17 }
+        ];
+
+        if (elapsed < 3.4) {
+          ballU = pivU - 0.5; ballV = pivV - 0.3; ballZ = 0;
+        } else if (elapsed < 4.5) {
+          const t = (elapsed - 3.4) / 1.1;
+          ballU = lerp(17.0, 13.8, t); ballV = lerp(12.2, 5.5, t); ballZ = 0;
+        } else if (elapsed < 8.5) {
+          ballU = winU - 0.6; ballV = winV + 0.4; ballZ = 0;
+        } else if (elapsed < 11.5) {
+          const t = Math.min(1, (elapsed - 8.5) / 2.2);
+          ballU = lerp(4.8, shotOriginU - 0.2, t);
+          ballV = lerp(6.8, shotOriginV + 0.3, t);
+          ballZ = Math.sin(t * Math.PI) * 0.35;
+        }
+
+      } else if (playPattern === "CHIPPED_PASS_OVER_DEFENSE") {
+        // PATRÓN 9: Pase picado de cuchara de WINGER (passer) por encima de la línea defensiva y volea de STRIKER
+        shotOriginU = 8.8;
+        shotOriginV = 34.2 + vJit * 0.4;
+        shotOriginZ = 0.85;
+        blockDefIdx = 1;
+
+        if (elapsed < 2.2) {
+          pivU = lerp(28.0, 24.5, elapsed / 2.2);
+          pivV = 36.5;
+          pivPose = "DRIBBLE";
+          activeCarrierId = "PIVOT";
+        } else {
+          pivU = 22.5; pivV = 35.5;
+          pivPose = elapsed < 2.8 ? "PASS_DELIVERY" : "READY";
+        }
+
+        if (elapsed < 4.2) {
+          supU = lerp(23.0, 20.2, elapsed / 4.2);
+          supV = 25.0;
+          supPose = elapsed >= 2.2 ? "DRIBBLE" : "RUNNING_UP";
+          if (elapsed >= 2.2) activeCarrierId = "SUPPORT";
+        } else {
+          supU = lerp(20.2, 16.0, Math.min(1, (elapsed - 4.2) / 6.0));
+          supV = 23.5;
+          supPose = elapsed < 4.8 ? "PASS_DELIVERY" : "RUNNING_UP";
+        }
+
+        // Creativo/Organizador (WINGER = passer) recibe en la frontal y pica el balón por alto (8.2s)
+        if (elapsed < 4.5) {
+          winU = lerp(21.5, 18.2, elapsed / 4.5);
+          winV = lerp(31.5, 30.5, elapsed / 4.5);
+          winPose = "RUNNING_UP";
+        } else if (elapsed < 8.2) {
+          const t = (elapsed - 4.5) / 3.7;
+          winU = lerp(18.2, 16.2, t);
+          winV = lerp(30.5, 32.0, t);
+          winPose = "DRIBBLE";
+          activeCarrierId = "WINGER";
+        } else if (elapsed < 9.1) {
+          winU = 16.2; winV = 32.0;
+          winPose = "PASS_DELIVERY";
+          activeCarrierId = "WINGER";
+        } else {
+          winU = 15.8; winV = 32.0;
+          winPose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
+        }
+
+        // Delantero (STRIKER = shooter) rompe el fuera de juego y engancha la volea en el aire
+        if (elapsed < 6.2) {
+          strU = lerp(15.5, 13.2, elapsed / 6.2);
+          strV = lerp(39.0, 36.5, elapsed / 6.2);
+          strPose = "RUNNING_UP";
+        } else if (elapsed < 10.8) {
+          const t = (elapsed - 6.2) / 4.6;
+          strU = lerp(13.2, shotOriginU + 0.3, t);
+          strV = lerp(36.5, shotOriginV, t);
+          strPose = "SPRINT";
+          if (elapsed >= 9.1) activeCarrierId = "STRIKER";
+        } else if (elapsed < 12.1) {
+          const jumpT = (elapsed - 10.8) / 1.3;
+          strU = shotOriginU;
+          strV = shotOriginV;
+          strZ = Math.sin(jumpT * Math.PI) * 0.65;
+          strPose = elapsed < 11.5 ? "WINDUP_SHOT" : "SHOT_FOLLOW_THROUGH";
+          activeCarrierId = "STRIKER";
+        } else {
+          strU = shotOriginU;
+          strV = shotOriginV;
+          strZ = 0;
+          strPose = outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD";
+          activeCarrierId = "STRIKER";
+        }
+
+        const chT = Math.min(1, elapsed / 10.5);
+        atkBox1U = lerp(18.0, 10.5, chT);
+        atkBox1V = lerp(44.5, 42.5, chT);
+        atkBox2U = lerp(19.0, 11.5, chT);
+        atkBox2V = lerp(17.0, 20.5, chT);
+
+        defs = [
+          { u: lerp(12.2, 9.5, chT), v: 41.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 2 },
+          { u: lerp(12.0, 8.2, chT), v: lerp(35.5, shotOriginV + 1.4, chT), pose: (outcome === "BLOCK" && elapsed >= 11.3) ? "SLIDE_BLOCK" : "SPRINT", facing: "BACK_LEFT", num: 4, name: hlData.defender?.name },
+          { u: lerp(12.0, 8.6, chT), v: lerp(29.5, shotOriginV - 2.2, chT), pose: "SPRINT", facing: "BACK_LEFT", num: 5 },
+          { u: lerp(12.4, 9.8, chT), v: 22.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 3 },
+          { u: lerp(16.0, 14.5, chT), v: 34.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 6 },
+          { u: lerp(16.5, 14.8, chT), v: 27.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 8 },
+          { u: 18.5, v: 20.0, pose: "RUNNING_UP", facing: "BACK_LEFT", num: 14 },
+          { u: 28.0, v: 40.0, pose: "READY", facing: "BACK_LEFT", num: 17 }
+        ];
+
+        if (elapsed < 2.2) {
+          ballU = pivU - 0.5; ballV = pivV - 0.3; ballZ = 0;
+        } else if (elapsed < 3.2) {
+          const t = (elapsed - 2.2) / 1.0;
+          ballU = lerp(24.0, 20.5, t); ballV = lerp(36.0, 25.2, t); ballZ = 0;
+        } else if (elapsed < 4.5) {
+          const t = Math.max(0, (elapsed - 3.6) / 0.9);
+          ballU = lerp(20.2, 18.2, t); ballV = lerp(25.0, 30.5, t); ballZ = 0;
+        } else if (elapsed < 8.2) {
+          ballU = winU - 0.5; ballV = winV + 0.4; ballZ = 0;
+        } else if (elapsed < 11.5) {
+          const t = (elapsed - 8.2) / 3.3;
+          ballU = lerp(16.0, shotOriginU - 0.2, t);
+          ballV = lerp(32.0, shotOriginV + 0.3, t);
+          // Parábola alta de cuchara superando la línea defensiva
+          ballZ = lerp(0, shotOriginZ, t) + Math.sin(t * Math.PI) * 3.4;
+        }
+
+      } else if (playPattern === "THIRD_MAN_TRIANGLE") {
+        // PATRÓN 10: Triangulación al tercer hombre (PIVOT filtra a boya WINGER de espaldas -> descarga de cara para llegada de STRIKER)
+        shotOriginU = 12.8;
+        shotOriginV = 31.8 + vJit * 0.4;
+        shotOriginZ = 0;
+        blockDefIdx = 1;
+
+        if (elapsed < 2.8) {
+          const t = elapsed / 2.8;
+          pivU = lerp(27.5, 22.8, t);
+          pivV = lerp(36.5, 35.0, t);
+          pivPose = "DRIBBLE";
+          activeCarrierId = "PIVOT";
+        } else {
+          pivU = lerp(22.8, 19.0, Math.min(1, (elapsed - 2.8) / 6.0));
+          pivV = 35.0;
+          pivPose = elapsed < 3.5 ? "PASS_DELIVERY" : "RUNNING_UP";
+        }
+
+        // Delantero Boya (WINGER = passer) recibe de espaldas en u=13.5, v=35.5, aguanta al central y descarga de cara hacia atrás-derecha
+        if (elapsed < 4.2) {
+          winU = lerp(15.0, 13.5, elapsed / 4.2);
+          winV = 35.8;
+          winPose = "READY";
+        } else if (elapsed < 8.0) {
+          winU = 13.5;
+          winV = 35.8;
+          winPose = "CONTROL";
+          activeCarrierId = "WINGER";
+        } else if (elapsed < 8.8) {
+          winU = 13.5;
+          winV = 35.8;
+          winPose = "PASS_DELIVERY";
+          activeCarrierId = "WINGER";
+        } else {
+          winU = 12.5;
+          winV = 36.5;
+          winPose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
+        }
+
+        // Todocampista / Llegador (STRIKER = shooter) arranca desde segunda línea (u=26.5) y recibe la descarga en carrera
+        if (elapsed < 4.5) {
+          strU = lerp(26.5, 21.5, elapsed / 4.5);
+          strV = lerp(26.0, 28.5, elapsed / 4.5);
+          strPose = "RUNNING_UP";
+        } else if (elapsed < 10.4) {
+          const t = (elapsed - 4.5) / 5.9;
+          strU = lerp(21.5, shotOriginU + 0.4, t);
+          strV = lerp(28.5, shotOriginV, t);
+          strPose = "SPRINT";
+          if (elapsed >= 8.8) activeCarrierId = "STRIKER";
+        } else if (elapsed < 11.5) {
+          strU = shotOriginU;
+          strV = shotOriginV;
+          strPose = elapsed < 11.0 ? "CONTROL" : "WINDUP_SHOT";
+          activeCarrierId = "STRIKER";
+        } else {
+          strU = shotOriginU - 0.3;
+          strV = shotOriginV;
+          strPose = elapsed < 12.6 ? "SHOT_FOLLOW_THROUGH" : (outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD");
+          activeCarrierId = "STRIKER";
+        }
+
+        const tmT = Math.min(1, elapsed / 10.0);
+        supU = lerp(20.0, 9.8, tmT);
+        supV = lerp(44.5, 42.0, tmT);
+        supPose = "SPRINT";
+        atkBox1U = lerp(19.5, 9.5, tmT);
+        atkBox1V = lerp(18.0, 22.0, tmT);
+        atkBox2U = lerp(23.0, 16.0, tmT);
+        atkBox2V = lerp(41.0, 39.5, tmT);
+
+        defs = [
+          { u: lerp(12.5, 9.2, tmT), v: 41.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 2 },
+          { u: lerp(12.0, 10.2, tmT), v: lerp(31.0, shotOriginV + 0.6, tmT), pose: (outcome === "BLOCK" && elapsed >= 11.3) ? "SLIDE_BLOCK" : "SPRINT", facing: "FRONT_RIGHT", num: 4, name: hlData.defender?.name },
+          { u: 12.2, v: 35.8, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 5 },
+          { u: lerp(12.5, 9.5, tmT), v: 23.0, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 3 },
+          { u: lerp(17.5, 14.5, tmT), v: 38.0, pose: "RUNNING_UP", facing: "BACK_LEFT", num: 6 },
+          { u: lerp(18.5, 14.2, tmT), v: 28.0, pose: "SPRINT", facing: "BACK_LEFT", num: 8 },
+          { u: 19.0, v: 20.0, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 14 },
+          { u: 28.0, v: 38.0, pose: "READY", facing: "BACK_LEFT", num: 17 }
+        ];
+
+        if (elapsed < 2.8) {
+          ballU = pivU - 0.6; ballV = pivV + 0.3; ballZ = 0;
+        } else if (elapsed < 4.2) {
+          const t = (elapsed - 2.8) / 1.4;
+          ballU = lerp(22.2, 13.8, t); ballV = lerp(35.0, 35.8, t); ballZ = 0;
+        } else if (elapsed < 8.0) {
+          ballU = 13.8; ballV = 35.8; ballZ = 0;
+        } else if (elapsed < 10.4) {
+          const t = (elapsed - 8.0) / 2.4;
+          ballU = lerp(13.8, shotOriginU + 0.2, t);
+          ballV = lerp(35.8, shotOriginV + 0.3, t);
+          ballZ = 0;
+        } else if (elapsed < 11.5) {
+          ballU = shotOriginU - 0.3; ballV = shotOriginV + 0.4; ballZ = 0;
+        }
+
+      } else if (playPattern === "HIGH_PRESS_TURNOVER") {
+        // PATRÓN 11: Robo en presión alta de WINGER (passer) sobre la salida rival (DEF_5) y asistencia rápida a STRIKER
+        shotOriginU = 10.2;
+        shotOriginV = 35.6 + vJit * 0.4;
+        shotOriginZ = 0;
+        blockDefIdx = 1;
+
+        // PIVOT presiona cerrando línea de pase interior
+        pivU = lerp(22.0, 16.5, Math.min(1, elapsed / 4.5));
+        pivV = lerp(36.0, 33.0, Math.min(1, elapsed / 4.5));
+        pivPose = elapsed < 4.2 ? "SPRINT" : "READY";
+
+        // Recuperador (WINGER = passer) asfixia a DEF_5 en u=16.2, v=27.5, roba en t=3.8s y asiste al área
+        if (elapsed < 3.8) {
+          const t = elapsed / 3.8;
+          winU = lerp(22.5, 16.2, t);
+          winV = lerp(23.0, 27.2, t);
+          winPose = "SPRINT";
+          activeCarrierId = "DEF_5";
+        } else if (elapsed < 8.4) {
+          const t = (elapsed - 3.8) / 4.6;
+          winU = lerp(16.2, 13.2, t);
+          winV = lerp(27.2, 29.5, t);
+          winPose = "DRIBBLE";
+          activeCarrierId = "WINGER";
+        } else if (elapsed < 9.2) {
+          winU = 13.2; winV = 29.5;
+          winPose = "PASS_DELIVERY";
+          activeCarrierId = "WINGER";
+        } else {
+          winU = 12.8; winV = 29.0;
+          winPose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
+        }
+
+        // Delantero (STRIKER = shooter) aprovecha el desajuste defensivo tras el robo
+        if (elapsed < 5.0) {
+          strU = lerp(16.5, 13.8, elapsed / 5.0);
+          strV = lerp(40.5, 38.0, elapsed / 5.0);
+          strPose = "RUNNING_UP";
+        } else if (elapsed < 10.3) {
+          const t = (elapsed - 5.0) / 5.3;
+          strU = lerp(13.8, shotOriginU + 0.4, t);
+          strV = lerp(38.0, shotOriginV, t);
+          strPose = "SPRINT";
+          if (elapsed >= 9.2) activeCarrierId = "STRIKER";
+        } else if (elapsed < 11.5) {
+          strU = shotOriginU;
+          strV = shotOriginV;
+          strPose = elapsed < 11.0 ? "CONTROL" : "WINDUP_SHOT";
+          activeCarrierId = "STRIKER";
+        } else {
+          strU = shotOriginU - 0.3;
+          strV = shotOriginV;
+          strPose = elapsed < 12.6 ? "SHOT_FOLLOW_THROUGH" : (outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD");
+          activeCarrierId = "STRIKER";
+        }
+
+        const hpT = Math.min(1, elapsed / 10.0);
+        supU = lerp(19.0, 9.5, hpT);
+        supV = lerp(45.0, 42.0, hpT);
+        supPose = "SPRINT";
+        atkBox1U = lerp(20.0, 10.5, hpT);
+        atkBox1V = lerp(16.0, 21.5, hpT);
+        atkBox2U = lerp(24.0, 17.5, hpT);
+        atkBox2V = 30.0;
+
+        defs = [
+          { u: lerp(13.0, 9.2, hpT), v: 43.0, pose: "SPRINT", facing: "BACK_LEFT", num: 2 },
+          { u: lerp(11.5, 8.8, hpT), v: lerp(38.5, shotOriginV + 1.2, hpT), pose: (outcome === "BLOCK" && elapsed >= 11.3) ? "SLIDE_BLOCK" : "SPRINT", facing: "FRONT_RIGHT", num: 4, name: hlData.defender?.name },
+          { u: lerp(11.0, 8.6, hpT), v: 29.0, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 5 },
+          { u: lerp(13.5, 9.8, hpT), v: 19.5, pose: "SPRINT", facing: "BACK_LEFT", num: 3 },
+          { u: 16.5, v: 36.0, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 6 },
+          { u: 16.0, v: 27.2, pose: elapsed >= 3.8 && elapsed <= 6.5 ? "SLIDE_BLOCK" : "DRIBBLE", facing: "FRONT_RIGHT", num: 8 },
+          { u: 19.5, v: 22.0, pose: "RUNNING_UP", facing: "BACK_LEFT", num: 14 },
+          { u: 26.5, v: 39.0, pose: "READY", facing: "BACK_LEFT", num: 17 }
+        ];
+
+        if (elapsed < 3.8) {
+          ballU = 16.2; ballV = 27.5; ballZ = 0;
+        } else if (elapsed < 8.4) {
+          ballU = winU - 0.5; ballV = winV + 0.4; ballZ = 0;
+        } else if (elapsed < 10.3) {
+          const t = (elapsed - 8.4) / 1.9;
+          ballU = lerp(13.0, shotOriginU + 0.2, t);
+          ballV = lerp(29.5, shotOriginV + 0.3, t);
+          ballZ = 0;
+        } else if (elapsed < 11.5) {
+          ballU = shotOriginU - 0.3; ballV = shotOriginV + 0.4; ballZ = 0;
+        }
+
+      } else if (playPattern === "INSIDE_FORWARD_CURLED_SHOT") {
+        // PATRÓN 12: Delantero Interior (STRIKER = shooter) recibe en banda izquierda de WINGER (passer), recorta hacia el centro y suelta rosca
+        shotOriginU = 15.6;
+        shotOriginV = 37.6 + vJit * 0.4;
+        shotOriginZ = 0;
+        blockDefIdx = 1;
+
+        if (elapsed < 2.0) {
+          pivU = lerp(28.0, 25.0, elapsed / 2.0);
+          pivV = lerp(35.0, 39.0, elapsed / 2.0);
+          pivPose = "DRIBBLE";
+          activeCarrierId = "PIVOT";
+        } else {
+          pivU = 23.0; pivV = 39.0;
+          pivPose = elapsed < 2.6 ? "PASS_DELIVERY" : "READY";
+        }
+
+        // Lateral/Apoyo (WINGER = passer) entrega a STRIKER en banda izquierda (3.8s) y le dobla por fuera arrastrando al lateral rival
+        if (elapsed < 3.8) {
+          winU = lerp(24.0, 20.5, elapsed / 3.8);
+          winV = lerp(46.0, 48.0, elapsed / 3.8);
+          winPose = elapsed >= 2.0 ? "DRIBBLE" : "RUNNING_UP";
+          if (elapsed >= 2.0) activeCarrierId = "WINGER";
+        } else {
+          const t = Math.min(1, (elapsed - 3.8) / 6.5);
+          winU = lerp(20.5, 8.5, t);
+          winV = lerp(48.0, 51.5, t);
+          winPose = elapsed < 4.4 ? "PASS_DELIVERY" : "SPRINT";
+        }
+
+        // Delantero Interior (STRIKER = shooter) recibe abierto en v=49.5 y traza la diagonal por la frontal hasta v=37.6
+        if (elapsed < 3.8) {
+          strU = lerp(21.5, 19.5, elapsed / 3.8);
+          strV = 49.5;
+          strPose = "RUNNING_UP";
+        } else if (elapsed < 11.0) {
+          const t = (elapsed - 3.8) / 7.2;
+          strU = lerp(19.5, shotOriginU, t);
+          strV = lerp(49.5, shotOriginV, t);
+          strPose = "DRIBBLE";
+          activeCarrierId = "STRIKER";
+        } else if (elapsed < 11.5) {
+          strU = shotOriginU;
+          strV = shotOriginV;
+          strPose = "WINDUP_SHOT";
+          activeCarrierId = "STRIKER";
+        } else {
+          strU = shotOriginU - 0.2;
+          strV = shotOriginV - 0.2;
+          strPose = elapsed < 12.6 ? "SHOT_FOLLOW_THROUGH" : (outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD");
+          activeCarrierId = "STRIKER";
+        }
+
+        const ifT = Math.min(1, elapsed / 10.0);
+        supU = lerp(16.5, 9.2, ifT);
+        supV = lerp(34.0, 31.5, ifT);
+        supPose = "SPRINT";
+        atkBox1U = lerp(18.0, 10.0, ifT);
+        atkBox1V = lerp(24.0, 25.0, ifT);
+        atkBox2U = lerp(22.0, 15.0, ifT);
+        atkBox2V = lerp(29.0, 28.0, ifT);
+
+        defs = [
+          { u: lerp(17.5, 9.5, ifT), v: lerp(48.5, 49.5, ifT), pose: "SPRINT", facing: "FRONT_RIGHT", num: 2 },
+          { u: lerp(13.5, 12.2, ifT), v: lerp(39.5, shotOriginV + 0.6, ifT), pose: (outcome === "BLOCK" && elapsed >= 11.3) ? "SLIDE_BLOCK" : "JOCKEY", facing: "FRONT_RIGHT", num: 4, name: hlData.defender?.name },
+          { u: 9.2, v: 33.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 5 },
+          { u: 9.8, v: 25.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 3 },
+          { u: 15.8, v: 43.5, pose: elapsed >= 7.8 ? "SLIDE_BLOCK" : "JOCKEY", facing: "FRONT_RIGHT", num: 6 },
+          { u: 13.0, v: 31.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 8 },
+          { u: 14.5, v: 22.0, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 14 },
+          { u: 28.5, v: 37.0, pose: "READY", facing: "BACK_LEFT", num: 17 }
+        ];
+
+        if (elapsed < 2.0) {
+          ballU = pivU - 0.5; ballV = pivV + 0.4; ballZ = 0;
+        } else if (elapsed < 3.0) {
+          const t = (elapsed - 2.0) / 1.0;
+          ballU = lerp(24.5, 21.5, t); ballV = lerp(39.0, 47.0, t); ballZ = 0;
+        } else if (elapsed < 4.2) {
+          const t = Math.max(0, (elapsed - 3.2) / 1.0);
+          ballU = lerp(20.5, 19.2, t); ballV = lerp(48.0, 49.2, t); ballZ = 0;
+        } else if (elapsed < 11.5) {
+          ballU = strU - 0.55; ballV = strV - 0.55; ballZ = 0;
+        }
+
       } else {
         // PATRÓN 6 (LONG_RANGE_BOMB): Circulación frente a bloque bajo, dejada de cara y obús lejano (composición homenaje a la foto)
         shotOriginU = 18.2;
         shotOriginV = 41.2 + vJit * 0.4;
         shotOriginZ = 0;
-        blockDefIdx = 5;
+        blockDefIdx = 1;
 
         if (elapsed < 2.4) {
           const t = elapsed / 2.4;
@@ -4704,11 +5297,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
         defs = [
           { u: 7.4, v: 38.2, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 2 },
-          { u: 7.8, v: 34.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 4, name: hlData.defender?.name },
+          { u: 11.7, v: 41.6, pose: wallPose, facing: "FRONT_RIGHT", num: 4, name: hlData.defender?.name },
           { u: 8.2, v: 30.8, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 5 },
           { u: 8.6, v: 24.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 3 },
           { u: 11.4, v: 43.0, pose: wallPose, facing: "FRONT_RIGHT", num: 6 },
-          { u: 11.7, v: 41.6, pose: wallPose, facing: "FRONT_RIGHT", num: 8 },
+          { u: 7.8, v: 34.5, pose: "JOCKEY", facing: "FRONT_RIGHT", num: 8 },
           { u: 12.0, v: 40.2, pose: wallPose, facing: "FRONT_RIGHT", num: 14 },
           { u: 31.2, v: 39.5, pose: "READY", facing: "BACK_LEFT", num: 17 }
         ];
@@ -4859,7 +5452,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
       }
 
-      // 7. CONSTRUCCIÓN Y ORDENACIÓN POR PROFUNDIDAD (PAINTER'S ALGORITHM)
+      // 7. CONSTRUCCIÓN Y ORDENACIÓN POR PROFUNDIDAD (PAINTER'S ALGORITHM) CON DORSALES REALES DE LA PLANTILLA
       const createEnt = (id, u, v, z, kit, num, pose, facing, opts = {}) => {
         const pt = p3d(u, v, z);
         return {
@@ -4877,18 +5470,39 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         };
       };
 
+      const gkRealNum = hlData.goalkeeper?.number || 1;
+      const strRealNum = hlData.shooter?.number || 9;
+      const winRealNum = hlData.passer?.number || 7;
+      const supRealNum = hlData.supportAttacker?.number || 10;
+      const pivRealNum = hlData.pivot?.number || 6;
+      const box1RealNum = hlData.atkBox1?.number || 11;
+      const box2RealNum = hlData.atkBox2?.number || 8;
+
       const sceneEntities = [
-        // Guardameta bajo palos
-        createEnt("GK", gkU, gkV, gkZ, defKit, 1, gkPose, "FRONT_RIGHT", { isKeeper: true, name: hlData.goalkeeper?.name }),
-        // Defensores dinámicos según el patrón táctico
-        ...defs.map((d, idx) => createEnt(`DEF_${idx}`, d.u, d.v, d.z || 0, defKit, d.num, d.pose, d.facing, { name: d.name })),
-        // Atacantes acompañando la jugada y protagonistas
-        createEnt("ATK_BOX1", atkBox1U, atkBox1V, 0, atkKit, 11, elapsed > 12.5 && outcome === "GOAL" ? "CELEBRATE_JUMP" : atkBox1Pose, "BACK_LEFT"),
-        createEnt("ATK_BOX2", atkBox2U, atkBox2V, 0, atkKit, 8, elapsed > 12.5 && outcome === "GOAL" ? "CELEBRATE_JUMP" : atkBox2Pose, "BACK_LEFT"),
-        createEnt("SUPPORT", supU, supV, 0, atkKit, 10, supPose, "BACK_LEFT", { isActiveCarrier: activeCarrierId === "SUPPORT", name: hlData.supportAttacker?.name }),
-        createEnt("WINGER", winU, winV, 0, atkKit, 7, winPose, "BACK_LEFT", { isActiveCarrier: activeCarrierId === "WINGER", name: hlData.passer?.name }),
-        createEnt("PIVOT", pivU, pivV, 0, atkKit, 6, pivPose, "BACK_LEFT", { isActiveCarrier: activeCarrierId === "PIVOT", name: hlData.pivot?.name }),
-        createEnt("STRIKER", strU, strV, strZ, atkKit, 9, strPose, "BACK_LEFT", { isActiveCarrier: activeCarrierId === "STRIKER", name: hlData.shooter?.name }),
+        // Guardameta bajo palos con su dorsal real
+        createEnt("GK", gkU, gkV, gkZ, defKit, gkRealNum, gkPose, "FRONT_RIGHT", { isKeeper: true, name: hlData.goalkeeper?.name }),
+        // Defensores dinámicos con los dorsales reales de la zaga en el campo
+        ...defs.map((d, idx) => {
+          const realDef = hlData.defFieldPlayers?.[idx];
+          return createEnt(
+            `DEF_${idx}`,
+            d.u,
+            d.v,
+            d.z || 0,
+            defKit,
+            realDef?.number || d.num,
+            d.pose,
+            d.facing,
+            { isActiveCarrier: activeCarrierId === `DEF_${idx}`, name: realDef?.name || d.name }
+          );
+        }),
+        // Atacantes acompañando la jugada y protagonistas con sus dorsales reales exactos
+        createEnt("ATK_BOX1", atkBox1U, atkBox1V, 0, atkKit, box1RealNum, elapsed > 12.5 && outcome === "GOAL" ? "CELEBRATE_JUMP" : atkBox1Pose, "BACK_LEFT", { name: hlData.atkBox1?.name }),
+        createEnt("ATK_BOX2", atkBox2U, atkBox2V, 0, atkKit, box2RealNum, elapsed > 12.5 && outcome === "GOAL" ? "CELEBRATE_JUMP" : atkBox2Pose, "BACK_LEFT", { name: hlData.atkBox2?.name }),
+        createEnt("SUPPORT", supU, supV, 0, atkKit, supRealNum, supPose, "BACK_LEFT", { isActiveCarrier: activeCarrierId === "SUPPORT", name: hlData.supportAttacker?.name }),
+        createEnt("WINGER", winU, winV, 0, atkKit, winRealNum, winPose, "BACK_LEFT", { isActiveCarrier: activeCarrierId === "WINGER", name: hlData.passer?.name }),
+        createEnt("PIVOT", pivU, pivV, 0, atkKit, pivRealNum, pivPose, "BACK_LEFT", { isActiveCarrier: activeCarrierId === "PIVOT", name: hlData.pivot?.name }),
+        createEnt("STRIKER", strU, strV, strZ, atkKit, strRealNum, strPose, "BACK_LEFT", { isActiveCarrier: activeCarrierId === "STRIKER", name: hlData.shooter?.name }),
         // Árbitro principal y Juez de línea
         createEnt("REFEREE", refU, refV, 0, defKit, 99, "READY", "FRONT_RIGHT", { isReferee: true }),
         createEnt("LINESMAN", linesmanU, linesmanV, 0, defKit, 98, "READY", "FRONT_RIGHT", { isLinesman: true }),
