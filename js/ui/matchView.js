@@ -36,6 +36,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   }
 
   let preMatchTab = "USER"; // "USER" o "OPPONENT"
+  let preMatchSubTab = "PITCH"; // "PITCH" o "STYLE"
   let selectedPreMatchPlayerId = null;
   let preMatchSaveFeedback = null;
   let masterTacticsForNextMatches = null;
@@ -73,6 +74,274 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     const bench = allPlayers.filter(p => !used.has(p.id));
     return { formationKey, formation, lineup, bench };
+  }
+
+  // ==========================================
+  // PANEL REUTILIZABLE DE ESTILOS E INSTRUCCIONES POR ESTADOS
+  // ==========================================
+  function renderTacticalInstructionsPanel(instructions, prefix) {
+    if (!instructions) instructions = getDefaultTacticalInstructions();
+    if (!instructions.inPossession) instructions.inPossession = { passingStyle: "short", tempo: "slow", width: "balanced" };
+    if (!instructions.inTransition) instructions.inTransition = { loss: "counterpress", win: "hold" };
+    if (!instructions.outOfPossession) instructions.outOfPossession = { defensiveLine: "high", pressing: "high" };
+
+    const matchingPresetKey = detectMatchingPreset(instructions);
+    const currentPreset = TACTICAL_PRESETS[matchingPresetKey] || null;
+
+    return `
+      <div class="p-3 space-y-3.5 max-w-lg mx-auto w-full select-none animate-fadeIn">
+        <!-- Selector de Presets Rápidos -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-3 shadow-lg">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <h3 class="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                <span>🧠</span> Estilos de Juego Predefinidos
+              </h3>
+              <p class="text-[10px] text-slate-400">Filosofías tácticas con 1 toque o ajusta parámetros libres abajo.</p>
+            </div>
+            <span class="px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${currentPreset ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40' : 'bg-slate-800 text-slate-400'}">
+              ${currentPreset ? currentPreset.name : 'Personalizado'}
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            ${Object.entries(TACTICAL_PRESETS).map(([key, preset]) => {
+              const isActive = matchingPresetKey === key;
+              return `
+                <button type="button" class="btn-${prefix}-preset p-2 rounded-xl border text-left transition flex flex-col justify-between ${isActive ? 'bg-amber-500/20 border-amber-400 shadow-md ring-1 ring-amber-400/60' : 'bg-slate-950/80 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-preset-key="${key}">
+                  <div>
+                    <div class="flex items-center justify-between mb-1">
+                      <span class="text-base">${preset.icon}</span>
+                      ${isActive ? '<span class="text-[8px] font-black uppercase px-1 py-0.2 rounded bg-amber-400 text-slate-950 font-mono">ACTIVO</span>' : ''}
+                    </div>
+                    <div class="text-[11px] font-extrabold ${isActive ? 'text-amber-300' : 'text-white'} leading-tight">${preset.name}</div>
+                    <div class="text-[8.5px] text-slate-400 line-clamp-2 mt-1 leading-snug">${preset.desc}</div>
+                  </div>
+                </button>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- FASE 1: CON BALÓN (FASE OFENSIVA) -->
+        <div class="bg-slate-900 border border-sky-500/40 rounded-2xl p-3 shadow-lg space-y-3">
+          <div class="flex items-center gap-2 pb-1.5 border-b border-slate-800">
+            <span class="w-6 h-6 rounded-lg bg-sky-500/20 text-sky-400 flex items-center justify-center text-sm font-bold">1</span>
+            <div>
+              <h4 class="text-xs font-black text-sky-300 uppercase tracking-wide">Fase Ofensiva · Con Balón</h4>
+              <p class="text-[9.5px] text-slate-400">Cómo circula y madura la jugada tu equipo en posesión</p>
+            </div>
+          </div>
+
+          <!-- Estilo de Pase -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Estilo de Pase</span>
+              <span class="text-sky-400 font-mono text-[9px]">${TACTICAL_OPTIONS.passingStyle.find(o => o.id === instructions.inPossession?.passingStyle)?.label || 'Mixto'}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${TACTICAL_OPTIONS.passingStyle.map(opt => {
+                const isSel = instructions.inPossession?.passingStyle === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="inPossession" data-param="passingStyle" data-val="${opt.id}">
+                    <span class="text-sm mb-0.5">${opt.icon}</span>
+                    <span class="text-[11px] font-bold ${isSel ? 'text-sky-300' : 'text-slate-200'}">${opt.label}</span>
+                    <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Ritmo de Circulación -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Ritmo de Circulación</span>
+              <span class="text-sky-400 font-mono text-[9px]">${TACTICAL_OPTIONS.tempo.find(o => o.id === instructions.inPossession?.tempo)?.label || 'Equilibrado'}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${TACTICAL_OPTIONS.tempo.map(opt => {
+                const isSel = instructions.inPossession?.tempo === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="inPossession" data-param="tempo" data-val="${opt.id}">
+                    <span class="text-sm mb-0.5">${opt.icon}</span>
+                    <span class="text-[11px] font-bold ${isSel ? 'text-sky-300' : 'text-slate-200'}">${opt.label}</span>
+                    <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Zona de Ataque / Anchura -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Zona de Ataque / Anchura</span>
+              <span class="text-sky-400 font-mono text-[9px]">${TACTICAL_OPTIONS.width.find(o => o.id === instructions.inPossession?.width)?.label || 'Equilibrado'}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${TACTICAL_OPTIONS.width.map(opt => {
+                const isSel = instructions.inPossession?.width === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-sky-500/25 border-sky-400 text-white shadow-sm ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="inPossession" data-param="width" data-val="${opt.id}">
+                    <span class="text-sm mb-0.5">${opt.icon}</span>
+                    <span class="text-[11px] font-bold ${isSel ? 'text-sky-300' : 'text-slate-200'}">${opt.label}</span>
+                    <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- FASE 2: EN TRANSICIÓN -->
+        <div class="bg-slate-900 border border-amber-500/40 rounded-2xl p-3 shadow-lg space-y-3">
+          <div class="flex items-center gap-2 pb-1.5 border-b border-slate-800">
+            <span class="w-6 h-6 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center text-sm font-bold">2</span>
+            <div>
+              <h4 class="text-xs font-black text-amber-300 uppercase tracking-wide">Fase de Transición</h4>
+              <p class="text-[9.5px] text-slate-400">Reacción en los segundos clave de pérdida o recuperación</p>
+            </div>
+          </div>
+
+          <!-- Tras Pérdida -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Al perder el balón</span>
+              <span class="text-amber-400 font-mono text-[9px]">${TACTICAL_OPTIONS.transitionLoss.find(o => o.id === instructions.inTransition?.loss)?.label || 'Replegarse'}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              ${TACTICAL_OPTIONS.transitionLoss.map(opt => {
+                const isSel = instructions.inTransition?.loss === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2.5 rounded-xl border text-left transition flex items-start gap-2 ${isSel ? 'bg-amber-500/25 border-amber-400 text-white shadow-sm ring-1 ring-amber-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="inTransition" data-param="loss" data-val="${opt.id}">
+                    <span class="text-base mt-0.5 flex-shrink-0">${opt.icon}</span>
+                    <div>
+                      <div class="text-xs font-bold ${isSel ? 'text-amber-300' : 'text-slate-200'}">${opt.label}</div>
+                      <div class="text-[8.5px] text-slate-400 leading-snug mt-0.5">${opt.desc}</div>
+                    </div>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Tras Recuperación -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Al recuperar el balón</span>
+              <span class="text-amber-400 font-mono text-[9px]">${TACTICAL_OPTIONS.transitionWin.find(o => o.id === instructions.inTransition?.win)?.label || 'Contraatacar'}</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              ${TACTICAL_OPTIONS.transitionWin.map(opt => {
+                const isSel = instructions.inTransition?.win === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2.5 rounded-xl border text-left transition flex items-start gap-2 ${isSel ? 'bg-amber-500/25 border-amber-400 text-white shadow-sm ring-1 ring-amber-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="inTransition" data-param="win" data-val="${opt.id}">
+                    <span class="text-base mt-0.5 flex-shrink-0">${opt.icon}</span>
+                    <div>
+                      <div class="text-xs font-bold ${isSel ? 'text-amber-300' : 'text-slate-200'}">${opt.label}</div>
+                      <div class="text-[8.5px] text-slate-400 leading-snug mt-0.5">${opt.desc}</div>
+                    </div>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- FASE 3: SIN BALÓN (FASE DEFENSIVA) -->
+        <div class="bg-slate-900 border border-rose-500/40 rounded-2xl p-3 shadow-lg space-y-3">
+          <div class="flex items-center gap-2 pb-1.5 border-b border-slate-800">
+            <span class="w-6 h-6 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center text-sm font-bold">3</span>
+            <div>
+              <h4 class="text-xs font-black text-rose-300 uppercase tracking-wide">Fase Defensiva · Sin Balón</h4>
+              <p class="text-[9.5px] text-slate-400">Altura del bloque defensivo y agresividad en la recuperación</p>
+            </div>
+          </div>
+
+          <!-- Altura de la Línea Defensiva -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Altura de la Línea Defensiva</span>
+              <span class="text-rose-400 font-mono text-[9px]">${TACTICAL_OPTIONS.defensiveLine.find(o => o.id === instructions.outOfPossession?.defensiveLine)?.label || 'Bloque Medio'}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${TACTICAL_OPTIONS.defensiveLine.map(opt => {
+                const isSel = instructions.outOfPossession?.defensiveLine === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-rose-500/25 border-rose-400 text-white shadow-sm ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="outOfPossession" data-param="defensiveLine" data-val="${opt.id}">
+                    <span class="text-sm mb-0.5">${opt.icon}</span>
+                    <span class="text-[11px] font-bold ${isSel ? 'text-rose-300' : 'text-slate-200'}">${opt.label}</span>
+                    <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+
+          <!-- Intensidad de Presión -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Intensidad de Presión</span>
+              <span class="text-rose-400 font-mono text-[9px]">${TACTICAL_OPTIONS.pressing.find(o => o.id === instructions.outOfPossession?.pressing)?.label || 'Media'}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${TACTICAL_OPTIONS.pressing.map(opt => {
+                const isSel = instructions.outOfPossession?.pressing === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-rose-500/25 border-rose-400 text-white shadow-sm ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="outOfPossession" data-param="pressing" data-val="${opt.id}">
+                    <span class="text-sm mb-0.5">${opt.icon}</span>
+                    <span class="text-[11px] font-bold ${isSel ? 'text-rose-300' : 'text-slate-200'}">${opt.label}</span>
+                    <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel de Impacto en el Motor -->
+        <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-3 text-[10px] text-slate-400 space-y-1">
+          <div class="font-bold text-white flex items-center gap-1.5 mb-1">
+            <span>⚡</span> Impacto en la Simulación del Partido
+          </div>
+          <p>• <b class="text-slate-200">Fatiga y Físico:</b> ${instructions.outOfPossession?.pressing === 'high' ? 'Presión asfixiante genera mayor desgaste físico y más faltas.' : instructions.outOfPossession?.pressing === 'low' ? 'Baja presión conserva energía para los 90 minutos.' : 'Desgaste equilibrado estándar.'}</p>
+          <p>• <b class="text-slate-200">Construcción:</b> ${instructions.inPossession?.passingStyle === 'short' ? 'Pase corto maximiza el % de posesión y reduce pérdidas fortuitas.' : instructions.inPossession?.passingStyle === 'direct' ? 'Pase directo genera ocasiones verticales más veloces.' : 'Estilo versátil mixto.'}</p>
+          <p>• <b class="text-slate-200">Transiciones:</b> ${instructions.inTransition?.loss === 'counterpress' ? 'Contrapresión activa alertas de robo inmediato en campo rival.' : 'Repliegue ordenado protege el área propia.'}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  function bindTacticalInstructionsPanel(container, instructions, prefix, onUpdate) {
+    container.querySelectorAll(`.btn-${prefix}-preset`).forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const pKey = btn.dataset.presetKey;
+        const preset = TACTICAL_PRESETS[pKey];
+        if (preset) {
+          instructions.preset = pKey;
+          instructions.inPossession = { ...preset.inPossession };
+          instructions.inTransition = { ...preset.inTransition };
+          instructions.outOfPossession = { ...preset.outOfPossession };
+          onUpdate();
+        }
+      };
+    });
+
+    container.querySelectorAll(`.btn-${prefix}-opt`).forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const phase = btn.dataset.phase;
+        const param = btn.dataset.param;
+        const val = btn.dataset.val;
+        if (instructions && instructions[phase]) {
+          instructions[phase][param] = val;
+          instructions.preset = detectMatchingPreset(instructions);
+          onUpdate();
+        }
+      };
+    });
   }
 
   // ==========================================
@@ -187,6 +456,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
           </div>
 
+          <!-- Pestañas de Previa: Mi 11 y Campo vs Estilos e Instrucciones -->
+          <div class="px-3 pt-2 pb-1 bg-slate-900/60 border-b border-slate-800 flex gap-2">
+            <button id="btn-pre-subtab-pitch" type="button" class="flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${preMatchSubTab === 'PITCH' ? 'bg-sky-500 text-white shadow-md border border-sky-400' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}">
+              <span>⚽ Mi 11 y Campo</span>
+            </button>
+            <button id="btn-pre-subtab-style" type="button" class="flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 ${preMatchSubTab === 'STYLE' ? 'bg-amber-500 text-slate-950 shadow-md border border-amber-400' : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'}">
+              <span>🧠 Estilos e Instrucciones</span>
+              <span class="px-1.5 py-0.2 rounded text-[10px] font-extrabold ${preMatchSubTab === 'STYLE' ? 'bg-slate-950/80 text-amber-300' : 'bg-slate-800 text-amber-400'}">
+                ${TACTICAL_PRESETS[detectMatchingPreset(tactics.instructions)] ? TACTICAL_PRESETS[detectMatchingPreset(tactics.instructions)].icon : '⚙️'}
+              </span>
+            </button>
+          </div>
+
           <!-- Banner Alerta de Lesiones en Titulares -->
           ${(() => {
             const injuredStarters = lineupPlayers.filter(p => p.injury);
@@ -252,8 +534,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
           ` : ''}
 
-          <!-- Terreno de Juego Táctico Interactivo Usuario -->
-          <div class="p-3 flex-1 flex flex-col justify-center">
+          <!-- Contenido de Mi 11 vs Estilos e Instrucciones -->
+          ${preMatchSubTab === 'PITCH' ? `
+            <!-- Terreno de Juego Táctico Interactivo Usuario -->
+            <div class="p-3 flex-1 flex flex-col justify-center">
             <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
               <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
               <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
@@ -425,6 +709,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               }).join('')}
             </div>
           </div>
+          ` : `
+            ${renderTacticalInstructionsPanel(tactics.instructions, 'pre')}
+          `}
 
           <!-- Botón de Confirmación y Saltar al Campo con Guardado -->
           <footer class="px-3 space-y-2">
@@ -612,6 +899,29 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         renderPreMatch();
       };
     });
+
+    // Pestañas Mi 11 vs Estilos e Instrucciones
+    const btnSubPitch = container.querySelector("#btn-pre-subtab-pitch");
+    if (btnSubPitch) {
+      btnSubPitch.onclick = () => {
+        preMatchSubTab = "PITCH";
+        renderPreMatch();
+      };
+    }
+    const btnSubStyle = container.querySelector("#btn-pre-subtab-style");
+    if (btnSubStyle) {
+      btnSubStyle.onclick = () => {
+        preMatchSubTab = "STYLE";
+        renderPreMatch();
+      };
+    }
+    if (preMatchSubTab === "STYLE") {
+      bindTacticalInstructionsPanel(container, tactics.instructions, 'pre', () => {
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      });
+    }
 
     container.querySelectorAll(".slot-pre-player, .bench-pre-card").forEach(el => {
       el.onclick = () => {
@@ -1292,58 +1602,71 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Mentalidad:</span>
                 <div id="ht-mentality-buttons" class="flex gap-1.5 overflow-x-auto no-scrollbar"></div>
               </div>
-              <div class="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
-                <span class="text-[10px] uppercase font-bold text-slate-500 mr-1">Estilo:</span>
-                <div id="ht-style-buttons" class="flex gap-1.5 overflow-x-auto no-scrollbar"></div>
-              </div>
             </div>
 
-            <!-- Terreno de Juego Táctico Interactivo -->
-            <div class="p-3 flex-1 flex flex-col justify-center">
-              <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
-                <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
-                <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
-                <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
-                <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
-                <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-12 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
-
-                <!-- Fichas de los 11 titulares -->
-                <div id="ht-pitch-slots" class="absolute inset-0"></div>
-              </div>
-            </div>
-
-            <!-- Indicación de Intercambio -->
-            <div class="px-4 text-center my-1">
-              <p id="ht-instruction-text" class="text-[11px] text-slate-400">
-                💡 Toca un futbolista para modificar su función táctica, puesto o sustituirlo por un suplente.
-              </p>
-              <div id="ht-pending-subs-text" class="text-[10px] text-emerald-400 font-bold mt-0.5 hidden">
-                🔄 0 cambios seleccionados
-              </div>
-            </div>
-
-            <!-- Panel de Asignación de Función del Futbolista Seleccionado -->
-            <div id="ht-role-assignment-panel" class="px-3"></div>
-
-            <!-- Botón para ver y ajustar todas las funciones del 11 -->
-            <div class="px-4 text-center my-1.5 flex items-center justify-center gap-2">
-              <button id="btn-ht-toggle-roles" type="button" class="text-xs bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 hover:border-sky-500/40 px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
-                <span>⚙️</span>
-                <span id="ht-toggle-roles-text">Ver funciones de los 11</span>
+            <!-- Pestañas del Modal: Campo y Cambios vs Estilos por Estados -->
+            <div class="px-3 pt-2 pb-1 bg-slate-900/60 border-b border-slate-800 flex gap-2">
+              <button id="btn-ht-tab-pitch" type="button" class="flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-sky-500 text-white shadow-md border border-sky-400">
+                <span>⚽ Campo y Funciones</span>
+              </button>
+              <button id="btn-ht-tab-style" type="button" class="flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-slate-900 text-slate-400 hover:text-white border border-slate-800">
+                <span>🧠 Estilos e Instrucciones</span>
+                <span id="ht-style-badge" class="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-slate-800 text-amber-400"></span>
               </button>
             </div>
 
-            <!-- Lista Desplegable de Todas las Funciones del 11 -->
-            <div id="ht-all-roles-container" class="px-3 mb-2 hidden"></div>
+            <!-- Contenedor del Campo y Cambios -->
+            <div id="ht-pitch-wrapper" class="flex-1 flex flex-col justify-between">
+              <!-- Terreno de Juego Táctico Interactivo -->
+              <div class="p-3 flex-1 flex flex-col justify-center">
+                <div class="relative w-full aspect-[3/4] max-w-[340px] mx-auto bg-gradient-to-b from-emerald-800 via-emerald-700 to-emerald-900 rounded-2xl border-2 border-emerald-500/40 shadow-inner overflow-hidden p-2">
+                  <div class="absolute inset-2 border-2 border-white/30 rounded-xl pointer-events-none"></div>
+                  <div class="absolute top-2 left-1/2 -translate-x-1/2 w-28 h-12 border-b-2 border-x-2 border-white/30 pointer-events-none"></div>
+                  <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-20 h-20 border-2 border-white/30 rounded-full pointer-events-none"></div>
+                  <div class="absolute top-1/2 left-2 right-2 h-0.5 bg-white/30 -translate-y-1/2 pointer-events-none"></div>
+                  <div class="absolute bottom-2 left-1/2 -translate-x-1/2 w-28 h-12 border-t-2 border-x-2 border-white/30 pointer-events-none"></div>
 
-            <!-- Lista del Banquillo (Suplentes) -->
-            <div class="px-3 mb-3">
-              <div class="text-[10px] uppercase font-bold text-slate-400 mb-1.5 flex items-center justify-between">
-                <span>🪑 Suplentes disponibles</span>
-                <span class="text-slate-500 font-normal">Toca para poner de titular</span>
+                  <!-- Fichas de los 11 titulares -->
+                  <div id="ht-pitch-slots" class="absolute inset-0"></div>
+                </div>
               </div>
-              <div id="ht-bench-scroll" class="flex gap-1.5 overflow-x-auto pb-2 no-scrollbar"></div>
+
+              <!-- Indicación de Intercambio -->
+              <div class="px-4 text-center my-1">
+                <p id="ht-instruction-text" class="text-[11px] text-slate-400">
+                  💡 Toca un futbolista para modificar su función táctica, puesto o sustituirlo por un suplente.
+                </p>
+                <div id="ht-pending-subs-text" class="text-[10px] text-emerald-400 font-bold mt-0.5 hidden">
+                  🔄 0 cambios seleccionados
+                </div>
+              </div>
+
+              <!-- Panel de Asignación de Función del Futbolista Seleccionado -->
+              <div id="ht-role-assignment-panel" class="px-3"></div>
+
+              <!-- Botón para ver y ajustar todas las funciones del 11 -->
+              <div class="px-4 text-center my-1.5 flex items-center justify-center gap-2">
+                <button id="btn-ht-toggle-roles" type="button" class="text-xs bg-slate-900 hover:bg-slate-800 text-sky-400 border border-slate-800 hover:border-sky-500/40 px-3 py-1.5 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm">
+                  <span>⚙️</span>
+                  <span id="ht-toggle-roles-text">Ver funciones de los 11</span>
+                </button>
+              </div>
+
+              <!-- Lista Desplegable de Todas las Funciones del 11 -->
+              <div id="ht-all-roles-container" class="px-3 mb-2 hidden"></div>
+
+              <!-- Lista del Banquillo (Suplentes) -->
+              <div class="px-3 mb-3">
+                <div class="text-[10px] uppercase font-bold text-slate-400 mb-1.5 flex items-center justify-between">
+                  <span>🪑 Suplentes disponibles</span>
+                  <span class="text-slate-500 font-normal">Toca para poner de titular</span>
+                </div>
+                <div id="ht-bench-scroll" class="flex gap-1.5 overflow-x-auto pb-2 no-scrollbar"></div>
+              </div>
             </div>
+
+            <!-- Contenedor de Estilos e Instrucciones por Estados -->
+            <div id="ht-style-wrapper" class="flex-1 hidden"></div>
 
             <!-- Botones de Acción al Pie -->
             <footer class="px-3 flex gap-2">
@@ -4278,6 +4601,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       let htLineupIds = [...initialPitchIds];
       let htBenchIds = currentBench.map(p => p.id);
       let htSelectedPlayerId = null;
+      let htSubTab = "pitch"; // "pitch" o "style"
       let htPlayerRoles = { ...(gameState.userTactics.playerRoles || {}) };
       let htInstructions = JSON.parse(JSON.stringify(
         (teamSide === "home" ? simulator.homeInstructions : simulator.awayInstructions) ||
@@ -4358,31 +4682,44 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           });
         }
 
-        // Estilos e Instrucciones Tácticas
-        const containerStyle = modalHTTactics.querySelector("#ht-style-buttons");
-        if (containerStyle) {
-          const currentPresetKey = detectMatchingPreset(htInstructions);
-          containerStyle.innerHTML = Object.entries(TACTICAL_PRESETS).map(([pKey, p]) => `
-            <button class="btn-ht-style px-2.5 py-0.5 rounded-lg text-[10.5px] font-semibold transition whitespace-nowrap ${currentPresetKey === pKey ? 'bg-amber-500 text-slate-950 font-bold border border-amber-400 shadow-sm' : 'bg-slate-800/80 text-slate-400 hover:text-white'}" data-preset="${pKey}">
-              ${p.icon} ${p.name.split(' ')[0]}
-            </button>
-          `).join('');
+        // Pestañas Sub-Modal (Campo y Funciones vs Estilos e Instrucciones)
+        const btnTabPitch = modalHTTactics.querySelector("#btn-ht-tab-pitch");
+        const btnTabStyle = modalHTTactics.querySelector("#btn-ht-tab-style");
+        const pitchWrapper = modalHTTactics.querySelector("#ht-pitch-wrapper");
+        const styleWrapper = modalHTTactics.querySelector("#ht-style-wrapper");
+        const badgeStyle = modalHTTactics.querySelector("#ht-style-badge");
 
-          containerStyle.querySelectorAll(".btn-ht-style").forEach(b => {
-            b.onclick = () => {
-              const pKey = b.dataset.preset;
-              const preset = TACTICAL_PRESETS[pKey];
-              if (preset) {
-                htInstructions = {
-                  preset: pKey,
-                  inPossession: { ...preset.inPossession },
-                  inTransition: { ...preset.inTransition },
-                  outOfPossession: { ...preset.outOfPossession }
-                };
-                renderHTTactics();
-              }
-            };
-          });
+        const curPresetKey = detectMatchingPreset(htInstructions);
+        const curPreset = TACTICAL_PRESETS[curPresetKey] || null;
+        if (badgeStyle) {
+          badgeStyle.textContent = curPreset ? `${curPreset.icon} ${curPreset.name.split(' ')[0]}` : '⚙️ Personalizado';
+        }
+
+        if (btnTabPitch && btnTabStyle && pitchWrapper && styleWrapper) {
+          btnTabPitch.onclick = (e) => {
+            e.stopPropagation();
+            htSubTab = "pitch";
+            renderHTTactics();
+          };
+          btnTabStyle.onclick = (e) => {
+            e.stopPropagation();
+            htSubTab = "style";
+            renderHTTactics();
+          };
+
+          if (htSubTab === "pitch") {
+            btnTabPitch.className = "flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-sky-500 text-white shadow-md border border-sky-400";
+            btnTabStyle.className = "flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-slate-900 text-slate-400 hover:text-white border border-slate-800";
+            pitchWrapper.classList.remove("hidden");
+            styleWrapper.classList.add("hidden");
+          } else {
+            btnTabPitch.className = "flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-slate-900 text-slate-400 hover:text-white border border-slate-800";
+            btnTabStyle.className = "flex-1 py-1.5 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 bg-amber-500 text-slate-950 shadow-md border border-amber-400";
+            pitchWrapper.classList.add("hidden");
+            styleWrapper.classList.remove("hidden");
+            styleWrapper.innerHTML = renderTacticalInstructionsPanel(htInstructions, 'ht');
+            bindTacticalInstructionsPanel(styleWrapper, htInstructions, 'ht', () => renderHTTactics());
+          }
         }
 
         // Texto de instrucciones
