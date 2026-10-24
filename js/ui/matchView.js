@@ -1525,9 +1525,6 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       return { groundX, groundY, screenX, screenY, scale };
     }
 
-      return { groundX, groundY, screenX, screenY, scale };
-    }
-
     // Sistema de 4 sombras suaves de proyectores en esquinas del estadio (Sello característico Football Manager)
     function drawStadiumShadows(ctx, groundX, groundY, scale, heightZ = 0, radius = 6.0) {
       const zOffset = Math.min(heightZ, 25);
