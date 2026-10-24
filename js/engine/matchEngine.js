@@ -802,10 +802,17 @@ export class MatchSimulator {
     const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
 
-    const passer = this.pickPlayerForAction(atkPlayers, ["MC", "MCD", "MCO", "EI", "ED", "LD", "LI", "DC"], "pass");
+    // Selección de protagonistas de la jugada completa de 15 segundos
     const shooter = this.pickPlayerForAction(atkPlayers, ["DC", "EI", "ED", "MCO", "MC", "LD", "LI"], "shoot");
+    const passer = this.pickPlayerForAction(atkPlayers.filter(p => p.id !== shooter.id), ["EI", "ED", "MCO", "MC", "LD", "LI", "DC"], "pass");
+    const pivot = atkPlayers.find(p => (p.pos === "MCD" || p.pos === "MC") && p.id !== passer.id && p.id !== shooter.id)
+      || atkPlayers.find(p => p.id !== passer.id && p.id !== shooter.id && p.pos !== "POR")
+      || atkPlayers[0];
+    const supportAttacker = atkPlayers.find(p => p.id !== passer.id && p.id !== shooter.id && p.id !== pivot.id && p.pos !== "POR") || atkPlayers[1];
+
     const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
     const defender = defPlayers.find(p => (p.pos === "DFC" || p.pos === "MCD" || p.pos === "LD" || p.pos === "LI") && p.id !== goalkeeper.id) || defPlayers[1];
+    const defender2 = defPlayers.find(p => (p.pos === "DFC" || p.pos === "LD" || p.pos === "LI") && p.id !== defender.id && p.id !== goalkeeper.id) || defPlayers[2];
 
     const passerRole = this.getPlayerRole(passer, attackingSide);
     const shooterRole = this.getPlayerRole(shooter, attackingSide);
@@ -832,7 +839,7 @@ export class MatchSimulator {
       chanceComment = `🧠 ${passer.name} (Falso 9) baja a recibir y filtra al espacio`;
     }
 
-    // Coordenadas calculadas para la jugada
+    // Coordenadas calculadas para la jugada en campo
     const midX = isHome ? (58 + Math.random() * 8) : (42 - Math.random() * 8);
     const midY = 28 + Math.random() * 44;
     const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
@@ -849,12 +856,19 @@ export class MatchSimulator {
     const cornersPool = ["TOP_RIGHT", "TOP_LEFT", "BOTTOM_RIGHT", "BOTTOM_LEFT"];
     targetCorner = cornersPool[Math.floor(Math.random() * cornersPool.length)];
 
+    // Dirección específica para disparos fuera (garantiza que jamás entre entre los palos)
+    let wideDirection = "RIGHT";
+    const wideRand = Math.random();
+    if (wideRand < 0.42) wideDirection = "RIGHT";
+    else if (wideRand < 0.84) wideDirection = "LEFT";
+    else wideDirection = "HIGH";
+
     if (isDefenderBlock) {
       outcome = "BLOCK";
     } else if (!onTarget) {
-      outcome = Math.random() < 0.38 ? "POST" : "WIDE";
+      outcome = Math.random() < 0.35 ? "POST" : "WIDE";
     } else {
-      if (shotQuality > gkSavePower + 4) {
+      if (shotQuality > gkSavePower + 3) {
         outcome = "GOAL";
       } else {
         outcome = "SAVE";
@@ -866,23 +880,27 @@ export class MatchSimulator {
       attackingSide,
       atkTeam,
       defTeam,
+      pivot,
       passer,
       shooter,
+      supportAttacker,
       defender,
+      defender2,
       goalkeeper,
       passerRole,
       shooterRole,
       defenderRole,
       outcome,
       targetCorner,
+      wideDirection,
       passStart: { x: midX, y: midY },
       passEnd: { x: boxX, y: boxY },
       commentary: chanceComment,
       minute: this.minute,
-      totalDuration: 14000
+      totalDuration: 15000
     };
 
-    // FASE 1: Construcción y arranque (Pasador conduce y busca línea de pase - 4.2 segundos)
+    // FASE 1: Construcción y circulación en la medular (0.0s - 4.5s)
     this.ball.targetX = midX;
     this.ball.targetY = midY;
     this.ball.targetZ = 0;
@@ -907,8 +925,8 @@ export class MatchSimulator {
         ...baseHighlightData,
         phase: "BUILDUP",
         phaseLabel: "Construcción en tres cuartos",
-        phaseDuration: 4200,
-        tacticalNote: `${passer.name} (${passerRole?.name || 'Organizador'}) conduce y busca el desmarque de ${shooter.name}`
+        phaseDuration: 4500,
+        tacticalNote: `${pivot.name} canaliza la salida de balón y busca a ${passer.name} en banda`
       });
     }
     if (this.onHighlightPhase) {
@@ -916,177 +934,196 @@ export class MatchSimulator {
         ...baseHighlightData,
         phase: "BUILDUP",
         phaseLabel: "Construcción en tres cuartos",
-        phaseDuration: 4200,
-        tacticalNote: `${passer.name} (${passerRole?.name || 'Organizador'}) conduce y busca el desmarque de ${shooter.name}`
+        phaseDuration: 4500,
+        tacticalNote: `${pivot.name} canaliza la salida de balón y busca a ${passer.name} en banda`
       });
     }
 
+    // FASE 2: Progresión y desborde por banda (4.5s - 8.5s)
     setTimeout(() => {
       if (!this.isRunning && !this.isHighlightRunning) return;
 
-      // FASE 2: Asistencia filtrada, carrera y preparado de disparo (3.6 segundos)
-      const isLob = Math.random() < 0.35;
-      const passZ = isLob ? 5.0 + Math.random() * 3.5 : 0;
-      this.ball.targetX = boxX;
-      this.ball.targetY = boxY;
-      this.ball.targetZ = passZ;
-
-      if (shooterItem) {
-        shooterItem.targetX = boxX;
-        shooterItem.targetY = boxY;
-      }
-      if (defItem) {
-        defItem.targetX = boxX + (isHome ? -5 : 5);
-        defItem.targetY = boxY + (Math.random() * 6 - 3);
-      }
-      if (gkItem) {
-        gkItem.targetX = isHome ? 96.5 : 3.5;
-        gkItem.targetY = 48 + (boxY - 50) * 0.22;
-      }
-      this.update2DPositions();
+      this.triggerAlert("DESBORDE", `🚀 ${passer.name} gana línea de fondo y encara al lateral`, attackingSide, 3200);
 
       if (this.onHighlightPhase) {
         this.onHighlightPhase({
           ...baseHighlightData,
-          phase: "PASS",
-          phaseLabel: isLob ? "Centro al área" : "Pase filtrado al hueco",
-          phaseDuration: 3600,
-          tacticalNote: `🎯 Pase filtrado de ${passer.name}. ¡${shooter.name} se perfila para disparar!`
+          phase: "PROGRESSION",
+          phaseLabel: "Progresión y desborde",
+          phaseDuration: 4000,
+          tacticalNote: `🚀 ${passer.name} desborda por banda mientras ${shooter.name} tira el desmarque al área`
         });
       }
 
+      // FASE 3: Asistencia filtrada y desmarque al punto de penalti (8.5s - 11.5s)
       setTimeout(() => {
         if (!this.isRunning && !this.isHighlightRunning) return;
 
-        // FASE 3: Disparo potente y desenlace físico en pantalla (4.6 segundos)
-        this.stats.shots[attackingSide]++;
+        const isLob = Math.random() < 0.35;
+        const passZ = isLob ? 4.5 + Math.random() * 2.5 : 0;
+        this.ball.targetX = boxX;
+        this.ball.targetY = boxY;
+        this.ball.targetZ = passZ;
+
+        if (shooterItem) {
+          shooterItem.targetX = boxX;
+          shooterItem.targetY = boxY;
+        }
+        if (defItem) {
+          defItem.targetX = boxX + (isHome ? -5 : 5);
+          defItem.targetY = boxY + (Math.random() * 6 - 3);
+        }
+        if (gkItem) {
+          gkItem.targetX = isHome ? 96.5 : 3.5;
+          gkItem.targetY = 48 + (boxY - 50) * 0.22;
+        }
+        this.update2DPositions();
+
+        this.triggerAlert("PASE CLAVE", `🎯 ¡Asistencia al área de ${passer.name} buscando a ${shooter.name}!`, attackingSide, 2800);
 
         if (this.onHighlightPhase) {
           this.onHighlightPhase({
             ...baseHighlightData,
-            phase: "SHOT",
-            phaseLabel: "Disparo a puerta",
-            phaseDuration: 4600,
-            tacticalNote: `⚽ ¡${shooter.name} arma la pierna y chuta con potencia!`
+            phase: "KEY_PASS",
+            phaseLabel: "Pase al corazón del área",
+            phaseDuration: 3000,
+            tacticalNote: `🎯 Pase medido de ${passer.name}. ¡${shooter.name} controla y se perfila!`
           });
         }
 
-        if (outcome === "BLOCK") {
-          // Bloqueo de la zaga
-          this.ball.targetX = boxX + (isHome ? -3 : 3);
-          this.ball.targetY = boxY + (Math.random() * 8 - 4);
-          this.ball.targetZ = 1.2;
-          this.triggerAlert("BLOQUEO", `🛡️ ¡Bloqueo providencial de ${defender.name}!`, isHome ? "away" : "home", 3500);
+        // FASE 4: Disparo a puerta y desenlace físico en pantalla (11.5s - 15.0s)
+        setTimeout(() => {
+          if (!this.isRunning && !this.isHighlightRunning) return;
 
-          const analysis = attackingSide === this.userSide
-            ? `🛡️ Disparo bloqueado por ${defender.name}. El central tapó el ángulo con una segada impecable.`
-            : `🛡️ ¡Gran anticipación de tu zaga! ${defender.name} se lanzó al suelo y neutralizó el tiro.`;
+          this.stats.shots[attackingSide]++;
 
-          setTimeout(() => {
-            this.concludeHighlight({ outcome: "BLOCK", tacticalAnalysis: analysis, onComplete });
-          }, 4600);
-
-        } else if (outcome === "POST") {
-          this.ball.targetX = isHome ? 99 : 1;
-          this.ball.targetY = targetCorner.includes("RIGHT") ? 55.5 : 44.5;
-          this.ball.targetZ = 7;
-          this.triggerAlert("AL PALO", `🥅 ¡Al palo! El disparo de ${shooter.name} se estrella en la madera`, attackingSide, 3500);
-          const analysis = `🥅 ¡Al palo! La madera evitó el gol de ${shooter.name} tras superar al guardameta.`;
-
-          setTimeout(() => {
-            this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
-          }, 4600);
-
-        } else if (outcome === "WIDE") {
-          this.ball.targetX = isHome ? 104 : -4;
-          this.ball.targetY = targetCorner.includes("RIGHT") ? 62 : 38;
-          this.ball.targetZ = 9;
-          this.triggerAlert("DISPARO FUERA", `💨 Disparo desviado de ${shooter.name}`, attackingSide, 3000);
-          const analysis = `💨 El remate de ${shooter.name} se marcha rozando el poste por fuera.`;
-
-          setTimeout(() => {
-            this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
-          }, 4600);
-
-        } else if (outcome === "SAVE") {
-          this.stats.shotsOnTarget[attackingSide]++;
-          this.ball.targetX = isHome ? 98 : 2;
-          this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
-          this.ball.targetZ = 5;
-
-          setTimeout(() => {
-            this.triggerAlert("PARADÓN", `🧤 ¡Paradón providencial de ${goalkeeper.name} ante ${shooter.name}!`, isHome ? "away" : "home", 3800);
-            this.stats.corners[attackingSide]++;
-            const analysis = attackingSide === this.userSide
-              ? `🧤 ¡Paradón de ${goalkeeper.name}! Estirada espectacular a mano cambiada desviando el balón.`
-              : `🧤 ¡Intervención salvadora de ${goalkeeper.name}! Tu portero voló para evitar el gol.`;
-
-            this.concludeHighlight({ outcome: "SAVE", tacticalAnalysis: analysis, onComplete });
-          }, 4600);
-
-        } else {
-          // ¡GOOOOL!
-          this.stats.shotsOnTarget[attackingSide]++;
-          if (isHome) {
-            this.homeScore++;
-            this.ball.targetX = 99.5;
-            this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
-            this.ball.targetZ = targetCorner.includes("TOP") ? 9 : 2;
-          } else {
-            this.awayScore++;
-            this.ball.targetX = 0.5;
-            this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
-            this.ball.targetZ = targetCorner.includes("TOP") ? 9 : 2;
+          if (this.onHighlightPhase) {
+            this.onHighlightPhase({
+              ...baseHighlightData,
+              phase: "SHOT",
+              phaseLabel: "Disparo a puerta",
+              phaseDuration: 3500,
+              tacticalNote: `⚽ ¡${shooter.name} arma la pierna y fusila a portería!`
+            });
           }
 
-          shooter.goals = (shooter.goals || 0) + 1;
-          const event = {
-            type: "GOAL",
-            minute: this.minute,
-            teamSide: attackingSide,
-            teamId: atkTeam.id,
-            teamName: atkTeam.shortName,
-            playerName: shooter.name,
-            currentScore: `${this.homeScore} - ${this.awayScore}`
-          };
-          this.events.push(event);
+          if (outcome === "BLOCK") {
+            // Bloqueo de la zaga
+            this.ball.targetX = boxX + (isHome ? -3 : 3);
+            this.ball.targetY = boxY + (Math.random() * 8 - 4);
+            this.ball.targetZ = 1.2;
+            this.triggerAlert("BLOQUEO", `🛡️ ¡Bloqueo providencial de ${defender.name}!`, isHome ? "away" : "home", 3200);
 
-          this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
+            const analysis = attackingSide === this.userSide
+              ? `🛡️ Disparo bloqueado por ${defender.name}. El central tapó el ángulo con una segada impecable.`
+              : `🛡️ ¡Gran anticipación de tu zaga! ${defender.name} se lanzó al suelo y neutralizó el tiro.`;
 
-          const analysis = attackingSide === this.userSide
-            ? `🎯 ¡Golazo! ${shooter.name} definió a la escuadra con un golpeo imparable.`
-            : `⚠️ Despiste en la marca: ${shooter.name} recibió con espacio y fusiló la portería.`;
+            setTimeout(() => {
+              this.concludeHighlight({ outcome: "BLOCK", tacticalAnalysis: analysis, onComplete });
+            }, 3500);
 
-          setTimeout(() => {
-            this.isHighlightRunning = false;
-            this.speed = this.userSpeed;
-            if (this.onHighlightEnd) {
-              this.onHighlightEnd({
-                outcome: "GOAL",
-                tacticalAnalysis: analysis,
-                attackingSide,
-                shooter,
-                passer,
-                defender,
-                goalkeeper
-              });
+          } else if (outcome === "POST") {
+            this.ball.targetX = isHome ? 99 : 1;
+            this.ball.targetY = targetCorner.includes("RIGHT") ? 55.5 : 44.5;
+            this.ball.targetZ = 7;
+            this.triggerAlert("AL PALO", `🥅 ¡Al palo! El disparo de ${shooter.name} se estrella en la madera`, attackingSide, 3200);
+            const analysis = `🥅 ¡Al palo! La madera evitó el gol de ${shooter.name} tras superar al guardameta.`;
+
+            setTimeout(() => {
+              this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
+            }, 3500);
+
+          } else if (outcome === "WIDE") {
+            this.ball.targetX = isHome ? 105 : -5;
+            this.ball.targetY = wideDirection === "RIGHT" ? 64 : (wideDirection === "LEFT" ? 36 : 50);
+            this.ball.targetZ = wideDirection === "HIGH" ? 14 : 4;
+            this.triggerAlert("DISPARO FUERA", `💨 Disparo desviado de ${shooter.name}`, attackingSide, 3000);
+            const analysis = `💨 El remate de ${shooter.name} se marcha claramente fuera sin encontrar portería.`;
+
+            setTimeout(() => {
+              this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
+            }, 3500);
+
+          } else if (outcome === "SAVE") {
+            this.stats.shotsOnTarget[attackingSide]++;
+            this.ball.targetX = isHome ? 98 : 2;
+            this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
+            this.ball.targetZ = 5;
+
+            setTimeout(() => {
+              this.triggerAlert("PARADÓN", `🧤 ¡Paradón providencial de ${goalkeeper.name} ante ${shooter.name}!`, isHome ? "away" : "home", 3500);
+              this.stats.corners[attackingSide]++;
+              const analysis = attackingSide === this.userSide
+                ? `🧤 ¡Paradón de ${goalkeeper.name}! Estirada espectacular a mano cambiada desviando el balón.`
+                : `🧤 ¡Intervención salvadora de ${goalkeeper.name}! Tu portero voló para evitar el gol.`;
+
+              this.concludeHighlight({ outcome: "SAVE", tacticalAnalysis: analysis, onComplete });
+            }, 3500);
+
+          } else {
+            // ¡GOOOOL!
+            this.stats.shotsOnTarget[attackingSide]++;
+            if (isHome) {
+              this.homeScore++;
+              this.ball.targetX = 99.5;
+              this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
+              this.ball.targetZ = targetCorner.includes("TOP") ? 9 : 2;
+            } else {
+              this.awayScore++;
+              this.ball.targetX = 0.5;
+              this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
+              this.ball.targetZ = targetCorner.includes("TOP") ? 9 : 2;
             }
 
-            this.onGoal({
-              shooter,
-              passer,
-              attackingSide,
-              concedingSide: isHome ? "away" : "home",
-              atkTeam,
-              defTeam,
+            shooter.goals = (shooter.goals || 0) + 1;
+            const event = {
+              type: "GOAL",
               minute: this.minute,
-              formattedMinute: this.getFormattedMinute(),
-              score: `${this.homeScore} - ${this.awayScore}`
-            });
-          }, 4600);
-        }
-      }, 3600);
-    }, 4200);
+              teamSide: attackingSide,
+              teamId: atkTeam.id,
+              teamName: atkTeam.shortName,
+              playerName: shooter.name,
+              currentScore: `${this.homeScore} - ${this.awayScore}`
+            };
+            this.events.push(event);
+
+            this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
+
+            const analysis = attackingSide === this.userSide
+              ? `🎯 ¡Golazo! Jugada construida a la perfección y definición inapelable de ${shooter.name}.`
+              : `⚠️ Despiste en la marca: ${shooter.name} aprovechó el centro y fusiló la portería.`;
+
+            setTimeout(() => {
+              this.isHighlightRunning = false;
+              this.speed = this.userSpeed;
+              if (this.onHighlightEnd) {
+                this.onHighlightEnd({
+                  outcome: "GOAL",
+                  tacticalAnalysis: analysis,
+                  attackingSide,
+                  shooter,
+                  passer,
+                  defender,
+                  goalkeeper
+                });
+              }
+
+              this.onGoal({
+                shooter,
+                passer,
+                attackingSide,
+                concedingSide: isHome ? "away" : "home",
+                atkTeam,
+                defTeam,
+                minute: this.minute,
+                formattedMinute: this.getFormattedMinute(),
+                score: `${this.homeScore} - ${this.awayScore}`
+              });
+            }, 3500);
+          }
+        }, 3000);
+      }, 4000);
+    }, 4500);
   }
 
   concludeHighlight({ outcome, tacticalAnalysis, onComplete }) {
