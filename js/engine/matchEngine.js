@@ -38,10 +38,6 @@ export class MatchSimulator {
     this.homeCustomPositions = options.homeCustomPositions || {};
     this.awayCustomPositions = options.awayCustomPositions || {};
 
-    // Inicializar cómputo de minutos de partido y desgaste
-    [...this.homePlayersOnPitch, ...this.homeBench].forEach(p => { p.matchMinutes = 0; });
-    [...this.awayPlayersOnPitch, ...this.awayBench].forEach(p => { p.matchMinutes = 0; });
-
     // Instrucciones tácticas por estados (Con balón / Transición / Sin balón)
     this.homeInstructions = options.homeInstructions ? JSON.parse(JSON.stringify(options.homeInstructions)) : getDefaultTacticalInstructions();
     this.awayInstructions = options.awayInstructions ? JSON.parse(JSON.stringify(options.awayInstructions)) : getDefaultTacticalInstructions();
@@ -75,6 +71,10 @@ export class MatchSimulator {
 
     this.awayPlayersOnPitch = this.awayTeam.players.slice(0, 11);
     this.awayBench = this.awayTeam.players.slice(11);
+
+    // Inicializar cómputo de minutos de partido y desgaste
+    [...this.homePlayersOnPitch, ...this.homeBench].forEach(p => { p.matchMinutes = 0; });
+    [...this.awayPlayersOnPitch, ...this.awayBench].forEach(p => { p.matchMinutes = 0; });
 
     // Inicializar posiciones 3D relativas (x: 0-100, y: 0-100, z: 0-25)
     this.ball = { x: 50, y: 50, z: 0, targetX: 50, targetY: 50, targetZ: 0, possession: "home" };
