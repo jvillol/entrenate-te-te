@@ -5,6 +5,7 @@ $files = @(
   "js\engine\leagueEngine.js",
   "js\engine\saveManager.js",
   "js\engine\matchEngine.js",
+  "js\ui\saveSlotsModal.js",
   "js\ui\teamSelectView.js",
   "js\ui\tacticsView.js",
   "js\ui\squadView.js",

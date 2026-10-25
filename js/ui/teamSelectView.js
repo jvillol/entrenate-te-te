@@ -1,21 +1,32 @@
 // Vista de Selección de Equipo de LaLiga
 
-export function renderTeamSelect(container, teams, onSelectTeam) {
+import { SaveManager } from "../engine/saveManager.js";
+
+export function renderTeamSelect(container, teams, onSelectTeam, onOpenSaveSlots = null) {
   let selectedIndex = 0;
 
   function update() {
     const team = teams[selectedIndex];
     const topPlayers = [...team.players].sort((a, b) => b.ovr - a.ovr).slice(0, 4);
+    const slots = SaveManager.getAllSlotsMetadata();
+    const occupiedCount = slots.filter(s => !s.isEmpty).length;
 
     container.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 max-w-md mx-auto select-none">
         <!-- Encabezado -->
-        <header class="text-center pt-2 pb-4">
-          <div class="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-amber-400 text-xs font-semibold mb-2">
-            <span>⚽</span> TEMPORADA 2026 / 2027 (FC 27)
+        <header class="pt-2 pb-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-amber-400 text-xs font-semibold">
+              <span>⚽</span> TEMPORADA 2026 / 2027
+            </div>
+            <button id="btn-open-slots" class="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-full text-sky-400 hover:text-white text-xs font-bold transition active:scale-95 shadow-sm">
+              <span>📁</span> Partidas (${occupiedCount}/3)
+            </button>
           </div>
-          <h1 class="text-2xl font-black tracking-tight text-white">ENTRENATE TE TE</h1>
-          <p class="text-xs text-slate-400 mt-1">Elige tu club para iniciar la temporada hacia el título</p>
+          <div class="text-center">
+            <h1 class="text-2xl font-black tracking-tight text-white">ENTRENATE TE TE</h1>
+            <p class="text-xs text-slate-400 mt-1">Elige tu club para iniciar la temporada hacia el título</p>
+          </div>
         </header>
 
         <!-- Selector de Clubes (Carrusel / Selector) -->
@@ -127,6 +138,13 @@ export function renderTeamSelect(container, teams, onSelectTeam) {
         </div>
       </div>
     `;
+
+    const btnSlots = container.querySelector("#btn-open-slots");
+    if (btnSlots) {
+      btnSlots.onclick = () => {
+        onOpenSaveSlots?.();
+      };
+    }
 
     // Eventos
     container.querySelector("#btn-prev-team").onclick = () => {

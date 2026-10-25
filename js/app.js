@@ -12,19 +12,22 @@ import { renderSquadView } from "./ui/squadView.js";
 import { renderStandingsView } from "./ui/standingsView.js";
 import { renderMatchView } from "./ui/matchView.js";
 import { renderSeasonEndView } from "./ui/seasonEndView.js";
+import { renderSaveSlotsModal } from "./ui/saveSlotsModal.js";
 
 class GameManager {
   constructor() {
     this.container = document.getElementById("app");
     this.currentView = "team_select";
     this.state = null;
+    this.targetSlotForNewGame = null;
 
     this.init();
   }
 
   init() {
     try {
-      const saved = SaveManager.loadGame();
+      const activeSlot = SaveManager.getActiveSlot();
+      const saved = SaveManager.loadGame(activeSlot);
       if (
         saved &&
         saved.userTeamId &&
@@ -63,12 +66,17 @@ class GameManager {
           this.currentView = "hub";
         }
       } else {
-        SaveManager.deleteGame();
+        // Si la ranura activa está vacía, pero existe otra ranura con partida guardada, cargarla
+        const slots = SaveManager.getAllSlotsMetadata();
+        const firstWithData = slots.find(s => !s.isEmpty);
+        if (firstWithData) {
+          this.loadSlot(firstWithData.slot);
+          return;
+        }
         this.currentView = "team_select";
       }
     } catch (e) {
       console.warn("Estado previo no compatible, iniciando nueva partida:", e);
-      SaveManager.deleteGame();
       this.currentView = "team_select";
     }
 
@@ -76,7 +84,6 @@ class GameManager {
       this.render();
     } catch (renderError) {
       console.error("Error al renderizar vista inicial:", renderError);
-      SaveManager.deleteGame();
       this.state = null;
       this.currentView = "team_select";
       try {
@@ -118,8 +125,13 @@ class GameManager {
     const standings = initStandings(teams);
     const optimal = buildOptimalLineup(selectedTeam);
 
+    const targetSlot = this.targetSlotForNewGame || SaveManager.getActiveSlot();
+    this.targetSlotForNewGame = null;
+    SaveManager.setActiveSlot(targetSlot);
+
     this.state = {
       schemaVersion: "LALIGA_REAL_V8",
+      saveSlot: targetSlot,
       userTeamId: selectedTeam.id,
       currentRound: 1,
       schedule,
@@ -138,9 +150,76 @@ class GameManager {
       isSeasonOver: false
     };
 
-    SaveManager.saveGame(this.state);
+    SaveManager.saveGame(this.state, targetSlot);
     this.currentView = "hub";
     this.render();
+  }
+
+  loadSlot(slot) {
+    const loaded = SaveManager.loadGame(slot);
+    if (loaded && loaded.userTeamId && Array.isArray(loaded.teams)) {
+      this.state = loaded;
+      SaveManager.setActiveSlot(slot);
+      if (!this.state.userTactics) {
+        const userTeam = this.state.teams.find(t => t.id === this.state.userTeamId);
+        const optimal = buildOptimalLineup(userTeam);
+        this.state.userTactics = {
+          formation: optimal.formationKey,
+          mentality: "balanced",
+          lineup: optimal.lineupIds,
+          bench: optimal.benchIds,
+          playerRoles: {},
+          customPositions: {},
+          instructions: getDefaultTacticalInstructions()
+        };
+      }
+      if (this.state.isSeasonOver) {
+        this.currentView = "season_end";
+      } else {
+        this.currentView = "hub";
+      }
+      this.render();
+    }
+  }
+
+  openSaveSlotsModal() {
+    renderSaveSlotsModal(this.container, {
+      currentGameState: this.state,
+      onLoadSlot: (slot) => {
+        this.loadSlot(slot);
+      },
+      onSaveToSlot: (slot) => {
+        if (this.state) {
+          SaveManager.saveGame(this.state, slot);
+          this.state.saveSlot = slot;
+          SaveManager.setActiveSlot(slot);
+          alert(`✅ Partida guardada con éxito en la Ranura ${slot}`);
+          this.render();
+        }
+      },
+      onDeleteSlot: (slot) => {
+        if (SaveManager.getActiveSlot() === slot && this.state) {
+          this.state = null;
+          const slots = SaveManager.getAllSlotsMetadata();
+          const another = slots.find(s => !s.isEmpty);
+          if (another) {
+            this.loadSlot(another.slot);
+          } else {
+            this.currentView = "team_select";
+            this.render();
+          }
+        }
+      },
+      onNewGameInSlot: (slot) => {
+        SaveManager.setActiveSlot(slot);
+        this.targetSlotForNewGame = slot;
+        this.currentView = "team_select";
+        this.render();
+      },
+      onClose: () => {
+        this.render();
+      }
+    });
   }
 
   restartSeasonWithSameTeam() {
@@ -172,10 +251,18 @@ class GameManager {
   }
 
   resetGame() {
-    SaveManager.deleteGame();
+    const currentSlot = SaveManager.getActiveSlot();
+    SaveManager.deleteGame(currentSlot);
     this.state = null;
-    this.currentView = "team_select";
-    this.render();
+
+    const slots = SaveManager.getAllSlotsMetadata();
+    const another = slots.find(s => !s.isEmpty);
+    if (another) {
+      this.loadSlot(another.slot);
+    } else {
+      this.currentView = "team_select";
+      this.render();
+    }
   }
 
   saveCurrentState() {
@@ -282,6 +369,8 @@ class GameManager {
         case "team_select":
           renderTeamSelect(this.container, TEAMS_DATA, (team) => {
             this.startNewGame(team);
+          }, () => {
+            this.openSaveSlotsModal();
           });
           break;
 
@@ -297,6 +386,9 @@ class GameManager {
             },
             onSave: () => {
               this.saveCurrentState();
+            },
+            onManageSlots: () => {
+              this.openSaveSlotsModal();
             },
             onReset: () => {
               this.resetGame();

@@ -1,11 +1,14 @@
 // Vista del Hub Principal del Manager
 
+import { SaveManager } from "../engine/saveManager.js";
+
 export function renderHubView(container, gameState, callbacks) {
   const userTeam = (gameState.teams || []).find(t => t.id === gameState.userTeamId) || (gameState.teams && gameState.teams[0]);
   if (!userTeam) {
     callbacks?.onReset?.();
     return;
   }
+  const activeSlot = SaveManager.getActiveSlot();
   const currentRoundIndex = Math.max(0, (gameState.currentRound || 1) - 1);
   const currentRoundData = (gameState.schedule || [])[currentRoundIndex];
 
@@ -53,7 +56,12 @@ export function renderHubView(container, gameState, callbacks) {
             </div>
             <div>
               <h1 class="text-base font-black text-white leading-tight">${userTeam.name}</h1>
-              <span class="text-xs text-slate-400 font-medium">📍 ${userTeam.stadium}</span>
+              <div class="flex items-center gap-2 mt-0.5">
+                <span class="text-xs text-slate-400 font-medium">📍 ${userTeam.stadium}</span>
+                <button id="btn-header-slots" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700/80 text-[10px] font-bold text-sky-400 active:scale-95 transition" title="Cambiar o gestionar partida">
+                  <span>💾</span> Ranura ${activeSlot}
+                </button>
+              </div>
             </div>
           </div>
           <!-- Posición Actual -->
@@ -244,11 +252,14 @@ export function renderHubView(container, gameState, callbacks) {
             <h3 class="font-extrabold text-sm text-white">Opciones de la Partida</h3>
             <button id="btn-close-options" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 font-bold">✕</button>
           </div>
-          <button id="btn-save-game" class="w-full py-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-white font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-2">
-            <span>💾</span> Guardar Partida Manualmente
+          <button id="btn-save-game" class="w-full py-3 bg-sky-600 hover:bg-sky-500 active:scale-98 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-500/20 flex items-center justify-center gap-2">
+            <span>💾</span> Guardar en Ranura ${activeSlot}
+          </button>
+          <button id="btn-manage-slots" class="w-full py-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-2">
+            <span>📁</span> Cambiar / Gestionar Partidas (3 Ranuras)
           </button>
           <button id="btn-reset-game" class="w-full py-3 bg-red-500/10 hover:bg-red-500/20 active:scale-98 text-red-400 font-bold text-xs rounded-xl border border-red-500/30 flex items-center justify-center gap-2">
-            <span>🗑</span> Reiniciar Partida (Nueva Temporada)
+            <span>🗑</span> Reiniciar Temporada Actual
           </button>
         </div>
       </div>
@@ -259,6 +270,14 @@ export function renderHubView(container, gameState, callbacks) {
   container.querySelector("#btn-play-match").onclick = () => {
     callbacks.onStartMatch();
   };
+
+  // Botón Ranuras en la Cabecera
+  const btnHeaderSlots = container.querySelector("#btn-header-slots");
+  if (btnHeaderSlots) {
+    btnHeaderSlots.onclick = () => {
+      callbacks.onManageSlots?.();
+    };
+  }
 
   // Navegación
   container.querySelectorAll(".nav-btn").forEach(btn => {
@@ -280,9 +299,17 @@ export function renderHubView(container, gameState, callbacks) {
 
   container.querySelector("#btn-save-game").onclick = () => {
     callbacks.onSave();
-    alert("¡Partida guardada con éxito en el dispositivo!");
+    alert(`✅ ¡Partida guardada con éxito en la Ranura ${activeSlot}!`);
     modalOpt.classList.add("hidden");
   };
+
+  const btnManageSlots = container.querySelector("#btn-manage-slots");
+  if (btnManageSlots) {
+    btnManageSlots.onclick = () => {
+      modalOpt.classList.add("hidden");
+      callbacks.onManageSlots?.();
+    };
+  }
 
   container.querySelector("#btn-reset-game").onclick = () => {
     if (confirm("¿Estás seguro de que deseas reiniciar la partida actual? Perderás el progreso de la temporada.")) {

@@ -1665,70 +1665,242 @@ function processSuspensionRecovery(teams) {
 // ARCHIVO: js\engine\saveManager.js
 // =========================================================
 
-// Gestor de guardado en LocalStorage para partidas persistentes
+// Gestor de guardado en LocalStorage con soporte para 3 ranuras independientes (Slots 1, 2 y 3)
 
-const SAVE_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V8";
+const LEGACY_KEY = "ENTRENATE_TE_TE_LALIGA_REAL_V8";
+const ACTIVE_SLOT_KEY = "ENTRENATE_TE_TE_ACTIVE_SLOT";
 const CURRENT_SCHEMA = "LALIGA_REAL_V8";
+const MAX_SAVE_SLOTS = 3;
+
+function getSlotStorageKey(slot = 1) {
+  const s = Math.max(1, Math.min(MAX_SAVE_SLOTS, parseInt(slot, 10) || 1));
+  return `ENTRENATE_TE_TE_SLOT_${s}`;
+}
 class SaveManager {
-  static hasSavedGame() {
+  /**
+   * Obtiene el índice de la ranura actualmente activa (1, 2 o 3)
+   */
+  static getActiveSlot() {
     try {
-      const data = this.loadGame();
-      return data !== null;
+      const savedSlot = parseInt(localStorage.getItem(ACTIVE_SLOT_KEY), 10);
+      if (savedSlot >= 1 && savedSlot <= MAX_SAVE_SLOTS) {
+        return savedSlot;
+      }
+    } catch (e) {}
+    return 1;
+  }
+
+  /**
+   * Establece la ranura activa
+   */
+  static setActiveSlot(slot) {
+    const s = Math.max(1, Math.min(MAX_SAVE_SLOTS, parseInt(slot, 10) || 1));
+    try {
+      localStorage.setItem(ACTIVE_SLOT_KEY, String(s));
+    } catch (e) {}
+    return s;
+  }
+
+  /**
+   * Comprueba si existe partida guardada en la ranura indicada (o en la activa)
+   */
+  static hasSavedGame(slot = null) {
+    try {
+      this.checkMigration();
+      const targetSlot = slot !== null ? slot : this.getActiveSlot();
+      const meta = this.getSlotMetadata(targetSlot);
+      return !meta.isEmpty;
     } catch (e) {
       return false;
     }
   }
 
-  static saveGame(gameState) {
+  /**
+   * Comprueba si hay al menos una partida guardada en cualquiera de las 3 ranuras
+   */
+  static hasAnySavedGame() {
     try {
+      this.checkMigration();
+      for (let s = 1; s <= MAX_SAVE_SLOTS; s++) {
+        if (!this.getSlotMetadata(s).isEmpty) {
+          return true;
+        }
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Guarda el estado del juego en la ranura indicada (o en la activa)
+   */
+  static saveGame(gameState, slot = null) {
+    try {
+      if (!gameState || !gameState.userTeamId) return false;
+      this.checkMigration();
+      const targetSlot = slot !== null ? Math.max(1, Math.min(MAX_SLOTS_LIMIT, parseInt(slot, 10) || 1)) : this.getActiveSlot();
+      
       const data = {
         schemaVersion: CURRENT_SCHEMA,
+        saveSlot: targetSlot,
         userTeamId: gameState.userTeamId,
-        currentRound: gameState.currentRound,
-        schedule: gameState.schedule,
-        standings: gameState.standings,
-        teams: gameState.teams,
-        userTactics: gameState.userTactics,
+        currentRound: gameState.currentRound || 1,
+        schedule: gameState.schedule || [],
+        standings: gameState.standings || [],
+        teams: gameState.teams || [],
+        userTactics: gameState.userTactics || null,
         topScorers: gameState.topScorers || {},
         isSeasonOver: gameState.isSeasonOver || false,
         timestamp: Date.now()
       };
-      localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+
+      const key = getSlotStorageKey(targetSlot);
+      localStorage.setItem(key, JSON.stringify(data));
+      this.setActiveSlot(targetSlot);
+
+      // Compatibilidad con versiones previas si se guarda en la ranura 1
+      if (targetSlot === 1) {
+        localStorage.setItem(LEGACY_KEY, JSON.stringify(data));
+      }
       return true;
     } catch (e) {
-      console.error("Error al guardar la partida:", e);
+      console.error("Error al guardar la partida en ranura:", e);
       return false;
     }
   }
 
-  static loadGame() {
+  /**
+   * Carga la partida de la ranura indicada (o de la activa)
+   */
+  static loadGame(slot = null) {
     try {
-      const raw = localStorage.getItem(SAVE_KEY);
+      this.checkMigration();
+      const targetSlot = slot !== null ? Math.max(1, Math.min(MAX_SAVE_SLOTS, parseInt(slot, 10) || 1)) : this.getActiveSlot();
+      const key = getSlotStorageKey(targetSlot);
+      const raw = localStorage.getItem(key);
       if (!raw) return null;
+
       const parsed = JSON.parse(raw);
       if (parsed && parsed.schemaVersion === CURRENT_SCHEMA && parsed.userTeamId) {
+        this.setActiveSlot(targetSlot);
         return parsed;
       }
-      // Limpiar versiones obsoletas
-      localStorage.removeItem(SAVE_KEY);
+
+      // Si estuviera corrupta, limpiarla
+      localStorage.removeItem(key);
       return null;
     } catch (e) {
-      console.error("Error al cargar la partida:", e);
+      console.error("Error al cargar la partida de la ranura:", e);
       return null;
     }
   }
 
-  static deleteGame() {
+  /**
+   * Elimina la partida de una ranura específica (o de la activa)
+   */
+  static deleteGame(slot = null) {
     try {
-      localStorage.removeItem(SAVE_KEY);
-      localStorage.removeItem("ENTRENATE_TE_TE_26_27_V3");
-      localStorage.removeItem("ENTRENATE_TE_TE_26_27");
+      const targetSlot = slot !== null ? Math.max(1, Math.min(MAX_SAVE_SLOTS, parseInt(slot, 10) || 1)) : this.getActiveSlot();
+      localStorage.removeItem(getSlotStorageKey(targetSlot));
+      if (targetSlot === 1) {
+        localStorage.removeItem(LEGACY_KEY);
+      }
       return true;
     } catch (e) {
       return false;
     }
   }
+
+  /**
+   * Obtiene la información resumida de una ranura (para mostrar en las tarjetas de guardado)
+   */
+  static getSlotMetadata(slot = 1) {
+    try {
+      const targetSlot = Math.max(1, Math.min(MAX_SAVE_SLOTS, parseInt(slot, 10) || 1));
+      const key = getSlotStorageKey(targetSlot);
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        return { slot: targetSlot, isEmpty: true };
+      }
+
+      const data = JSON.parse(raw);
+      if (!data || data.schemaVersion !== CURRENT_SCHEMA || !data.userTeamId) {
+        return { slot: targetSlot, isEmpty: true };
+      }
+
+      const team = (data.teams || []).find(t => t.id === data.userTeamId);
+      const standing = (data.standings || []).find(s => s.teamId === data.userTeamId) || { points: 0, played: 0 };
+      const rank = (data.standings || []).indexOf(standing) + 1;
+
+      const d = new Date(data.timestamp || Date.now());
+      const pad = n => String(n).padStart(2, "0");
+      const formattedDate = `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+      return {
+        slot: targetSlot,
+        isEmpty: false,
+        userTeamId: data.userTeamId,
+        teamName: team?.name || data.userTeamId,
+        shortName: team?.shortName || data.userTeamId,
+        primaryColor: team?.primaryColor || "#ffffff",
+        secondaryColor: team?.secondaryColor || "#1e293b",
+        textColor: team?.textColor || "#ffffff",
+        currentRound: data.currentRound || 1,
+        totalRounds: 38,
+        rank: rank > 0 ? rank : 1,
+        points: standing.points || 0,
+        timestamp: data.timestamp || 0,
+        formattedDate,
+        isSeasonOver: !!data.isSeasonOver
+      };
+    } catch (e) {
+      return { slot, isEmpty: true };
+    }
+  }
+
+  /**
+   * Devuelve los metadatos de las 3 ranuras disponibles
+   */
+  static getAllSlotsMetadata() {
+    this.checkMigration();
+    return [1, 2, 3].map(s => this.getSlotMetadata(s));
+  }
+
+  /**
+   * Copia una partida de una ranura a otra (útil para crear copias de seguridad)
+   */
+  static copySlot(sourceSlot, targetSlot) {
+    try {
+      const srcKey = getSlotStorageKey(sourceSlot);
+      const raw = localStorage.getItem(srcKey);
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      parsed.saveSlot = targetSlot;
+      parsed.timestamp = Date.now();
+      localStorage.setItem(getSlotStorageKey(targetSlot), JSON.stringify(parsed));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /**
+   * Migración automática transparente: si existe partida de versiones anteriores, se traslada a la Ranura 1
+   */
+  static checkMigration() {
+    try {
+      const slot1Key = getSlotStorageKey(1);
+      const slot1 = localStorage.getItem(slot1Key);
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      if (!slot1 && legacy) {
+        localStorage.setItem(slot1Key, legacy);
+      }
+    } catch (e) {}
+  }
 }
+
+const MAX_SLOTS_LIMIT = MAX_SAVE_SLOTS;
 
 // =========================================================
 // ARCHIVO: js\engine\matchEngine.js
@@ -4253,26 +4425,217 @@ class MatchSimulator {
 }
 
 // =========================================================
+// ARCHIVO: js\ui\saveSlotsModal.js
+// =========================================================
+
+// Modal visual para gestionar las 3 ranuras de guardado en caché / LocalStorage
+function renderSaveSlotsModal(container, options = {}) {
+  const {
+    currentGameState = null,
+    onLoadSlot,
+    onSaveToSlot,
+    onDeleteSlot,
+    onNewGameInSlot,
+    onClose
+  } = options;
+
+  const existingModal = document.getElementById("modal-save-slots");
+  if (existingModal) existingModal.remove();
+
+  const modalEl = document.createElement("div");
+  modalEl.id = "modal-save-slots";
+  modalEl.className = "fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex flex-col justify-end sm:justify-center items-center p-3 animate-fade-in";
+
+  function renderContent() {
+    const activeSlot = SaveManager.getActiveSlot();
+    const slots = SaveManager.getAllSlotsMetadata();
+
+    modalEl.innerHTML = `
+      <div class="bg-slate-900 border border-slate-700/80 rounded-3xl p-5 max-w-md w-full shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+        <!-- Encabezado del Gestor de Ranuras -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div class="flex items-center gap-2.5">
+            <div class="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-lg">
+              📁
+            </div>
+            <div>
+              <h2 class="text-sm font-black text-white leading-tight">Partidas Guardadas</h2>
+              <p class="text-[10px] text-slate-400">3 ranuras en la memoria local de tu navegador</p>
+            </div>
+          </div>
+          <button id="btn-close-save-modal" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 font-bold transition">
+            ✕
+          </button>
+        </div>
+
+        <!-- Lista de las 3 Ranuras -->
+        <div class="py-3.5 space-y-3 overflow-y-auto flex-1 pr-0.5">
+          ${slots.map(s => {
+            const isActive = activeSlot === s.slot && currentGameState;
+            return `
+              <div class="p-3.5 rounded-2xl border transition-all ${s.isEmpty ? 'bg-slate-950/40 border-slate-800/80 border-dashed' : (isActive ? 'bg-slate-950/90 border-sky-500/60 shadow-lg shadow-sky-500/10' : 'bg-slate-950/70 border-slate-800')}">
+                <!-- Cabecera de la ranura -->
+                <div class="flex items-center justify-between mb-2">
+                  <div class="flex items-center gap-2">
+                    <span class="text-[10px] font-black uppercase tracking-wider ${s.isEmpty ? 'text-slate-500' : 'text-sky-400'}">
+                      Ranura ${s.slot}
+                    </span>
+                    ${isActive ? `<span class="px-2 py-0.2 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-[9px] font-bold text-emerald-400">● En juego</span>` : ''}
+                  </div>
+                  ${!s.isEmpty ? `<span class="text-[9px] font-mono text-slate-500">${s.formattedDate}</span>` : ''}
+                </div>
+
+                ${s.isEmpty ? `
+                  <!-- Ranura Vacía -->
+                  <div class="py-2.5 text-center">
+                    <div class="text-xs text-slate-400 font-medium mb-3">Ranura disponible para una nueva trayectoria</div>
+                    <div class="flex gap-2 justify-center">
+                      ${currentGameState ? `
+                        <button class="btn-save-here flex-1 py-2 px-3 rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-95 text-white font-bold text-xs transition shadow-md shadow-sky-500/20" data-slot="${s.slot}">
+                          💾 Guardar Partida Actual Aquí
+                        </button>
+                      ` : `
+                        <button class="btn-new-here flex-1 py-2 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-white font-bold text-xs transition shadow-md shadow-emerald-500/20" data-slot="${s.slot}">
+                          ➕ Nueva Partida en Ranura ${s.slot}
+                        </button>
+                      `}
+                    </div>
+                  </div>
+                ` : `
+                  <!-- Ranura Ocupada con Partida -->
+                  <div class="flex items-center gap-3 my-1">
+                    <div class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700/60 flex-shrink-0" style="background: linear-gradient(135deg, ${s.primaryColor}, ${s.secondaryColor}); color: ${s.textColor};">
+                      ${s.shortName}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="font-extrabold text-white text-xs truncate">${s.teamName}</div>
+                      <div class="text-[10px] text-slate-400">
+                        Jornada <b class="text-white">${s.currentRound}</b>/38 · Puesto <b class="text-amber-400">${s.rank}º</b> (${s.points} pts)
+                      </div>
+                      ${s.isSeasonOver ? `<span class="text-[9px] text-emerald-400 font-bold">Temporada Finalizada</span>` : ''}
+                    </div>
+                  </div>
+
+                  <!-- Botones de Acción para la Ranura Ocupada -->
+                  <div class="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-800/80">
+                    <button class="btn-load-slot flex-1 py-2 px-3 rounded-xl bg-sky-500 hover:bg-sky-400 active:scale-95 text-white font-black text-xs transition shadow-md shadow-sky-500/20 flex items-center justify-center gap-1.5" data-slot="${s.slot}">
+                      <span>▶</span> Cargar Partida
+                    </button>
+                    ${currentGameState ? `
+                      <button class="btn-overwrite-slot py-2 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 font-bold text-xs transition border border-slate-700 flex items-center gap-1" data-slot="${s.slot}" title="Sobrescribir con la partida actual">
+                        <span>💾</span> Guardar
+                      </button>
+                    ` : ''}
+                    <button class="btn-delete-slot py-2 px-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 active:scale-95 text-rose-400 font-bold text-xs transition border border-rose-500/30" data-slot="${s.slot}" title="Borrar esta partida">
+                      🗑
+                    </button>
+                  </div>
+                `}
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <!-- Pie de Información -->
+        <div class="pt-3 border-t border-slate-800 flex items-center justify-between text-[10px] text-slate-500">
+          <span>💾 Guardado persistente automático</span>
+          <span>Versión 2026/27</span>
+        </div>
+      </div>
+    `;
+
+    // Eventos
+    modalEl.querySelector("#btn-close-save-modal").onclick = () => {
+      modalEl.remove();
+      onClose?.();
+    };
+
+    // Botones de carga
+    modalEl.querySelectorAll(".btn-load-slot").forEach(btn => {
+      btn.onclick = () => {
+        const slot = parseInt(btn.dataset.slot, 10);
+        modalEl.remove();
+        onLoadSlot?.(slot);
+      };
+    });
+
+    // Botones de guardar aquí (ranura vacía)
+    modalEl.querySelectorAll(".btn-save-here").forEach(btn => {
+      btn.onclick = () => {
+        const slot = parseInt(btn.dataset.slot, 10);
+        onSaveToSlot?.(slot);
+        renderContent();
+      };
+    });
+
+    // Botones de sobrescribir
+    modalEl.querySelectorAll(".btn-overwrite-slot").forEach(btn => {
+      btn.onclick = () => {
+        const slot = parseInt(btn.dataset.slot, 10);
+        if (confirm(`¿Deseas sobrescribir la Ranura ${slot} con el progreso actual?`)) {
+          onSaveToSlot?.(slot);
+          renderContent();
+        }
+      };
+    });
+
+    // Botones de nueva partida en ranura vacía
+    modalEl.querySelectorAll(".btn-new-here").forEach(btn => {
+      btn.onclick = () => {
+        const slot = parseInt(btn.dataset.slot, 10);
+        modalEl.remove();
+        onNewGameInSlot?.(slot);
+      };
+    });
+
+    // Botones de borrado
+    modalEl.querySelectorAll(".btn-delete-slot").forEach(btn => {
+      btn.onclick = () => {
+        const slot = parseInt(btn.dataset.slot, 10);
+        const meta = SaveManager.getSlotMetadata(slot);
+        if (confirm(`¿Estás seguro de que deseas eliminar la partida de la Ranura ${slot} (${meta.teamName || 'Ranura ' + slot})? Esta acción no se puede deshacer.`)) {
+          SaveManager.deleteGame(slot);
+          onDeleteSlot?.(slot);
+          renderContent();
+        }
+      };
+    });
+  }
+
+  renderContent();
+  document.body.appendChild(modalEl);
+}
+
+// =========================================================
 // ARCHIVO: js\ui\teamSelectView.js
 // =========================================================
 
 // Vista de Selección de Equipo de LaLiga
-function renderTeamSelect(container, teams, onSelectTeam) {
+function renderTeamSelect(container, teams, onSelectTeam, onOpenSaveSlots = null) {
   let selectedIndex = 0;
 
   function update() {
     const team = teams[selectedIndex];
     const topPlayers = [...team.players].sort((a, b) => b.ovr - a.ovr).slice(0, 4);
+    const slots = SaveManager.getAllSlotsMetadata();
+    const occupiedCount = slots.filter(s => !s.isEmpty).length;
 
     container.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 max-w-md mx-auto select-none">
         <!-- Encabezado -->
-        <header class="text-center pt-2 pb-4">
-          <div class="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-amber-400 text-xs font-semibold mb-2">
-            <span>⚽</span> TEMPORADA 2026 / 2027 (FC 27)
+        <header class="pt-2 pb-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-amber-400 text-xs font-semibold">
+              <span>⚽</span> TEMPORADA 2026 / 2027
+            </div>
+            <button id="btn-open-slots" class="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 rounded-full text-sky-400 hover:text-white text-xs font-bold transition active:scale-95 shadow-sm">
+              <span>📁</span> Partidas (${occupiedCount}/3)
+            </button>
           </div>
-          <h1 class="text-2xl font-black tracking-tight text-white">ENTRENATE TE TE</h1>
-          <p class="text-xs text-slate-400 mt-1">Elige tu club para iniciar la temporada hacia el título</p>
+          <div class="text-center">
+            <h1 class="text-2xl font-black tracking-tight text-white">ENTRENATE TE TE</h1>
+            <p class="text-xs text-slate-400 mt-1">Elige tu club para iniciar la temporada hacia el título</p>
+          </div>
         </header>
 
         <!-- Selector de Clubes (Carrusel / Selector) -->
@@ -4384,6 +4747,13 @@ function renderTeamSelect(container, teams, onSelectTeam) {
         </div>
       </div>
     `;
+
+    const btnSlots = container.querySelector("#btn-open-slots");
+    if (btnSlots) {
+      btnSlots.onclick = () => {
+        onOpenSaveSlots?.();
+      };
+    }
 
     // Eventos
     container.querySelector("#btn-prev-team").onclick = () => {
@@ -13696,6 +14066,7 @@ function renderHubView(container, gameState, callbacks) {
     callbacks?.onReset?.();
     return;
   }
+  const activeSlot = SaveManager.getActiveSlot();
   const currentRoundIndex = Math.max(0, (gameState.currentRound || 1) - 1);
   const currentRoundData = (gameState.schedule || [])[currentRoundIndex];
 
@@ -13743,7 +14114,12 @@ function renderHubView(container, gameState, callbacks) {
             </div>
             <div>
               <h1 class="text-base font-black text-white leading-tight">${userTeam.name}</h1>
-              <span class="text-xs text-slate-400 font-medium">📍 ${userTeam.stadium}</span>
+              <div class="flex items-center gap-2 mt-0.5">
+                <span class="text-xs text-slate-400 font-medium">📍 ${userTeam.stadium}</span>
+                <button id="btn-header-slots" class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-800 hover:bg-slate-700 border border-slate-700/80 text-[10px] font-bold text-sky-400 active:scale-95 transition" title="Cambiar o gestionar partida">
+                  <span>💾</span> Ranura ${activeSlot}
+                </button>
+              </div>
             </div>
           </div>
           <!-- Posición Actual -->
@@ -13934,11 +14310,14 @@ function renderHubView(container, gameState, callbacks) {
             <h3 class="font-extrabold text-sm text-white">Opciones de la Partida</h3>
             <button id="btn-close-options" class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 font-bold">✕</button>
           </div>
-          <button id="btn-save-game" class="w-full py-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-white font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-2">
-            <span>💾</span> Guardar Partida Manualmente
+          <button id="btn-save-game" class="w-full py-3 bg-sky-600 hover:bg-sky-500 active:scale-98 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-500/20 flex items-center justify-center gap-2">
+            <span>💾</span> Guardar en Ranura ${activeSlot}
+          </button>
+          <button id="btn-manage-slots" class="w-full py-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-2">
+            <span>📁</span> Cambiar / Gestionar Partidas (3 Ranuras)
           </button>
           <button id="btn-reset-game" class="w-full py-3 bg-red-500/10 hover:bg-red-500/20 active:scale-98 text-red-400 font-bold text-xs rounded-xl border border-red-500/30 flex items-center justify-center gap-2">
-            <span>🗑</span> Reiniciar Partida (Nueva Temporada)
+            <span>🗑</span> Reiniciar Temporada Actual
           </button>
         </div>
       </div>
@@ -13949,6 +14328,14 @@ function renderHubView(container, gameState, callbacks) {
   container.querySelector("#btn-play-match").onclick = () => {
     callbacks.onStartMatch();
   };
+
+  // Botón Ranuras en la Cabecera
+  const btnHeaderSlots = container.querySelector("#btn-header-slots");
+  if (btnHeaderSlots) {
+    btnHeaderSlots.onclick = () => {
+      callbacks.onManageSlots?.();
+    };
+  }
 
   // Navegación
   container.querySelectorAll(".nav-btn").forEach(btn => {
@@ -13970,9 +14357,17 @@ function renderHubView(container, gameState, callbacks) {
 
   container.querySelector("#btn-save-game").onclick = () => {
     callbacks.onSave();
-    alert("¡Partida guardada con éxito en el dispositivo!");
+    alert(`✅ ¡Partida guardada con éxito en la Ranura ${activeSlot}!`);
     modalOpt.classList.add("hidden");
   };
+
+  const btnManageSlots = container.querySelector("#btn-manage-slots");
+  if (btnManageSlots) {
+    btnManageSlots.onclick = () => {
+      modalOpt.classList.add("hidden");
+      callbacks.onManageSlots?.();
+    };
+  }
 
   container.querySelector("#btn-reset-game").onclick = () => {
     if (confirm("¿Estás seguro de que deseas reiniciar la partida actual? Perderás el progreso de la temporada.")) {
@@ -13992,13 +14387,15 @@ class GameManager {
     this.container = document.getElementById("app");
     this.currentView = "team_select";
     this.state = null;
+    this.targetSlotForNewGame = null;
 
     this.init();
   }
 
   init() {
     try {
-      const saved = SaveManager.loadGame();
+      const activeSlot = SaveManager.getActiveSlot();
+      const saved = SaveManager.loadGame(activeSlot);
       if (
         saved &&
         saved.userTeamId &&
@@ -14037,12 +14434,17 @@ class GameManager {
           this.currentView = "hub";
         }
       } else {
-        SaveManager.deleteGame();
+        // Si la ranura activa está vacía, pero existe otra ranura con partida guardada, cargarla
+        const slots = SaveManager.getAllSlotsMetadata();
+        const firstWithData = slots.find(s => !s.isEmpty);
+        if (firstWithData) {
+          this.loadSlot(firstWithData.slot);
+          return;
+        }
         this.currentView = "team_select";
       }
     } catch (e) {
       console.warn("Estado previo no compatible, iniciando nueva partida:", e);
-      SaveManager.deleteGame();
       this.currentView = "team_select";
     }
 
@@ -14050,7 +14452,6 @@ class GameManager {
       this.render();
     } catch (renderError) {
       console.error("Error al renderizar vista inicial:", renderError);
-      SaveManager.deleteGame();
       this.state = null;
       this.currentView = "team_select";
       try {
@@ -14092,8 +14493,13 @@ class GameManager {
     const standings = initStandings(teams);
     const optimal = buildOptimalLineup(selectedTeam);
 
+    const targetSlot = this.targetSlotForNewGame || SaveManager.getActiveSlot();
+    this.targetSlotForNewGame = null;
+    SaveManager.setActiveSlot(targetSlot);
+
     this.state = {
       schemaVersion: "LALIGA_REAL_V8",
+      saveSlot: targetSlot,
       userTeamId: selectedTeam.id,
       currentRound: 1,
       schedule,
@@ -14112,9 +14518,76 @@ class GameManager {
       isSeasonOver: false
     };
 
-    SaveManager.saveGame(this.state);
+    SaveManager.saveGame(this.state, targetSlot);
     this.currentView = "hub";
     this.render();
+  }
+
+  loadSlot(slot) {
+    const loaded = SaveManager.loadGame(slot);
+    if (loaded && loaded.userTeamId && Array.isArray(loaded.teams)) {
+      this.state = loaded;
+      SaveManager.setActiveSlot(slot);
+      if (!this.state.userTactics) {
+        const userTeam = this.state.teams.find(t => t.id === this.state.userTeamId);
+        const optimal = buildOptimalLineup(userTeam);
+        this.state.userTactics = {
+          formation: optimal.formationKey,
+          mentality: "balanced",
+          lineup: optimal.lineupIds,
+          bench: optimal.benchIds,
+          playerRoles: {},
+          customPositions: {},
+          instructions: getDefaultTacticalInstructions()
+        };
+      }
+      if (this.state.isSeasonOver) {
+        this.currentView = "season_end";
+      } else {
+        this.currentView = "hub";
+      }
+      this.render();
+    }
+  }
+
+  openSaveSlotsModal() {
+    renderSaveSlotsModal(this.container, {
+      currentGameState: this.state,
+      onLoadSlot: (slot) => {
+        this.loadSlot(slot);
+      },
+      onSaveToSlot: (slot) => {
+        if (this.state) {
+          SaveManager.saveGame(this.state, slot);
+          this.state.saveSlot = slot;
+          SaveManager.setActiveSlot(slot);
+          alert(`✅ Partida guardada con éxito en la Ranura ${slot}`);
+          this.render();
+        }
+      },
+      onDeleteSlot: (slot) => {
+        if (SaveManager.getActiveSlot() === slot && this.state) {
+          this.state = null;
+          const slots = SaveManager.getAllSlotsMetadata();
+          const another = slots.find(s => !s.isEmpty);
+          if (another) {
+            this.loadSlot(another.slot);
+          } else {
+            this.currentView = "team_select";
+            this.render();
+          }
+        }
+      },
+      onNewGameInSlot: (slot) => {
+        SaveManager.setActiveSlot(slot);
+        this.targetSlotForNewGame = slot;
+        this.currentView = "team_select";
+        this.render();
+      },
+      onClose: () => {
+        this.render();
+      }
+    });
   }
 
   restartSeasonWithSameTeam() {
@@ -14146,10 +14619,18 @@ class GameManager {
   }
 
   resetGame() {
-    SaveManager.deleteGame();
+    const currentSlot = SaveManager.getActiveSlot();
+    SaveManager.deleteGame(currentSlot);
     this.state = null;
-    this.currentView = "team_select";
-    this.render();
+
+    const slots = SaveManager.getAllSlotsMetadata();
+    const another = slots.find(s => !s.isEmpty);
+    if (another) {
+      this.loadSlot(another.slot);
+    } else {
+      this.currentView = "team_select";
+      this.render();
+    }
   }
 
   saveCurrentState() {
@@ -14256,6 +14737,8 @@ class GameManager {
         case "team_select":
           renderTeamSelect(this.container, TEAMS_DATA, (team) => {
             this.startNewGame(team);
+          }, () => {
+            this.openSaveSlotsModal();
           });
           break;
 
@@ -14271,6 +14754,9 @@ class GameManager {
             },
             onSave: () => {
               this.saveCurrentState();
+            },
+            onManageSlots: () => {
+              this.openSaveSlotsModal();
             },
             onReset: () => {
               this.resetGame();
