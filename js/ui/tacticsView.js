@@ -343,6 +343,7 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                     <div class="flex items-center gap-2">
                       <span class="w-5 text-center font-mono text-[10px] text-slate-500 font-bold">#${p.number}</span>
                       <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
+                      ${p.secondaryPos ? `<span class="text-[9px] font-semibold text-amber-300/80" title="Posiciones secundarias">(${Array.isArray(p.secondaryPos) ? p.secondaryPos.join('/') : p.secondaryPos})</span>` : ''}
                       <span class="text-xs font-bold text-slate-200">${p.name}</span>
                       ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900/90 border border-rose-500/60 text-[8.5px] font-bold text-rose-300">🚑 ${p.injury.roundsLeft}j</span>` : ''}
                       ${isSuspended ? `<span class="px-1.5 py-0.5 rounded bg-amber-900/90 border border-amber-500/60 text-[8.5px] font-bold text-amber-300">🛑 ${p.suspension.roundsLeft}j</span>` : ''}
@@ -931,7 +932,11 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
     // Resto de posiciones
     formation.slots.forEach((slot, idx) => {
       if (idx === 0) return;
-      let best = availablePlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
+      let best = availablePlayers.find(p => !used.has(p.id) && (
+        p.pos === slot.pos ||
+        (Array.isArray(p.secondaryPos) && p.secondaryPos.includes(slot.pos)) ||
+        (typeof p.secondaryPos === "string" && p.secondaryPos.includes(slot.pos))
+      ));
       if (!best) {
         best = availablePlayers.find(p => !used.has(p.id) && p.pos !== "POR");
       }

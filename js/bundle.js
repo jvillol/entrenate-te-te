@@ -21,11 +21,11 @@ const TEAMS_DATA = [
       { id: "rma_1", name: "Thibaut Courtois", number: 1, pos: "POR", ovr: 89, pot: 89, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
       { id: "rma_2", name: "Andriy Lunin", number: 13, pos: "POR", ovr: 81, pot: 85, pac: 42, sho: 14, pas: 70, dri: 45, def: 15, phy: 73, energy: 100 },
       { id: "rma_3", name: "Trent Alexander-Arnold", number: 12, pos: "LD", ovr: 87, pot: 88, pac: 76, sho: 77, pas: 92, dri: 82, def: 81, phy: 75, energy: 100 },
-      { id: "rma_4", name: "Dani Carvajal", number: 2, pos: "LD", ovr: 85, pot: 85, pac: 79, sho: 54, pas: 78, dri: 80, def: 83, phy: 81, energy: 100 },
+      { id: "rma_4", name: "Asencio", number: 2, pos: "DFC", ovr: 78, pot: 85, pac: 83, sho: 47, pas: 71, dri: 72, def: 77, phy: 82, energy: 100 },
       { id: "rma_5", name: "Antonio Rudiger", number: 22, pos: "DFC", ovr: 87, pot: 87, pac: 82, sho: 53, pas: 71, dri: 67, def: 87, phy: 86, energy: 100 },
       { id: "rma_6", name: "Eder Militao", number: 3, pos: "DFC", ovr: 85, pot: 87, pac: 85, sho: 50, pas: 71, dri: 72, def: 86, phy: 83, energy: 100 },
       { id: "rma_7", name: "Ferland Mendy", number: 23, pos: "LI", ovr: 83, pot: 83, pac: 89, sho: 62, pas: 74, dri: 78, def: 82, phy: 85, energy: 100 },
-      { id: "rma_8", name: "Fran Garcia", number: 20, pos: "LI", ovr: 79, pot: 82, pac: 91, sho: 58, pas: 72, dri: 77, def: 74, phy: 73, energy: 100 },
+      { id: "rma_8", name: "Bernardo Silva", number: 20, pos: "MC", ovr: 79, pot: 82, pac: 50, sho: 76, pas: 85, dri: 88, def: 68, phy: 67, energy: 100 },
       { id: "rma_9", name: "Aurelien Tchouameni", number: 14, pos: "MCD", ovr: 86, pot: 89, pac: 73, sho: 71, pas: 82, dri: 81, def: 86, phy: 87, energy: 100 },
       { id: "rma_10", name: "Federico Valverde", number: 8, pos: "MC", ovr: 89, pot: 91, pac: 89, sho: 84, pas: 85, dri: 85, def: 82, phy: 85, energy: 100 },
       { id: "rma_11", name: "Eduardo Camavinga", number: 6, pos: "MC", ovr: 85, pot: 90, pac: 82, sho: 69, pas: 83, dri: 85, def: 82, phy: 83, energy: 100 },
@@ -813,8 +813,48 @@ function getRoleDetails(pos, roleId) {
   return roles.find(r => r.id === roleId) || roles[0];
 }
 
-// Cálculo de penalización si un jugador juega fuera de su posición natural
-function getPositionAffinity(playerPos, slotPos) {
+// Cálculo de penalización si un jugador juega fuera de su posición natural o secundaria
+function getPositionAffinity(playerOrPos, slotPos) {
+  let primaryPos = "";
+  let secondaryList = [];
+
+  if (typeof playerOrPos === "object" && playerOrPos !== null) {
+    primaryPos = playerOrPos.pos || "";
+    if (Array.isArray(playerOrPos.secondaryPos)) {
+      secondaryList = playerOrPos.secondaryPos;
+    } else if (Array.isArray(playerOrPos.secondaryPositions)) {
+      secondaryList = playerOrPos.secondaryPositions;
+    } else if (typeof playerOrPos.secondaryPos === "string") {
+      secondaryList = playerOrPos.secondaryPos.split(/[\s,\/]+/).filter(Boolean);
+    }
+  } else if (typeof playerOrPos === "string") {
+    primaryPos = playerOrPos;
+  }
+
+  // Lista con todas las posiciones oficiales del futbolista
+  const allPositions = [
+    ...primaryPos.split(/[\s,\/]+/).map(s => s.trim().toUpperCase()).filter(Boolean),
+    ...secondaryList.map(s => String(s).trim().toUpperCase()).filter(Boolean)
+  ];
+
+  const targetSlot = (slotPos || "").trim().toUpperCase();
+
+  // Si el puesto coincide con la posición principal o con cualquier posición secundaria: 100% sin penalización
+  if (allPositions.includes(targetSlot)) {
+    return 1.0;
+  }
+
+  // Si no coincide exactamente con ninguna, evaluar la mejor afinidad posible respecto a sus puestos conocidos
+  let bestAffinity = 0.70;
+  for (const posItem of allPositions) {
+    const aff = getSinglePositionAffinity(posItem, targetSlot);
+    if (aff > bestAffinity) bestAffinity = aff;
+  }
+
+  return bestAffinity;
+}
+
+function getSinglePositionAffinity(playerPos, slotPos) {
   if (playerPos === slotPos) return 1.0;
   
   // Portero solo rinde de portero
@@ -848,7 +888,7 @@ function getPositionAffinity(playerPos, slotPos) {
 
 // Calcula la media efectiva de un jugador colocado en una posición concreta
 function calculateEffectiveRating(player, slotPos) {
-  const affinity = getPositionAffinity(player.pos, slotPos);
+  const affinity = getPositionAffinity(player, slotPos);
   const curEnergy = player.energy !== undefined ? player.energy : 100;
   const energyFactor = 0.5 + (curEnergy / 100) * 0.5; // La energía baja reduce rendimiento
   const injuryPenalty = player.injury ? 0.40 : 1.0; // Los futbolistas lesionados ven mermado su rendimiento drásticamente
@@ -4462,6 +4502,7 @@ function renderTacticsView(container, gameState, onSaveTactics) {
                     <div class="flex items-center gap-2">
                       <span class="w-5 text-center font-mono text-[10px] text-slate-500 font-bold">#${p.number}</span>
                       <span class="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] font-bold ${p.pos === 'DC' || p.pos === 'EI' || p.pos === 'ED' ? 'text-red-400' : p.pos === 'MC' || p.pos === 'MCD' || p.pos === 'MCO' ? 'text-amber-400' : p.pos === 'POR' ? 'text-purple-400' : 'text-sky-400'}">${p.pos}</span>
+                      ${p.secondaryPos ? `<span class="text-[9px] font-semibold text-amber-300/80" title="Posiciones secundarias">(${Array.isArray(p.secondaryPos) ? p.secondaryPos.join('/') : p.secondaryPos})</span>` : ''}
                       <span class="text-xs font-bold text-slate-200">${p.name}</span>
                       ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900/90 border border-rose-500/60 text-[8.5px] font-bold text-rose-300">🚑 ${p.injury.roundsLeft}j</span>` : ''}
                       ${isSuspended ? `<span class="px-1.5 py-0.5 rounded bg-amber-900/90 border border-amber-500/60 text-[8.5px] font-bold text-amber-300">🛑 ${p.suspension.roundsLeft}j</span>` : ''}
@@ -5050,7 +5091,11 @@ function renderTacticsView(container, gameState, onSaveTactics) {
     // Resto de posiciones
     formation.slots.forEach((slot, idx) => {
       if (idx === 0) return;
-      let best = availablePlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
+      let best = availablePlayers.find(p => !used.has(p.id) && (
+        p.pos === slot.pos ||
+        (Array.isArray(p.secondaryPos) && p.secondaryPos.includes(slot.pos)) ||
+        (typeof p.secondaryPos === "string" && p.secondaryPos.includes(slot.pos))
+      ));
       if (!best) {
         best = availablePlayers.find(p => !used.has(p.id) && p.pos !== "POR");
       }
@@ -5080,11 +5125,19 @@ function renderSquadView(container, gameState) {
   let activePlayerModal = null;
 
   function render() {
+    const hasAnyPos = (p, list) => {
+      const all = [
+        ...(p.pos ? p.pos.split(/[\s,\/]+/) : []),
+        ...(Array.isArray(p.secondaryPos) ? p.secondaryPos : (p.secondaryPos ? String(p.secondaryPos).split(/[\s,\/]+/) : []))
+      ].map(s => s.trim().toUpperCase());
+      return list.some(target => all.includes(target));
+    };
+
     let filteredPlayers = [...team.players];
-    if (filter === "GK") filteredPlayers = filteredPlayers.filter(p => p.pos === "POR");
-    else if (filter === "DEF") filteredPlayers = filteredPlayers.filter(p => ["DFC", "LD", "LI"].includes(p.pos));
-    else if (filter === "MID") filteredPlayers = filteredPlayers.filter(p => ["MCD", "MC", "MCO"].includes(p.pos));
-    else if (filter === "ATT") filteredPlayers = filteredPlayers.filter(p => ["DC", "EI", "ED"].includes(p.pos));
+    if (filter === "GK") filteredPlayers = filteredPlayers.filter(p => hasAnyPos(p, ["POR"]));
+    else if (filter === "DEF") filteredPlayers = filteredPlayers.filter(p => hasAnyPos(p, ["DFC", "LD", "LI"]));
+    else if (filter === "MID") filteredPlayers = filteredPlayers.filter(p => hasAnyPos(p, ["MCD", "MC", "MCO"]));
+    else if (filter === "ATT") filteredPlayers = filteredPlayers.filter(p => hasAnyPos(p, ["DC", "EI", "ED"]));
 
     // Ordenar por OVR descendente
     filteredPlayers.sort((a, b) => b.ovr - a.ovr);
@@ -5208,6 +5261,7 @@ function renderSquadView(container, gameState) {
                 <h3 class="text-base font-black text-white">${p.name}</h3>
                 <div class="flex items-center gap-2 mt-0.5">
                   <span class="text-xs px-2 py-0.5 bg-slate-800 rounded font-bold text-sky-400">${p.pos}</span>
+                  ${p.secondaryPos ? `<span class="text-xs px-2 py-0.5 bg-slate-800/80 border border-slate-700/60 rounded font-bold text-amber-300/90" title="Posiciones secundarias">+ ${Array.isArray(p.secondaryPos) ? p.secondaryPos.join(', ') : p.secondaryPos}</span>` : ''}
                   <span class="text-xs text-slate-400 font-mono">Dorsal #${p.number}</span>
                 </div>
               </div>

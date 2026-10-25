@@ -6,11 +6,19 @@ export function renderSquadView(container, gameState) {
   let activePlayerModal = null;
 
   function render() {
+    const hasAnyPos = (p, list) => {
+      const all = [
+        ...(p.pos ? p.pos.split(/[\s,\/]+/) : []),
+        ...(Array.isArray(p.secondaryPos) ? p.secondaryPos : (p.secondaryPos ? String(p.secondaryPos).split(/[\s,\/]+/) : []))
+      ].map(s => s.trim().toUpperCase());
+      return list.some(target => all.includes(target));
+    };
+
     let filteredPlayers = [...team.players];
-    if (filter === "GK") filteredPlayers = filteredPlayers.filter(p => p.pos === "POR");
-    else if (filter === "DEF") filteredPlayers = filteredPlayers.filter(p => ["DFC", "LD", "LI"].includes(p.pos));
-    else if (filter === "MID") filteredPlayers = filteredPlayers.filter(p => ["MCD", "MC", "MCO"].includes(p.pos));
-    else if (filter === "ATT") filteredPlayers = filteredPlayers.filter(p => ["DC", "EI", "ED"].includes(p.pos));
+    if (filter === "GK") filteredPlayers = filteredPlayers.filter(p => hasAnyPos(p, ["POR"]));
+    else if (filter === "DEF") filteredPlayers = filteredPlayers.filter(p => hasAnyPos(p, ["DFC", "LD", "LI"]));
+    else if (filter === "MID") filteredPlayers = filteredPlayers.filter(p => hasAnyPos(p, ["MCD", "MC", "MCO"]));
+    else if (filter === "ATT") filteredPlayers = filteredPlayers.filter(p => hasAnyPos(p, ["DC", "EI", "ED"]));
 
     // Ordenar por OVR descendente
     filteredPlayers.sort((a, b) => b.ovr - a.ovr);
@@ -134,6 +142,7 @@ export function renderSquadView(container, gameState) {
                 <h3 class="text-base font-black text-white">${p.name}</h3>
                 <div class="flex items-center gap-2 mt-0.5">
                   <span class="text-xs px-2 py-0.5 bg-slate-800 rounded font-bold text-sky-400">${p.pos}</span>
+                  ${p.secondaryPos ? `<span class="text-xs px-2 py-0.5 bg-slate-800/80 border border-slate-700/60 rounded font-bold text-amber-300/90" title="Posiciones secundarias">+ ${Array.isArray(p.secondaryPos) ? p.secondaryPos.join(', ') : p.secondaryPos}</span>` : ''}
                   <span class="text-xs text-slate-400 font-mono">Dorsal #${p.number}</span>
                 </div>
               </div>

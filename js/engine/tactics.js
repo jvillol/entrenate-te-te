@@ -156,8 +156,48 @@ export function getRoleDetails(pos, roleId) {
   return roles.find(r => r.id === roleId) || roles[0];
 }
 
-// Cálculo de penalización si un jugador juega fuera de su posición natural
-export function getPositionAffinity(playerPos, slotPos) {
+// Cálculo de penalización si un jugador juega fuera de su posición natural o secundaria
+export function getPositionAffinity(playerOrPos, slotPos) {
+  let primaryPos = "";
+  let secondaryList = [];
+
+  if (typeof playerOrPos === "object" && playerOrPos !== null) {
+    primaryPos = playerOrPos.pos || "";
+    if (Array.isArray(playerOrPos.secondaryPos)) {
+      secondaryList = playerOrPos.secondaryPos;
+    } else if (Array.isArray(playerOrPos.secondaryPositions)) {
+      secondaryList = playerOrPos.secondaryPositions;
+    } else if (typeof playerOrPos.secondaryPos === "string") {
+      secondaryList = playerOrPos.secondaryPos.split(/[\s,\/]+/).filter(Boolean);
+    }
+  } else if (typeof playerOrPos === "string") {
+    primaryPos = playerOrPos;
+  }
+
+  // Lista con todas las posiciones oficiales del futbolista
+  const allPositions = [
+    ...primaryPos.split(/[\s,\/]+/).map(s => s.trim().toUpperCase()).filter(Boolean),
+    ...secondaryList.map(s => String(s).trim().toUpperCase()).filter(Boolean)
+  ];
+
+  const targetSlot = (slotPos || "").trim().toUpperCase();
+
+  // Si el puesto coincide con la posición principal o con cualquier posición secundaria: 100% sin penalización
+  if (allPositions.includes(targetSlot)) {
+    return 1.0;
+  }
+
+  // Si no coincide exactamente con ninguna, evaluar la mejor afinidad posible respecto a sus puestos conocidos
+  let bestAffinity = 0.70;
+  for (const posItem of allPositions) {
+    const aff = getSinglePositionAffinity(posItem, targetSlot);
+    if (aff > bestAffinity) bestAffinity = aff;
+  }
+
+  return bestAffinity;
+}
+
+function getSinglePositionAffinity(playerPos, slotPos) {
   if (playerPos === slotPos) return 1.0;
   
   // Portero solo rinde de portero
@@ -191,7 +231,7 @@ export function getPositionAffinity(playerPos, slotPos) {
 
 // Calcula la media efectiva de un jugador colocado en una posición concreta
 export function calculateEffectiveRating(player, slotPos) {
-  const affinity = getPositionAffinity(player.pos, slotPos);
+  const affinity = getPositionAffinity(player, slotPos);
   const curEnergy = player.energy !== undefined ? player.energy : 100;
   const energyFactor = 0.5 + (curEnergy / 100) * 0.5; // La energía baja reduce rendimiento
   const injuryPenalty = player.injury ? 0.40 : 1.0; // Los futbolistas lesionados ven mermado su rendimiento drásticamente
