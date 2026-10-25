@@ -396,23 +396,53 @@ class GameManager {
           });
           break;
 
-        case "tactics":
-          renderTacticsView(this.container, this.state, (updatedTactics) => {
+        case "tactics": {
+          this.container.innerHTML = `
+            <div id="subview-content" class="min-h-screen"></div>
+            <div id="subview-nav"></div>
+          `;
+          const subContent = this.container.querySelector("#subview-content");
+          const subNav = this.container.querySelector("#subview-nav");
+          renderTacticsView(subContent, this.state, (updatedTactics) => {
             this.state.userTactics = updatedTactics;
             this.saveCurrentState();
+          }, () => {
+            this.currentView = "hub";
+            this.render();
           });
-          this.attachBottomNav("tactics");
+          this.attachBottomNav("tactics", subNav);
           break;
+        }
 
-        case "squad":
-          renderSquadView(this.container, this.state);
-          this.attachBottomNav("squad");
+        case "squad": {
+          this.container.innerHTML = `
+            <div id="subview-content" class="min-h-screen"></div>
+            <div id="subview-nav"></div>
+          `;
+          const subContent = this.container.querySelector("#subview-content");
+          const subNav = this.container.querySelector("#subview-nav");
+          renderSquadView(subContent, this.state, () => {
+            this.currentView = "hub";
+            this.render();
+          });
+          this.attachBottomNav("squad", subNav);
           break;
+        }
 
-        case "standings":
-          renderStandingsView(this.container, this.state);
-          this.attachBottomNav("standings");
+        case "standings": {
+          this.container.innerHTML = `
+            <div id="subview-content" class="min-h-screen"></div>
+            <div id="subview-nav"></div>
+          `;
+          const subContent = this.container.querySelector("#subview-content");
+          const subNav = this.container.querySelector("#subview-nav");
+          renderStandingsView(subContent, this.state, () => {
+            this.currentView = "hub";
+            this.render();
+          });
+          this.attachBottomNav("standings", subNav);
           break;
+        }
 
         case "match":
           renderMatchView(this.container, this.state, () => {
@@ -468,8 +498,60 @@ class GameManager {
     }
   }
 
+  openOptionsModal() {
+    const existing = document.getElementById("global-modal-options");
+    if (existing) existing.remove();
+
+    const activeSlot = SaveManager.getActiveSlot();
+    const modalEl = document.createElement("div");
+    modalEl.id = "global-modal-options";
+    modalEl.className = "fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-end";
+    modalEl.innerHTML = `
+      <div class="bg-slate-900 border-t border-slate-700 rounded-t-3xl p-5 max-w-md mx-auto w-full space-y-3 shadow-2xl">
+        <div class="flex justify-between items-center mb-1">
+          <h3 class="font-extrabold text-sm text-white">Opciones de la Partida</h3>
+          <button id="btn-global-close-options" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white font-bold transition">✕</button>
+        </div>
+        <button id="btn-global-save-game" class="w-full py-3 bg-sky-600 hover:bg-sky-500 active:scale-98 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-500/20 flex items-center justify-center gap-2 transition">
+          <span>💾</span> Guardar en Ranura ${activeSlot}
+        </button>
+        <button id="btn-global-manage-slots" class="w-full py-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-2 transition">
+          <span>📁</span> Cambiar / Gestionar Partidas (3 Ranuras)
+        </button>
+        <button id="btn-global-reset-game" class="w-full py-3 bg-red-500/10 hover:bg-red-500/20 active:scale-98 text-red-400 font-bold text-xs rounded-xl border border-red-500/30 flex items-center justify-center gap-2 transition">
+          <span>🗑</span> Reiniciar Temporada Actual
+        </button>
+      </div>
+    `;
+
+    modalEl.querySelector("#btn-global-close-options").onclick = () => modalEl.remove();
+    modalEl.onclick = (e) => {
+      if (e.target === modalEl) modalEl.remove();
+    };
+
+    modalEl.querySelector("#btn-global-save-game").onclick = () => {
+      this.saveCurrentState();
+      alert(`✅ ¡Partida guardada con éxito en la Ranura ${activeSlot}!`);
+      modalEl.remove();
+    };
+
+    modalEl.querySelector("#btn-global-manage-slots").onclick = () => {
+      modalEl.remove();
+      this.openSaveSlotsModal();
+    };
+
+    modalEl.querySelector("#btn-global-reset-game").onclick = () => {
+      if (confirm("¿Estás seguro de que deseas reiniciar la partida actual? Perderás el progreso de la temporada.")) {
+        modalEl.remove();
+        this.resetGame();
+      }
+    };
+
+    document.body.appendChild(modalEl);
+  }
+
   // Barra de navegación móvil inferior presente en pantallas secundarias
-  attachBottomNav(activeView) {
+  attachBottomNav(activeView, parentEl = this.container) {
     const nav = document.createElement("nav");
     nav.className = "fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-3 py-2 z-40 max-w-md mx-auto";
     nav.innerHTML = `
@@ -490,17 +572,26 @@ class GameManager {
           <span class="text-lg">🏆</span>
           <span class="text-[9px] font-bold mt-0.5">Tabla</span>
         </button>
+        <button class="nav-sub flex flex-col items-center text-slate-400 hover:text-white active:scale-90 transition" data-view="options">
+          <span class="text-lg">⚙️</span>
+          <span class="text-[9px] font-bold mt-0.5">Ajustes</span>
+        </button>
       </div>
     `;
 
     nav.querySelectorAll(".nav-sub").forEach(b => {
       b.onclick = () => {
-        this.currentView = b.dataset.view;
-        this.render();
+        const targetView = b.dataset.view;
+        if (targetView === "options") {
+          this.openOptionsModal();
+        } else if (targetView !== activeView) {
+          this.currentView = targetView;
+          this.render();
+        }
       };
     });
 
-    this.container.appendChild(nav);
+    parentEl.appendChild(nav);
   }
 }
 

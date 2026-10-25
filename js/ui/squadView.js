@@ -1,6 +1,6 @@
 // Vista de la Plantilla Completa y Ficha Detallada de Futbolistas
 
-export function renderSquadView(container, gameState) {
+export function renderSquadView(container, gameState, onBackToHub) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);
   let filter = "ALL";
   let activePlayerModal = null;
@@ -27,9 +27,16 @@ export function renderSquadView(container, gameState) {
       <div class="min-h-screen bg-slate-950 text-white flex flex-col pb-20 select-none">
         <!-- Header -->
         <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between">
-          <div>
-            <h2 class="text-sm font-bold">Plantilla de Jugadores</h2>
-            <p class="text-[10px] text-slate-400">${team.players.length} futbolistas inscritos</p>
+          <div class="flex items-center gap-2">
+            ${onBackToHub ? `
+              <button id="btn-squad-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm" title="Volver al Menú Principal">
+                <span>❮</span> Inicio
+              </button>
+            ` : ''}
+            <div>
+              <h2 class="text-sm font-bold">Plantilla de Jugadores</h2>
+              <p class="text-[10px] text-slate-400">${team.players.length} futbolistas inscritos</p>
+            </div>
           </div>
           <div class="text-right">
             <span class="text-[10px] text-slate-400 uppercase font-semibold">Valor plantilla</span>
@@ -105,6 +112,12 @@ export function renderSquadView(container, gameState) {
         ${activePlayerModal ? renderPlayerModal(activePlayerModal) : ""}
       </div>
     `;
+
+    // Volver al Inicio
+    const btnBack = container.querySelector("#btn-squad-back");
+    if (btnBack && onBackToHub) {
+      btnBack.onclick = () => onBackToHub();
+    }
 
     // Filtros
     container.querySelectorAll(".btn-filter").forEach(b => {

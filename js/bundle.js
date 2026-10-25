@@ -4787,7 +4787,7 @@ function renderTeamSelect(container, teams, onSelectTeam, onOpenSaveSlots = null
 // =========================================================
 
 // Vista de la Pizarra Táctica, Alineaciones y Estilos de Juego por Estados
-function renderTacticsView(container, gameState, onSaveTactics) {
+function renderTacticsView(container, gameState, onSaveTactics, onBackToHub) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);
   const defaultOptimal = buildOptimalLineup(team);
   let tactics = gameState.userTactics || {
@@ -4825,6 +4825,11 @@ function renderTacticsView(container, gameState, onSaveTactics) {
         <!-- Barra Superior -->
         <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between shadow-md">
           <div class="flex items-center gap-2">
+            ${onBackToHub ? `
+              <button id="btn-tactics-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm" title="Volver al Menú Principal">
+                <span>❮</span> Inicio
+              </button>
+            ` : ''}
             <div class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shadow" style="background: linear-gradient(135deg, ${team.primaryColor}, ${team.secondaryColor}); color: ${team.textColor};">
               ${team.shortName}
             </div>
@@ -5151,12 +5156,18 @@ function renderTacticsView(container, gameState, onSaveTactics) {
               }).join('')}
             </div>
 
-            <!-- Botón de Guardado al final del banquillo -->
-            <div class="mt-4 pt-1">
+            <!-- Botones de Acción al final del banquillo -->
+            <div class="mt-4 pt-1 space-y-2">
               <button id="btn-save-tactics-bottom" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-black text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 border border-emerald-500/50">
                 <span class="text-sm">💾</span>
                 <span>Guardar Alineación y Cambios</span>
               </button>
+              ${onBackToHub ? `
+                <button id="btn-tactics-back-bottom" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-98 text-slate-300 hover:text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 border border-slate-800">
+                  <span>🏠</span>
+                  <span>Volver al Menú Principal (Jugar Jornada ${gameState.currentRound})</span>
+                </button>
+              ` : ''}
             </div>
           </div>
         ` : `
@@ -5382,12 +5393,18 @@ function renderTacticsView(container, gameState, onSaveTactics) {
               <p>• <b class="text-slate-200">Transiciones:</b> ${tactics.instructions.inTransition.loss === 'counterpress' ? 'Contrapresión activa alertas de robo inmediato en campo rival.' : 'Repliegue ordenado protege el área propia.'}</p>
             </div>
 
-            <!-- Botón de Guardado al final de las instrucciones tácticas -->
-            <div class="mt-4 pt-1">
+            <!-- Botones de Acción al final de las instrucciones tácticas -->
+            <div class="mt-4 pt-1 space-y-2">
               <button id="btn-save-tactics-instructions" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-black text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 border border-emerald-500/50">
                 <span class="text-sm">💾</span>
                 <span>Guardar Estilo e Instrucciones Tácticas</span>
               </button>
+              ${onBackToHub ? `
+                <button id="btn-tactics-back-instr" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-98 text-slate-300 hover:text-white font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 border border-slate-800">
+                  <span>🏠</span>
+                  <span>Volver al Menú Principal (Jugar Jornada ${gameState.currentRound})</span>
+                </button>
+              ` : ''}
             </div>
           </div>
         `}
@@ -5483,6 +5500,20 @@ function renderTacticsView(container, gameState, onSaveTactics) {
 
     const btnSaveInstr = container.querySelector("#btn-save-tactics-instructions");
     if (btnSaveInstr) btnSaveInstr.onclick = () => handleSaveClick(btnSaveInstr);
+
+    // Eventos de Volver al Inicio / Hub
+    if (onBackToHub) {
+      const handleBackToHub = () => {
+        onSaveTactics(tactics);
+        onBackToHub();
+      };
+      const btnBackHeader = container.querySelector("#btn-tactics-back");
+      if (btnBackHeader) btnBackHeader.onclick = handleBackToHub;
+      const btnBackBottom = container.querySelector("#btn-tactics-back-bottom");
+      if (btnBackBottom) btnBackBottom.onclick = handleBackToHub;
+      const btnBackInstr = container.querySelector("#btn-tactics-back-instr");
+      if (btnBackInstr) btnBackInstr.onclick = handleBackToHub;
+    }
 
     // Controles de Ajuste Manual de Posición en el Campo (Nudge botones)
     container.querySelectorAll(".btn-nudge-pos").forEach(btn => {
@@ -5813,7 +5844,7 @@ function renderTacticsView(container, gameState, onSaveTactics) {
 // =========================================================
 
 // Vista de la Plantilla Completa y Ficha Detallada de Futbolistas
-function renderSquadView(container, gameState) {
+function renderSquadView(container, gameState, onBackToHub) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);
   let filter = "ALL";
   let activePlayerModal = null;
@@ -5840,9 +5871,16 @@ function renderSquadView(container, gameState) {
       <div class="min-h-screen bg-slate-950 text-white flex flex-col pb-20 select-none">
         <!-- Header -->
         <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between">
-          <div>
-            <h2 class="text-sm font-bold">Plantilla de Jugadores</h2>
-            <p class="text-[10px] text-slate-400">${team.players.length} futbolistas inscritos</p>
+          <div class="flex items-center gap-2">
+            ${onBackToHub ? `
+              <button id="btn-squad-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm" title="Volver al Menú Principal">
+                <span>❮</span> Inicio
+              </button>
+            ` : ''}
+            <div>
+              <h2 class="text-sm font-bold">Plantilla de Jugadores</h2>
+              <p class="text-[10px] text-slate-400">${team.players.length} futbolistas inscritos</p>
+            </div>
           </div>
           <div class="text-right">
             <span class="text-[10px] text-slate-400 uppercase font-semibold">Valor plantilla</span>
@@ -5918,6 +5956,12 @@ function renderSquadView(container, gameState) {
         ${activePlayerModal ? renderPlayerModal(activePlayerModal) : ""}
       </div>
     `;
+
+    // Volver al Inicio
+    const btnBack = container.querySelector("#btn-squad-back");
+    if (btnBack && onBackToHub) {
+      btnBack.onclick = () => onBackToHub();
+    }
 
     // Filtros
     container.querySelectorAll(".btn-filter").forEach(b => {
@@ -6058,7 +6102,7 @@ function renderSquadView(container, gameState) {
 // =========================================================
 
 // Vista de la Clasificación Completa de LaLiga y Tabla del Pichichi
-function renderStandingsView(container, gameState) {
+function renderStandingsView(container, gameState, onBackToHub) {
   let activeTab = "TABLE"; // "TABLE" o "PICHICHI"
 
   function render() {
@@ -6072,9 +6116,16 @@ function renderStandingsView(container, gameState) {
       <div class="min-h-screen bg-slate-950 text-white flex flex-col pb-20 select-none">
         <!-- Header -->
         <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between">
-          <div>
-            <h2 class="text-sm font-bold">LaLiga EA Sports</h2>
-            <p class="text-[10px] text-slate-400">Jornada ${gameState.currentRound} de 38</p>
+          <div class="flex items-center gap-2">
+            ${onBackToHub ? `
+              <button id="btn-standings-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm" title="Volver al Menú Principal">
+                <span>❮</span> Inicio
+              </button>
+            ` : ''}
+            <div>
+              <h2 class="text-sm font-bold">LaLiga EA Sports</h2>
+              <p class="text-[10px] text-slate-400">Jornada ${gameState.currentRound} de 38</p>
+            </div>
           </div>
           <!-- Selector de Pestañas -->
           <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
@@ -6093,6 +6144,11 @@ function renderStandingsView(container, gameState) {
         </div>
       </div>
     `;
+
+    const btnBack = container.querySelector("#btn-standings-back");
+    if (btnBack && onBackToHub) {
+      btnBack.onclick = () => onBackToHub();
+    }
 
     container.querySelector("#tab-table").onclick = () => {
       activeTab = "TABLE";
@@ -14843,23 +14899,53 @@ class GameManager {
           });
           break;
 
-        case "tactics":
-          renderTacticsView(this.container, this.state, (updatedTactics) => {
+        case "tactics": {
+          this.container.innerHTML = `
+            <div id="subview-content" class="min-h-screen"></div>
+            <div id="subview-nav"></div>
+          `;
+          const subContent = this.container.querySelector("#subview-content");
+          const subNav = this.container.querySelector("#subview-nav");
+          renderTacticsView(subContent, this.state, (updatedTactics) => {
             this.state.userTactics = updatedTactics;
             this.saveCurrentState();
+          }, () => {
+            this.currentView = "hub";
+            this.render();
           });
-          this.attachBottomNav("tactics");
+          this.attachBottomNav("tactics", subNav);
           break;
+        }
 
-        case "squad":
-          renderSquadView(this.container, this.state);
-          this.attachBottomNav("squad");
+        case "squad": {
+          this.container.innerHTML = `
+            <div id="subview-content" class="min-h-screen"></div>
+            <div id="subview-nav"></div>
+          `;
+          const subContent = this.container.querySelector("#subview-content");
+          const subNav = this.container.querySelector("#subview-nav");
+          renderSquadView(subContent, this.state, () => {
+            this.currentView = "hub";
+            this.render();
+          });
+          this.attachBottomNav("squad", subNav);
           break;
+        }
 
-        case "standings":
-          renderStandingsView(this.container, this.state);
-          this.attachBottomNav("standings");
+        case "standings": {
+          this.container.innerHTML = `
+            <div id="subview-content" class="min-h-screen"></div>
+            <div id="subview-nav"></div>
+          `;
+          const subContent = this.container.querySelector("#subview-content");
+          const subNav = this.container.querySelector("#subview-nav");
+          renderStandingsView(subContent, this.state, () => {
+            this.currentView = "hub";
+            this.render();
+          });
+          this.attachBottomNav("standings", subNav);
           break;
+        }
 
         case "match":
           renderMatchView(this.container, this.state, () => {
@@ -14915,8 +15001,60 @@ class GameManager {
     }
   }
 
+  openOptionsModal() {
+    const existing = document.getElementById("global-modal-options");
+    if (existing) existing.remove();
+
+    const activeSlot = SaveManager.getActiveSlot();
+    const modalEl = document.createElement("div");
+    modalEl.id = "global-modal-options";
+    modalEl.className = "fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col justify-end";
+    modalEl.innerHTML = `
+      <div class="bg-slate-900 border-t border-slate-700 rounded-t-3xl p-5 max-w-md mx-auto w-full space-y-3 shadow-2xl">
+        <div class="flex justify-between items-center mb-1">
+          <h3 class="font-extrabold text-sm text-white">Opciones de la Partida</h3>
+          <button id="btn-global-close-options" class="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-400 hover:text-white font-bold transition">✕</button>
+        </div>
+        <button id="btn-global-save-game" class="w-full py-3 bg-sky-600 hover:bg-sky-500 active:scale-98 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-500/20 flex items-center justify-center gap-2 transition">
+          <span>💾</span> Guardar en Ranura ${activeSlot}
+        </button>
+        <button id="btn-global-manage-slots" class="w-full py-3 bg-slate-800 hover:bg-slate-700 active:scale-98 text-slate-200 font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-2 transition">
+          <span>📁</span> Cambiar / Gestionar Partidas (3 Ranuras)
+        </button>
+        <button id="btn-global-reset-game" class="w-full py-3 bg-red-500/10 hover:bg-red-500/20 active:scale-98 text-red-400 font-bold text-xs rounded-xl border border-red-500/30 flex items-center justify-center gap-2 transition">
+          <span>🗑</span> Reiniciar Temporada Actual
+        </button>
+      </div>
+    `;
+
+    modalEl.querySelector("#btn-global-close-options").onclick = () => modalEl.remove();
+    modalEl.onclick = (e) => {
+      if (e.target === modalEl) modalEl.remove();
+    };
+
+    modalEl.querySelector("#btn-global-save-game").onclick = () => {
+      this.saveCurrentState();
+      alert(`✅ ¡Partida guardada con éxito en la Ranura ${activeSlot}!`);
+      modalEl.remove();
+    };
+
+    modalEl.querySelector("#btn-global-manage-slots").onclick = () => {
+      modalEl.remove();
+      this.openSaveSlotsModal();
+    };
+
+    modalEl.querySelector("#btn-global-reset-game").onclick = () => {
+      if (confirm("¿Estás seguro de que deseas reiniciar la partida actual? Perderás el progreso de la temporada.")) {
+        modalEl.remove();
+        this.resetGame();
+      }
+    };
+
+    document.body.appendChild(modalEl);
+  }
+
   // Barra de navegación móvil inferior presente en pantallas secundarias
-  attachBottomNav(activeView) {
+  attachBottomNav(activeView, parentEl = this.container) {
     const nav = document.createElement("nav");
     nav.className = "fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-3 py-2 z-40 max-w-md mx-auto";
     nav.innerHTML = `
@@ -14937,17 +15075,26 @@ class GameManager {
           <span class="text-lg">🏆</span>
           <span class="text-[9px] font-bold mt-0.5">Tabla</span>
         </button>
+        <button class="nav-sub flex flex-col items-center text-slate-400 hover:text-white active:scale-90 transition" data-view="options">
+          <span class="text-lg">⚙️</span>
+          <span class="text-[9px] font-bold mt-0.5">Ajustes</span>
+        </button>
       </div>
     `;
 
     nav.querySelectorAll(".nav-sub").forEach(b => {
       b.onclick = () => {
-        this.currentView = b.dataset.view;
-        this.render();
+        const targetView = b.dataset.view;
+        if (targetView === "options") {
+          this.openOptionsModal();
+        } else if (targetView !== activeView) {
+          this.currentView = targetView;
+          this.render();
+        }
       };
     });
 
-    this.container.appendChild(nav);
+    parentEl.appendChild(nav);
   }
 }
 

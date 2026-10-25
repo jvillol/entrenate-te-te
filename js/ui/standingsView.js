@@ -1,6 +1,6 @@
 // Vista de la Clasificación Completa de LaLiga y Tabla del Pichichi
 
-export function renderStandingsView(container, gameState) {
+export function renderStandingsView(container, gameState, onBackToHub) {
   let activeTab = "TABLE"; // "TABLE" o "PICHICHI"
 
   function render() {
@@ -14,9 +14,16 @@ export function renderStandingsView(container, gameState) {
       <div class="min-h-screen bg-slate-950 text-white flex flex-col pb-20 select-none">
         <!-- Header -->
         <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between">
-          <div>
-            <h2 class="text-sm font-bold">LaLiga EA Sports</h2>
-            <p class="text-[10px] text-slate-400">Jornada ${gameState.currentRound} de 38</p>
+          <div class="flex items-center gap-2">
+            ${onBackToHub ? `
+              <button id="btn-standings-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm" title="Volver al Menú Principal">
+                <span>❮</span> Inicio
+              </button>
+            ` : ''}
+            <div>
+              <h2 class="text-sm font-bold">LaLiga EA Sports</h2>
+              <p class="text-[10px] text-slate-400">Jornada ${gameState.currentRound} de 38</p>
+            </div>
           </div>
           <!-- Selector de Pestañas -->
           <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
@@ -35,6 +42,11 @@ export function renderStandingsView(container, gameState) {
         </div>
       </div>
     `;
+
+    const btnBack = container.querySelector("#btn-standings-back");
+    if (btnBack && onBackToHub) {
+      btnBack.onclick = () => onBackToHub();
+    }
 
     container.querySelector("#tab-table").onclick = () => {
       activeTab = "TABLE";
