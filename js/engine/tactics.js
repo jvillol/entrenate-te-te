@@ -143,6 +143,8 @@ export const POSITION_ROLES = {
 };
 
 export function getAvailableRolesForPosition(pos) {
+  if (pos === "MD") return POSITION_ROLES["ED"];
+  if (pos === "MI") return POSITION_ROLES["EI"];
   return POSITION_ROLES[pos] || POSITION_ROLES["MC"];
 }
 
@@ -200,30 +202,36 @@ export function getPositionAffinity(playerOrPos, slotPos) {
 function getSinglePositionAffinity(playerPos, slotPos) {
   if (playerPos === slotPos) return 1.0;
   
+  // Equivalencia natural de banda entre Medios e Interiores/Extremos (MD <-> ED, MI <-> EI)
+  if ((playerPos === "MD" && slotPos === "ED") || (playerPos === "ED" && slotPos === "MD")) return 1.0;
+  if ((playerPos === "MI" && slotPos === "EI") || (playerPos === "EI" && slotPos === "MI")) return 1.0;
+
   // Portero solo rinde de portero
   if (playerPos === "POR" || slotPos === "POR") return 0.25;
 
   // Laterales y carrileros
   if ((playerPos === "LD" || playerPos === "LI") && slotPos === "DFC") return 0.85;
-  if (playerPos === "LD" && slotPos === "LI") return 0.80;
-  if (playerPos === "LI" && slotPos === "LD") return 0.80;
-  if ((playerPos === "LD" || playerPos === "LI") && (slotPos === "ED" || slotPos === "EI")) return 0.85;
+  if (playerPos === "LD" && (slotPos === "LI" || slotPos === "MI")) return 0.80;
+  if (playerPos === "LI" && (slotPos === "LD" || slotPos === "MD")) return 0.80;
+  if ((playerPos === "LD" || playerPos === "LI") && (slotPos === "ED" || slotPos === "EI" || slotPos === "MD" || slotPos === "MI")) return 0.85;
+  if ((playerPos === "MD" || playerPos === "MI") && (slotPos === "LD" || slotPos === "LI")) return 0.85;
 
   // Centrales
   if (playerPos === "DFC" && (slotPos === "LD" || slotPos === "LI")) return 0.80;
   if (playerPos === "DFC" && slotPos === "MCD") return 0.85;
 
-  // Centrocampistas
+  // Centrocampistas y Medios de banda
   if (playerPos === "MCD" && slotPos === "MC") return 0.90;
-  if (playerPos === "MC" && (slotPos === "MCD" || slotPos === "MCO")) return 0.90;
-  if (playerPos === "MCO" && slotPos === "MC") return 0.88;
+  if (playerPos === "MC" && (slotPos === "MCD" || slotPos === "MCO" || slotPos === "MD" || slotPos === "MI")) return 0.90;
+  if (playerPos === "MCO" && (slotPos === "MC" || slotPos === "MD" || slotPos === "MI")) return 0.88;
   if (playerPos === "MCO" && (slotPos === "EI" || slotPos === "ED")) return 0.85;
+  if ((playerPos === "MD" || playerPos === "MI") && (slotPos === "MC" || slotPos === "MCO")) return 0.90;
 
   // Extremos y Delanteros
-  if (playerPos === "ED" && slotPos === "EI") return 0.90;
-  if (playerPos === "EI" && slotPos === "ED") return 0.90;
-  if ((playerPos === "ED" || playerPos === "EI") && slotPos === "DC") return 0.85;
-  if (playerPos === "DC" && (slotPos === "ED" || slotPos === "EI")) return 0.82;
+  if ((playerPos === "ED" || playerPos === "MD") && (slotPos === "EI" || slotPos === "MI")) return 0.90;
+  if ((playerPos === "EI" || playerPos === "MI") && (slotPos === "ED" || slotPos === "MD")) return 0.90;
+  if ((playerPos === "ED" || playerPos === "EI" || playerPos === "MD" || playerPos === "MI") && slotPos === "DC") return 0.85;
+  if (playerPos === "DC" && (slotPos === "ED" || slotPos === "EI" || slotPos === "MD" || slotPos === "MI")) return 0.82;
   if (playerPos === "DC" && slotPos === "MCO") return 0.80;
 
   return 0.70; // Fuera de zona principal

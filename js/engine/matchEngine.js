@@ -408,14 +408,18 @@ export class MatchSimulator {
     if (samePos.length > 0) {
       candidate = samePos.sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0];
     } else {
-      const isAtk = ["DC", "EI", "ED"].includes(mostTired.pos);
-      const isMid = ["MC", "MCD", "MCO"].includes(mostTired.pos);
-      const isDef = ["DFC", "LD", "LI"].includes(mostTired.pos);
+      const hasPos = (p, list) => {
+        const all = [p.pos, ...(Array.isArray(p.secondaryPos) ? p.secondaryPos : [])].filter(Boolean);
+        return list.some(x => all.includes(x));
+      };
+      const isAtk = hasPos(mostTired, ["DC", "EI", "ED", "MD", "MI"]);
+      const isMid = hasPos(mostTired, ["MC", "MCD", "MCO", "MD", "MI"]);
+      const isDef = hasPos(mostTired, ["DFC", "LD", "LI"]);
 
       const lineCandidates = aiBench.filter(p => {
-        if (isAtk) return ["DC", "EI", "ED"].includes(p.pos);
-        if (isMid) return ["MC", "MCD", "MCO"].includes(p.pos);
-        if (isDef) return ["DFC", "LD", "LI"].includes(p.pos);
+        if (isAtk) return hasPos(p, ["DC", "EI", "ED", "MD", "MI"]);
+        if (isMid) return hasPos(p, ["MC", "MCD", "MCO", "MD", "MI"]);
+        if (isDef) return hasPos(p, ["DFC", "LD", "LI"]);
         return false;
       });
 
@@ -2094,14 +2098,19 @@ export class MatchSimulator {
   pickPlayerForAction(players, preferredPositions, actionType = "pass", side = null) {
     const nonGk = players.filter(p => p.pos !== "POR");
     const basePool = nonGk.length > 0 ? nonGk : players;
-    let candidates = basePool.filter(p => preferredPositions.includes(p.pos));
+    const hasPrefPos = (p) => {
+      if (preferredPositions.includes(p.pos)) return true;
+      if (Array.isArray(p.secondaryPos) && p.secondaryPos.some(sp => preferredPositions.includes(sp))) return true;
+      return false;
+    };
+    let candidates = basePool.filter(hasPrefPos);
     if (candidates.length === 0) candidates = [...basePool];
 
     // Ponderar candidatos según su función táctica individual (rol) y atributos
     const weights = candidates.map(p => {
       const role = this.getPlayerRole(p, side);
       const roleId = role?.id || "";
-      const posBonus = preferredPositions.includes(p.pos) ? 1.35 : 0.75;
+      const posBonus = hasPrefPos(p) ? 1.35 : 0.75;
 
       if (actionType === "finish_box" || actionType === "shoot") {
         let rMult = role?.shootWeight !== undefined ? role.shootWeight : 0.6;

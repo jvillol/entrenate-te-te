@@ -169,8 +169,8 @@ function getTeamStrength(team) {
   const starters = [...team.players].sort((a, b) => (b.ovr || 70) - (a.ovr || 70)).slice(0, 11);
   const avgOvr = starters.reduce((acc, p) => acc + (p.ovr || 70), 0) / starters.length;
 
-  // Ataque (DC, EI, ED, MCO)
-  const attackers = starters.filter(p => ["DC", "EI", "ED", "MCO"].includes(p.pos));
+  // Ataque (DC, EI, ED, MCO, MD, MI)
+  const attackers = starters.filter(p => ["DC", "EI", "ED", "MCO", "MD", "MI"].includes(p.pos));
   const atk = attackers.length > 0
     ? attackers.reduce((acc, p) => acc + ((p.sho || 70) * 0.45 + (p.dri || 70) * 0.3 + (p.pac || 70) * 0.25), 0) / attackers.length
     : avgOvr;
@@ -181,8 +181,8 @@ function getTeamStrength(team) {
     ? defenders.reduce((acc, p) => acc + ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.ovr || 70) * 0.2), 0) / defenders.length
     : avgOvr;
 
-  // Mediocampo (MC, MCD, MCO)
-  const midfielders = starters.filter(p => ["MC", "MCD", "MCO"].includes(p.pos));
+  // Mediocampo (MC, MCD, MCO, MD, MI)
+  const midfielders = starters.filter(p => ["MC", "MCD", "MCO", "MD", "MI"].includes(p.pos));
   const mid = midfielders.length > 0
     ? midfielders.reduce((acc, p) => acc + ((p.pas || 70) * 0.4 + (p.dri || 70) * 0.35 + (p.def || 70) * 0.25), 0) / midfielders.length
     : avgOvr;
