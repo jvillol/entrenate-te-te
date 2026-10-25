@@ -2,7 +2,7 @@
 
 import { MatchSimulator } from "../engine/matchEngine.js";
 import { simulateAIParties, updateStandings } from "../engine/leagueEngine.js";
-import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset, getEffectiveSlotCoords, getPositionAdjustmentLabel } from "../engine/tactics.js";
+import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset, getEffectiveSlotCoords, getPositionAdjustmentLabel, buildOptimalLineup } from "../engine/tactics.js";
 import { SaveManager } from "../engine/saveManager.js";
 
 export function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
@@ -46,37 +46,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   let showPreMatchAllRoles = false;
 
   function getOpponentLineup(oppTeam) {
-    const formationKey = oppTeam.defaultFormation || "4-3-3";
-    const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    // El rival también gestiona la energía y descarta futbolistas que estén en el parte médico o sancionados
-    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
-    const allPlayers = [...oppTeam.players].filter(p => !p.injury && !p.suspension).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
-    const used = new Set();
-    const lineup = [];
-
-    const gk = allPlayers.find(p => p.pos === "POR") || allPlayers[0];
-    if (gk) {
-      lineup[0] = gk;
-      used.add(gk.id);
-    }
-
-    formation.slots.forEach((slot, idx) => {
-      if (idx === 0) return;
-      let best = allPlayers.find(p => !used.has(p.id) && p.pos === slot.pos);
-      if (!best) {
-        best = allPlayers.find(p => !used.has(p.id) && p.pos !== "POR");
-      }
-      if (!best) {
-        best = allPlayers.find(p => !used.has(p.id));
-      }
-      if (best) {
-        lineup[idx] = best;
-        used.add(best.id);
-      }
-    });
-
-    const bench = allPlayers.filter(p => !used.has(p.id));
-    return { formationKey, formation, lineup, bench };
+    const optimal = buildOptimalLineup(oppTeam);
+    return {
+      formationKey: optimal.formationKey,
+      formation: optimal.formation,
+      lineup: optimal.lineup,
+      bench: optimal.bench
+    };
   }
 
   // ==========================================

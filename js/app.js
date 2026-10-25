@@ -3,7 +3,7 @@
 import { TEAMS_DATA } from "./data/teams.js";
 import { generateSchedule, initStandings } from "./engine/leagueEngine.js";
 import { SaveManager } from "./engine/saveManager.js";
-import { getDefaultTacticalInstructions } from "./engine/tactics.js";
+import { getDefaultTacticalInstructions, buildOptimalLineup } from "./engine/tactics.js";
 
 import { renderTeamSelect } from "./ui/teamSelectView.js";
 import { renderHubView } from "./ui/hubView.js";
@@ -38,11 +38,12 @@ class GameManager {
         this.state = saved;
         if (!this.state.userTactics) {
           const userTeam = this.state.teams.find(t => t.id === this.state.userTeamId);
+          const optimal = buildOptimalLineup(userTeam);
           this.state.userTactics = {
-            formation: userTeam?.defaultFormation || "4-3-3",
+            formation: optimal.formationKey,
             mentality: "balanced",
-            lineup: (userTeam?.players || []).slice(0, 11).map(p => p.id),
-            bench: (userTeam?.players || []).slice(11).map(p => p.id),
+            lineup: optimal.lineupIds,
+            bench: optimal.benchIds,
             playerRoles: {},
             customPositions: {},
             instructions: getDefaultTacticalInstructions()
@@ -115,6 +116,7 @@ class GameManager {
     const teams = JSON.parse(JSON.stringify(TEAMS_DATA));
     const schedule = generateSchedule(teams);
     const standings = initStandings(teams);
+    const optimal = buildOptimalLineup(selectedTeam);
 
     this.state = {
       schemaVersion: "LALIGA_REAL_V8",
@@ -124,10 +126,10 @@ class GameManager {
       standings,
       teams,
       userTactics: {
-        formation: selectedTeam.defaultFormation || "4-3-3",
+        formation: optimal.formationKey,
         mentality: "balanced",
-        lineup: selectedTeam.players.slice(0, 11).map(p => p.id),
-        bench: selectedTeam.players.slice(11).map(p => p.id),
+        lineup: optimal.lineupIds,
+        bench: optimal.benchIds,
         playerRoles: {},
         customPositions: {},
         instructions: getDefaultTacticalInstructions()
@@ -146,6 +148,7 @@ class GameManager {
     const schedule = generateSchedule(teams);
     const standings = initStandings(teams);
     const userTeam = teams.find(t => t.id === this.state.userTeamId);
+    const optimal = buildOptimalLineup(userTeam);
 
     this.state.currentRound = 1;
     this.state.schedule = schedule;
@@ -154,10 +157,10 @@ class GameManager {
     this.state.topScorers = {};
     this.state.isSeasonOver = false;
     this.state.userTactics = {
-      formation: userTeam.defaultFormation || "4-3-3",
+      formation: optimal.formationKey,
       mentality: "balanced",
-      lineup: userTeam.players.slice(0, 11).map(p => p.id),
-      bench: userTeam.players.slice(11).map(p => p.id),
+      lineup: optimal.lineupIds,
+      bench: optimal.benchIds,
       playerRoles: {},
       customPositions: {},
       instructions: getDefaultTacticalInstructions()

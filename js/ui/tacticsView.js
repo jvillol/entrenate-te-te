@@ -1,14 +1,15 @@
 // Vista de la Pizarra Táctica, Alineaciones y Estilos de Juego por Estados
 
-import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset, getEffectiveSlotCoords, getPositionAdjustmentLabel } from "../engine/tactics.js";
+import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset, getEffectiveSlotCoords, getPositionAdjustmentLabel, buildOptimalLineup } from "../engine/tactics.js";
 
 export function renderTacticsView(container, gameState, onSaveTactics) {
   const team = gameState.teams.find(t => t.id === gameState.userTeamId);
+  const defaultOptimal = buildOptimalLineup(team);
   let tactics = gameState.userTactics || {
-    formation: team.defaultFormation || "4-3-3",
+    formation: defaultOptimal.formationKey,
     mentality: "balanced",
-    lineup: team.players.slice(0, 11).map(p => p.id),
-    bench: team.players.slice(11).map(p => p.id),
+    lineup: defaultOptimal.lineupIds,
+    bench: defaultOptimal.benchIds,
     playerRoles: {},
     customPositions: {}
   };
@@ -915,41 +916,9 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
   }
 
   function autoAlignLineup() {
-    const formationKey = tactics.formation;
-    const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
-    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
-    const availablePlayers = [...team.players].filter(p => !p.injury && !p.suspension).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
-    const used = new Set();
-    const newLineup = [];
-
-    // Portero
-    const gk = availablePlayers.find(p => p.pos === "POR");
-    if (gk) {
-      newLineup[0] = gk.id;
-      used.add(gk.id);
-    }
-
-    // Resto de posiciones
-    formation.slots.forEach((slot, idx) => {
-      if (idx === 0) return;
-      let best = availablePlayers.find(p => !used.has(p.id) && (
-        p.pos === slot.pos ||
-        (Array.isArray(p.secondaryPos) && p.secondaryPos.includes(slot.pos)) ||
-        (typeof p.secondaryPos === "string" && p.secondaryPos.includes(slot.pos))
-      ));
-      if (!best) {
-        best = availablePlayers.find(p => !used.has(p.id) && p.pos !== "POR");
-      }
-      if (best) {
-        newLineup[idx] = best.id;
-        used.add(best.id);
-      }
-    });
-
-    const newBench = team.players.filter(p => !used.has(p.id)).map(p => p.id);
-
-    tactics.lineup = newLineup;
-    tactics.bench = newBench;
+    const optimal = buildOptimalLineup(team, tactics.formation);
+    tactics.lineup = optimal.lineupIds;
+    tactics.bench = optimal.benchIds;
   }
 
   render();

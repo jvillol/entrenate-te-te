@@ -1,6 +1,6 @@
 // Motor de simulación de partido 2D interactivo con cambios en vivo (sin comentarios de texto)
 
-import { FORMATIONS, getRoleDetails, generateRandomInjury, getDefaultTacticalInstructions } from "./tactics.js";
+import { FORMATIONS, getRoleDetails, generateRandomInjury, getDefaultTacticalInstructions, buildOptimalLineup } from "./tactics.js";
 
 export class MatchSimulator {
   constructor(homeTeam, awayTeam, options = {}) {
@@ -68,12 +68,23 @@ export class MatchSimulator {
     this.currentAlert = null; // Alerta visual momentánea (ej: "¡GOL!", "¡PARADÓN!")
     this.currentAlertTimer = 0;
 
-    // Inicializar jugadores en el campo para la animación 2D
-    this.homePlayersOnPitch = this.homeTeam.players.slice(0, 11);
-    this.homeBench = this.homeTeam.players.slice(11);
+    // Inicializar jugadores en el campo para la animación 2D según alineación óptima y formación
+    const homeOpt = buildOptimalLineup(this.homeTeam, this.homeFormation);
+    const awayOpt = buildOptimalLineup(this.awayTeam, this.awayFormation);
 
-    this.awayPlayersOnPitch = this.awayTeam.players.slice(0, 11);
-    this.awayBench = this.awayTeam.players.slice(11);
+    this.homePlayersOnPitch = options.homeLineup && Array.isArray(options.homeLineup) && options.homeLineup.length === 11
+      ? options.homeLineup.map(id => this.homeTeam.players.find(p => p.id === id) || (typeof id === 'object' ? id : null)).filter(Boolean)
+      : homeOpt.lineup;
+    this.homeBench = options.homeBench && Array.isArray(options.homeBench)
+      ? options.homeBench.map(id => this.homeTeam.players.find(p => p.id === id) || (typeof id === 'object' ? id : null)).filter(Boolean)
+      : homeOpt.bench;
+
+    this.awayPlayersOnPitch = options.awayLineup && Array.isArray(options.awayLineup) && options.awayLineup.length === 11
+      ? options.awayLineup.map(id => this.awayTeam.players.find(p => p.id === id) || (typeof id === 'object' ? id : null)).filter(Boolean)
+      : awayOpt.lineup;
+    this.awayBench = options.awayBench && Array.isArray(options.awayBench)
+      ? options.awayBench.map(id => this.awayTeam.players.find(p => p.id === id) || (typeof id === 'object' ? id : null)).filter(Boolean)
+      : awayOpt.bench;
 
     // Inicializar cómputo de minutos de partido y desgaste
     [...this.homePlayersOnPitch, ...this.homeBench].forEach(p => { p.matchMinutes = 0; });

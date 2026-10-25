@@ -338,6 +338,117 @@ export function calculateTeamAverages(lineupPlayers, formationKey, customPositio
   };
 }
 
+/**
+ * Selecciona la alineación óptima para un equipo y formación, colocando a los mejores
+ * futbolistas según su posición real (primaria y secundaria) por valoración.
+ */
+export function buildOptimalLineup(team, targetFormationKey = null) {
+  if (!team || !Array.isArray(team.players) || team.players.length === 0) {
+    return { formationKey: "4-3-3", lineup: [], bench: [], lineupIds: [], benchIds: [] };
+  }
+
+  const formationKey = targetFormationKey || team.defaultFormation || "4-3-3";
+  const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
+
+  // Filtrar jugadores disponibles (descartar bajas médicas graves o sanciones disciplinarias)
+  const getPlayerScore = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
+  const availablePlayers = [...team.players].filter(p => !p.injury && !p.suspension).sort((a, b) => getPlayerScore(b) - getPlayerScore(a));
+
+  const used = new Set();
+  const lineup = new Array(11).fill(null);
+
+  // 1. Guardameta en Slot 0 (POR)
+  const gks = availablePlayers.filter(p => p.pos === "POR").sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+  const bestGk = gks[0] || availablePlayers[0];
+  if (bestGk) {
+    lineup[0] = bestGk;
+    used.add(bestGk.id);
+  }
+
+  // Helper para comprobar coincidencia de posición (incluyendo equivalencias de banda MD<->ED y MI<->EI)
+  const matchesPosDirect = (playerPos, slotPos) => {
+    if (!playerPos || !slotPos) return false;
+    if (playerPos === slotPos) return true;
+    if ((playerPos === "MD" && slotPos === "ED") || (playerPos === "ED" && slotPos === "MD")) return true;
+    if ((playerPos === "MI" && slotPos === "EI") || (playerPos === "EI" && slotPos === "MI")) return true;
+    return false;
+  };
+
+  const hasPrimaryMatch = (player, slotPos) => {
+    return matchesPosDirect(player.pos, slotPos);
+  };
+
+  const hasSecondaryMatch = (player, slotPos) => {
+    if (!player.secondaryPos) return false;
+    const list = Array.isArray(player.secondaryPos) ? player.secondaryPos : String(player.secondaryPos).split(/[\s,\/]+/);
+    return list.some(sec => matchesPosDirect(sec, slotPos));
+  };
+
+  // Comprobar si la formación actual contiene algún slot para una posición dada
+  const formationContainsPos = targetPos => {
+    return formation.slots.some(s => matchesPosDirect(targetPos, s.pos));
+  };
+
+  // Evaluar adecuación de un jugador a un slot
+  const getSlotSuitability = (player, slotPos) => {
+    const baseOvr = player.ovr || 70;
+    const fitness = 0.6 + ((player.energy !== undefined ? player.energy : 100) / 250);
+    const score = baseOvr * fitness;
+
+    if (hasPrimaryMatch(player, slotPos)) {
+      return 100 + score; // Coincidencia natural primaria
+    }
+    if (hasSecondaryMatch(player, slotPos)) {
+      // Si la posición primaria del jugador ni siquiera existe en esta formación táctica (ej: Baena MI en 5-3-2),
+      // su posición secundaria en el campo compite como posición natural
+      if (!formationContainsPos(player.pos)) {
+        return 100 + score - 0.1; // Ligerísimo desempate si hubiera un especialista idéntico en OVR
+      }
+      return 50 + score; // Posición secundaria cuando su puesto primario sí está disponible en el esquema
+    }
+    // Si no es natural ni secundaria, calcular efectividad
+    const eff = calculateEffectiveRating(player, slotPos);
+    return eff;
+  };
+
+  // Asignar slots ordenados por especificidad (primero los puestos con menos especialistas)
+  // Indices 1..10
+  const slotIndices = formation.slots.map((s, idx) => idx).filter(idx => idx > 0);
+
+  // Ordenar slots por número de especialistas naturales disponibles (los puestos más restringidos primero)
+  slotIndices.sort((a, b) => {
+    const posA = formation.slots[a].pos;
+    const posB = formation.slots[b].pos;
+    const countA = availablePlayers.filter(p => p.pos !== "POR" && (hasPrimaryMatch(p, posA) || hasSecondaryMatch(p, posA))).length;
+    const countB = availablePlayers.filter(p => p.pos !== "POR" && (hasPrimaryMatch(p, posB) || hasSecondaryMatch(p, posB))).length;
+    return countA - countB;
+  });
+
+  for (const idx of slotIndices) {
+    const slot = formation.slots[idx];
+    const candidates = availablePlayers
+      .filter(p => !used.has(p.id) && p.pos !== "POR")
+      .sort((a, b) => getSlotSuitability(b, slot.pos) - getSlotSuitability(a, slot.pos));
+
+    if (candidates.length > 0) {
+      const chosen = candidates[0];
+      lineup[idx] = chosen;
+      used.add(chosen.id);
+    }
+  }
+
+  const bench = team.players.filter(p => !used.has(p.id)).sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+
+  return {
+    formationKey,
+    formation,
+    lineup,
+    bench,
+    lineupIds: lineup.map(p => p.id),
+    benchIds: bench.map(p => p.id)
+  };
+}
+
 // Catálogo de lesiones del simulador con duración estimada en jornadas y causas
 export const INJURY_TYPES = [
   // Por sobrecarga / fatiga

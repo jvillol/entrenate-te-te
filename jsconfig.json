@@ -3,9 +3,11 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "ignoreDeprecations": "6.0",
     "checkJs": false,
     "allowJs": true
   },
   "exclude": ["node_modules"]
 }
+
 
