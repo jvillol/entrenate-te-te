@@ -831,8 +831,10 @@ export class MatchSimulator {
         this.matchCards.reds[committingPlayer.id] = { player: committingPlayer, reason: "Roja directa", minute: this.minute, team: foulTeam };
         if (foulTeam === "home") {
           this.homePlayersOnPitch = this.homePlayersOnPitch.filter(p => p.id !== committingPlayer.id);
+          this.home2D = this.home2D.filter(p => p.player?.id !== committingPlayer.id);
         } else {
           this.awayPlayersOnPitch = this.awayPlayersOnPitch.filter(p => p.id !== committingPlayer.id);
+          this.away2D = this.away2D.filter(p => p.player?.id !== committingPlayer.id);
         }
         this.update2DPositions();
         this.triggerAlert("ROJA DIRECTA", `🟥 ¡ROJA DIRECTA para ${committingPlayer.name} (${foulTeamObj.shortName})!`, foulTeam, 4000);
@@ -854,8 +856,10 @@ export class MatchSimulator {
           this.matchCards.reds[committingPlayer.id] = { player: committingPlayer, reason: "Segunda amarilla", minute: this.minute, team: foulTeam };
           if (foulTeam === "home") {
             this.homePlayersOnPitch = this.homePlayersOnPitch.filter(p => p.id !== committingPlayer.id);
+            this.home2D = this.home2D.filter(p => p.player?.id !== committingPlayer.id);
           } else {
             this.awayPlayersOnPitch = this.awayPlayersOnPitch.filter(p => p.id !== committingPlayer.id);
+            this.away2D = this.away2D.filter(p => p.player?.id !== committingPlayer.id);
           }
           this.update2DPositions();
           this.triggerAlert("EXPULSIÓN", `🟥 ¡Segunda amarilla y EXPULSIÓN para ${committingPlayer.name} (${foulTeamObj.shortName})!`, foulTeam, 4000);
@@ -2252,7 +2256,8 @@ export class MatchSimulator {
     const homeWidth = this.homeInstructions?.inPossession?.width || "balanced";
 
     this.home2D.forEach((p, idx) => {
-      const playerObj = this.homePlayersOnPitch[idx];
+      const playerObj = p.player || this.homePlayersOnPitch[idx];
+      if (!playerObj) return;
       const role = this.getPlayerRole(playerObj, "home");
       const pushMod = role?.pushMod || 0; // ej: +14 para Carrilero Ofensivo, +6 Central con Salida
       const isDef = playerObj.pos === "DFC" || playerObj.pos === "LI" || playerObj.pos === "LD";
@@ -2279,7 +2284,8 @@ export class MatchSimulator {
     const awayWidth = this.awayInstructions?.inPossession?.width || "balanced";
 
     this.away2D.forEach((p, idx) => {
-      const playerObj = this.awayPlayersOnPitch[idx];
+      const playerObj = p.player || this.awayPlayersOnPitch[idx];
+      if (!playerObj) return;
       const role = this.getPlayerRole(playerObj, "away");
       const pushMod = role?.pushMod || 0;
       const isDef = playerObj.pos === "DFC" || playerObj.pos === "LI" || playerObj.pos === "LD";
