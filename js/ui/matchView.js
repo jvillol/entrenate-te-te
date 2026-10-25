@@ -1378,9 +1378,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     const oppPresetKey = (opponentTeam.id === "real_madrid" || opponentTeam.id === "barcelona") ? "tiki_taka" : (opponentTeam.id === "atletico") ? "counter_attack" : (opponentTeam.id === "athletic" || opponentTeam.id === "osasuna") ? "direct_football" : "wing_play";
     const oppInstructions = TACTICAL_PRESETS[oppPresetKey] || getDefaultTacticalInstructions();
+    let userShowHighlights = true;
+    try {
+      userShowHighlights = localStorage.getItem("match_show_highlights") !== "false";
+    } catch(e) {}
 
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
       speed: 1, // Ritmo fluido Football Manager por defecto
+      showKeyHighlights: userShowHighlights,
       userSide: isUserHome ? "home" : "away",
       homeFormation: isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       awayFormation: !isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
@@ -1461,9 +1466,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <!-- Canvas 3D -->
             <canvas id="match-canvas" class="w-full h-full block cursor-pointer" title="Toca para cambiar de cámara"></canvas>
 
-            <!-- Badge de Vista 2D para simulación normal -->
-            <div class="absolute top-2 right-2 flex items-center bg-slate-950/85 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-700/80 z-20 text-[9px] font-bold shadow-lg text-emerald-400">
-              <span>⚽ Simulación 2D</span>
+            <!-- Badge de Vista 2D para simulación normal y Selector de Modo Jugadas Clave -->
+            <div class="absolute top-2 right-2 flex items-center gap-1.5 z-20">
+              <button id="btn-toggle-hl-mode" class="flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-lg border border-amber-500/70 text-[9px] font-bold shadow-lg text-amber-400 active:scale-95 transition cursor-pointer" title="Elegir ver o pasar automáticamente las jugadas clave">
+                <span id="btn-toggle-hl-icon">🎬</span>
+                <span id="btn-toggle-hl-text">Jugadas: VER</span>
+              </button>
+              <div class="flex items-center bg-slate-950/85 backdrop-blur-md px-2 py-1 rounded-lg border border-slate-700/80 text-[9px] font-bold shadow-lg text-emerald-400">
+                <span>⚽ 2D</span>
+              </div>
             </div>
 
             <!-- Banner de Replay (Repetición) -->
@@ -1476,7 +1487,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <div id="highlight-action-hud" class="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-none z-20 transition-all duration-300 opacity-0 -translate-y-2 max-w-[90%]">
               <div class="flex items-center gap-1.5 bg-slate-950/95 backdrop-blur-md px-3 py-1 rounded-full border border-amber-400 shadow-2xl">
                 <span class="w-2 h-2 rounded-full bg-red-500 animate-ping"></span>
-                <span id="hl-hud-title" class="text-[9.5px] font-black uppercase text-amber-400 tracking-wider font-mono">🎥 ENFOQUE DE ACCIÓN · JUGADA CLAVE</span>
+                <span id="hl-hud-title" class="text-[9.5px] font-black uppercase text-amber-400 tracking-wider font-mono">🎥 JUGADA CLAVE</span>
+                <button id="btn-skip-highlight" class="pointer-events-auto ml-1.5 px-2.5 py-0.5 rounded-full bg-amber-400 hover:bg-amber-300 active:scale-90 text-slate-950 font-black text-[9px] shadow transition flex items-center gap-1 cursor-pointer" title="Pasar / saltar la visualización de esta jugada">
+                  <span>⏭ Saltar</span>
+                </button>
               </div>
               <div id="hl-hud-subtitle" class="mt-1 text-[10.5px] font-bold text-white bg-slate-900/90 px-3 py-0.5 rounded-xl border border-slate-700/80 shadow text-center truncate">
                 Construcción de la jugada
@@ -2902,13 +2916,25 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       currentHighlightStartFrame = null;
 
-      setTimeout(() => {
+      let goalDismissed = false;
+      let goalTimer = null;
+      const finishGoalCelebration = () => {
+        if (goalDismissed) return;
+        goalDismissed = true;
+        if (goalTimer) { clearTimeout(goalTimer); goalTimer = null; }
         if (elGoalOverlay) {
           elGoalOverlay.classList.remove("opacity-100", "scale-100");
           elGoalOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+          elGoalOverlay.onclick = null;
         }
         startKickoffSequence(goalData.concedingSide);
-      }, 2000);
+      };
+
+      if (elGoalOverlay) {
+        elGoalOverlay.classList.remove("pointer-events-none");
+        elGoalOverlay.onclick = finishGoalCelebration;
+      }
+      goalTimer = setTimeout(finishGoalCelebration, goalData.isSkipped ? 1100 : 2000);
     }
 
     function startKickoffSequence(concedingSide) {
@@ -6023,6 +6049,52 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     container.querySelector("#btn-skip-end").onclick = () => {
       simulator.skipToEnd();
     };
+
+    // Botón para pasar la visualización de la jugada clave activa en directo
+    const btnSkipHighlight = container.querySelector("#btn-skip-highlight");
+    if (btnSkipHighlight) {
+      btnSkipHighlight.onclick = (e) => {
+        e.stopPropagation();
+        if (simulator.skipCurrentHighlight) {
+          simulator.skipCurrentHighlight();
+          showMatchAlert({ text: "⏭ Jugada clave saltada" });
+        }
+      };
+    }
+
+    // Selector / Toggle de Modo Jugadas Clave (Elegir verlas o pasarlas automáticamente)
+    const btnToggleHl = container.querySelector("#btn-toggle-hl-mode");
+    const iconToggleHl = container.querySelector("#btn-toggle-hl-icon");
+    const textToggleHl = container.querySelector("#btn-toggle-hl-text");
+
+    const updateHlModeUI = () => {
+      if (userShowHighlights) {
+        if (iconToggleHl) iconToggleHl.textContent = "🎬";
+        if (textToggleHl) textToggleHl.textContent = "Jugadas: VER";
+        if (btnToggleHl) {
+          btnToggleHl.className = "flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-lg border border-amber-500/80 text-[9px] font-bold shadow-lg text-amber-400 active:scale-95 transition cursor-pointer";
+        }
+      } else {
+        if (iconToggleHl) iconToggleHl.textContent = "⚡";
+        if (textToggleHl) textToggleHl.textContent = "Jugadas: SALTAR";
+        if (btnToggleHl) {
+          btnToggleHl.className = "flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-lg border border-slate-700/80 text-[9px] font-bold shadow-lg text-slate-400 active:scale-95 transition cursor-pointer";
+        }
+      }
+    };
+    updateHlModeUI();
+
+    if (btnToggleHl) {
+      btnToggleHl.onclick = () => {
+        userShowHighlights = !userShowHighlights;
+        try {
+          localStorage.setItem("match_show_highlights", userShowHighlights ? "true" : "false");
+        } catch(e) {}
+        simulator.showKeyHighlights = userShowHighlights;
+        updateHlModeUI();
+        showMatchAlert({ text: userShowHighlights ? "🎬 Jugadas clave activadas (Modo visualización)" : "⚡ Jugadas clave en modo rápido (Resolución directa)" });
+      };
+    }
 
     const btnMentality = container.querySelector("#btn-cycle-mentality");
     const mentLabel = container.querySelector("#mentality-label");

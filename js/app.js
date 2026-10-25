@@ -206,24 +206,29 @@ class GameManager {
         const matchMins = p.matchMinutes !== undefined ? p.matchMinutes : 0;
         p.seasonMinutes = (p.seasonMinutes || 0) + matchMins;
 
-        // 3. Carga de fatiga acumulada (estilo FIFA: encadenar partidos completos pasa factura)
+        // 3. Carga de fatiga acumulada teniendo en cuenta minutos y resistencia por OVR/PHY
         // fatigueLoad: 0 (fresco) a 100 (sobrecarga crítica)
         let fatigueLoad = p.fatigueLoad || 0;
         const phy = p.phy || 70;
         const ovr = p.ovr || 70;
 
-        if (matchMins >= 70) {
-          // Disputó partido completo o casi completo: genera carga residual
-          // Jugadores con menor Físico (PHY) acumulan significativamente más desgaste residual
-          const staminaFactor = Math.max(0.65, (115 - phy) / 45);
-          fatigueLoad = Math.min(100, fatigueLoad + Math.round(18 * staminaFactor));
-        } else if (matchMins >= 25) {
-          // Entró de suplente: fatiga moderada, desciende levemente la sobrecarga
-          fatigueLoad = Math.max(0, fatigueLoad - 6);
+        // Jugadores de élite (media alta) sufren mucho menos desgaste residual por sus cuidados y preparadores
+        const ovrResistance = Math.max(0.35, (105 - ovr) / 40); // OVR 90 -> 0.37, OVR 70 -> 0.87
+
+        if (matchMins >= 80) {
+          // Disputó casi los 90 minutos: acumulación según media y físico
+          const staminaFactor = Math.max(0.5, (115 - phy) / 45);
+          fatigueLoad = Math.min(100, fatigueLoad + Math.round(14 * staminaFactor * ovrResistance));
+        } else if (matchMins >= 45) {
+          // Entre 45 y 79 minutos: carga leve
+          fatigueLoad = Math.min(100, fatigueLoad + Math.round(6 * ovrResistance));
+        } else if (matchMins > 0) {
+          // Revulsivo (< 45 minutos): alivia fatiga acumulada
+          fatigueLoad = Math.max(0, fatigueLoad - 12);
         } else {
           // Descanso completo o no convocado: ¡Rotación de plantilla salvadora!
-          // Un partido de descanso alivia drásticamente la sobrecarga acumulada
-          fatigueLoad = Math.max(0, fatigueLoad - 35);
+          // Un partido de descanso completo elimina drásticamente la sobrecarga acumulada
+          fatigueLoad = Math.max(0, fatigueLoad - 45);
         }
         p.fatigueLoad = fatigueLoad;
 
@@ -236,22 +241,24 @@ class GameManager {
           return;
         }
 
-        // 4. Regeneración semanal teniendo en cuenta media (OVR), físico (PHY) y minutos
-        const baseRecovery = 22;
-        // Bonificación por Físico (fondo y masa muscular)
-        const phyBonus = Math.max(0, (phy - 50) * 0.35);
-        // Bonificación por Media (nutrición, profesionalismo y recuperación de élite)
-        const ovrBonus = Math.max(0, (ovr - 60) * 0.22);
-        // Bonificación por rotación (quedarse en banquillo da +28 energía limpia)
-        const restBonus = matchMins === 0 ? 28 : (matchMins < 45 ? 14 : 0);
+        // 4. Regeneración semanal teniendo en cuenta media (OVR), físico (PHY) y minutos acumulados
+        // Base más generosa para una semana normal de descanso y entrenamiento
+        const baseRecovery = 38;
+        // Bonificación por Físico (resistencia y capacidad aeróbica)
+        const phyBonus = Math.max(0, (phy - 50) * 0.38);
+        // Bonificación por Media: Cuanta más media tengan, se recuperan MUCHO mejor (nutrición y fisios de élite)
+        const ovrBonus = Math.max(0, (ovr - 65) * 0.75);
+        // Bonificación por rotación (quedarse en banquillo o jugar pocos minutos)
+        const restBonus = matchMins === 0 ? 32 : (matchMins < 45 ? 18 : (matchMins < 75 ? 8 : 0));
 
         const totalRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
         const recoveredEnergy = curEnergy + totalRecovery;
 
-        // 5. TOQUE FIFA: Techo máximo de energía inicial según la acumulación de minutos seguidos
-        // Si no se rota al futbolista tras 2-3 partidos de 90', su tope cae al 92%, 88%, etc.
-        // Al darle descanso 1 jornada, fatigueLoad cae y vuelve a recuperar al 100%.
-        const maxEnergyCap = Math.max(78, Math.round(100 - (fatigueLoad * 0.20)));
+        // 5. Techo máximo de energía inicial según la acumulación de minutos seguidos
+        // Los jugadores de media alta tienen un suelo garantizado alto (94-96%)
+        // Los jugadores de media baja, si encadenan partidos completos sin rotar, sí notan el cansancio (80-85%)
+        const minCapByOvr = Math.min(96, Math.max(76, Math.round(76 + (ovr - 65) * 0.80)));
+        const maxEnergyCap = Math.max(minCapByOvr, Math.round(100 - (fatigueLoad * 0.15)));
 
         p.energy = Math.min(maxEnergyCap, Math.round(recoveredEnergy));
 
