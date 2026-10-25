@@ -48,9 +48,14 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
               <span class="text-[10px] text-slate-400">Media del 11: <b class="text-amber-400">${averages.overall}</b> (DEL ${averages.attack} | MED ${averages.midfield} | DEF ${averages.defense})</span>
             </div>
           </div>
-          <button id="btn-auto-align" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 px-2.5 py-1.5 rounded-lg border border-slate-700 font-semibold active:scale-95 transition">
-            ⚡ Auto 11
-          </button>
+          <div class="flex items-center gap-1.5">
+            <button id="btn-save-tactics" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg border border-emerald-500 font-bold active:scale-95 transition flex items-center gap-1 shadow-md shadow-emerald-600/20">
+              <span>💾</span> Guardar
+            </button>
+            <button id="btn-auto-align" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 px-2.5 py-1.5 rounded-lg border border-slate-700 font-semibold active:scale-95 transition">
+              ⚡ Auto 11
+            </button>
+          </div>
         </header>
 
         <!-- Selector de Sistema y Mentalidad -->
@@ -360,6 +365,14 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
                 `;
               }).join('')}
             </div>
+
+            <!-- Botón de Guardado al final del banquillo -->
+            <div class="mt-4 pt-1">
+              <button id="btn-save-tactics-bottom" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-black text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 border border-emerald-500/50">
+                <span class="text-sm">💾</span>
+                <span>Guardar Alineación y Cambios</span>
+              </button>
+            </div>
           </div>
         ` : `
           <!-- VISTA DE ESTILOS E INSTRUCCIONES POR ESTADOS -->
@@ -583,6 +596,14 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
               <p>• <b class="text-slate-200">Construcción:</b> ${tactics.instructions.inPossession.passingStyle === 'short' ? 'Pase corto maximiza el % de posesión y reduce pérdidas fortuitas.' : tactics.instructions.inPossession.passingStyle === 'direct' ? 'Pase directo genera ocasiones verticales más veloces.' : 'Estilo versátil mixto.'}</p>
               <p>• <b class="text-slate-200">Transiciones:</b> ${tactics.instructions.inTransition.loss === 'counterpress' ? 'Contrapresión activa alertas de robo inmediato en campo rival.' : 'Repliegue ordenado protege el área propia.'}</p>
             </div>
+
+            <!-- Botón de Guardado al final de las instrucciones tácticas -->
+            <div class="mt-4 pt-1">
+              <button id="btn-save-tactics-instructions" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 active:scale-98 text-white font-black text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 border border-emerald-500/50">
+                <span class="text-sm">💾</span>
+                <span>Guardar Estilo e Instrucciones Tácticas</span>
+              </button>
+            </div>
           </div>
         `}
       </div>
@@ -631,6 +652,52 @@ export function renderTacticsView(container, gameState, onSaveTactics) {
         render();
       };
     }
+
+    // Botones de Guardar Alineación / Táctica
+    function showSaveConfirmationToast() {
+      const existing = document.getElementById("tactics-save-toast");
+      if (existing) existing.remove();
+
+      const toast = document.createElement("div");
+      toast.id = "tactics-save-toast";
+      toast.className = "fixed top-16 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 text-white px-4 py-2.5 rounded-xl shadow-2xl border border-emerald-400 flex items-center gap-2 text-xs font-bold animate-bounce transition-opacity duration-300 pointer-events-none";
+      toast.innerHTML = `
+        <span class="text-base">✅</span>
+        <span>¡Alineación y táctica guardadas con éxito!</span>
+      `;
+      document.body.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 400);
+      }, 2000);
+    }
+
+    function handleSaveClick(btn) {
+      onSaveTactics(tactics);
+      showSaveConfirmationToast();
+      if (btn) {
+        const origHTML = btn.innerHTML;
+        const origClass = btn.className;
+        btn.innerHTML = `<span>✅</span> <span>¡Guardada!</span>`;
+        btn.className = origClass.replace("bg-emerald-600", "bg-teal-500").replace("border-emerald-500", "border-teal-400");
+        setTimeout(() => {
+          if (btn && btn.isConnected) {
+            btn.innerHTML = origHTML;
+            btn.className = origClass;
+          }
+        }, 1800);
+      }
+    }
+
+    const btnSaveHeader = container.querySelector("#btn-save-tactics");
+    if (btnSaveHeader) btnSaveHeader.onclick = () => handleSaveClick(btnSaveHeader);
+
+    const btnSaveBottom = container.querySelector("#btn-save-tactics-bottom");
+    if (btnSaveBottom) btnSaveBottom.onclick = () => handleSaveClick(btnSaveBottom);
+
+    const btnSaveInstr = container.querySelector("#btn-save-tactics-instructions");
+    if (btnSaveInstr) btnSaveInstr.onclick = () => handleSaveClick(btnSaveInstr);
 
     // Controles de Ajuste Manual de Posición en el Campo (Nudge botones)
     container.querySelectorAll(".btn-nudge-pos").forEach(btn => {

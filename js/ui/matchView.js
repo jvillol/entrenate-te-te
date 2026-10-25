@@ -444,9 +444,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               <h2 class="text-sm font-extrabold text-white leading-tight">${preMatchTab === 'USER' ? 'Mi Alineación Oficial' : 'Alineación del Rival'}</h2>
             </div>
             ${preMatchTab === 'USER' ? `
-              <button id="btn-pre-auto" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 px-2 py-1 rounded-lg border border-slate-700 font-bold active:scale-95 transition">
-                ⚡ Auto 11
-              </button>
+              <div class="flex items-center gap-1.5">
+                <button id="btn-pre-save-header" class="text-xs bg-emerald-600 hover:bg-emerald-500 text-white px-2.5 py-1 rounded-lg border border-emerald-500 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm">
+                  <span>💾</span> Guardar
+                </button>
+                <button id="btn-pre-auto" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 px-2 py-1 rounded-lg border border-slate-700 font-bold active:scale-95 transition">
+                  ⚡ Auto 11
+                </button>
+              </div>
             ` : `
               <div class="w-12"></div>
             `}
@@ -1268,14 +1273,21 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     });
 
+    const savePreTacticsAction = () => {
+      masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+      SaveManager.saveGame(gameState);
+      preMatchSaveFeedback = `¡Plantilla (${tactics.formation}), alineación y funciones guardadas para futuros partidos!`;
+      renderPreMatch();
+    };
+
     const btnSaveTactics = container.querySelector("#btn-pre-save-tactics");
     if (btnSaveTactics) {
-      btnSaveTactics.onclick = () => {
-        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
-        SaveManager.saveGame(gameState);
-        preMatchSaveFeedback = `¡Plantilla (${tactics.formation}), alineación y funciones guardadas para futuros partidos!`;
-        renderPreMatch();
-      };
+      btnSaveTactics.onclick = savePreTacticsAction;
+    }
+
+    const btnSaveHeader = container.querySelector("#btn-pre-save-header");
+    if (btnSaveHeader) {
+      btnSaveHeader.onclick = savePreTacticsAction;
     }
 
     const btnConfirm = container.querySelector("#btn-start-match-confirmed");

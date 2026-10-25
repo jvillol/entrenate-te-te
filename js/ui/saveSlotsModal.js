@@ -178,3 +178,4 @@ export function renderSaveSlotsModal(container, options = {}) {
   renderContent();
   document.body.appendChild(modalEl);
 }
+
