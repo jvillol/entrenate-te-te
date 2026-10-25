@@ -5,6 +5,99 @@ import { simulateAIParties, updateStandings } from "../engine/leagueEngine.js";
 import { FORMATIONS, MENTALITIES, calculateTeamAverages, calculateEffectiveRating, POSITION_ROLES, getAvailableRolesForPosition, getDefaultRoleForPosition, getRoleDetails, TACTICAL_PRESETS, TACTICAL_OPTIONS, getDefaultTacticalInstructions, detectMatchingPreset, getEffectiveSlotCoords, getPositionAdjustmentLabel, buildOptimalLineup } from "../engine/tactics.js";
 import { SaveManager } from "../engine/saveManager.js";
 
+// Utilidades de color y contraste visual para equipaciones
+export function hexToRgb(hex) {
+  if (!hex) return { r: 0, g: 0, b: 0 };
+  let c = String(hex).replace("#", "").trim();
+  if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return { r: 0, g: 0, b: 0 };
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+export function areColorsConfusing(hex1, hex2) {
+  if (!hex1 || !hex2) return false;
+  if (String(hex1).toLowerCase() === String(hex2).toLowerCase()) return true;
+  const c1 = hexToRgb(hex1);
+  const c2 = hexToRgb(hex2);
+  const dr = c1.r - c2.r;
+  const dg = c1.g - c2.g;
+  const db = c1.b - c2.b;
+  // Distancia cromática perceptual en el ojo humano
+  const dist = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
+  return dist < 65;
+}
+
+export function resolveMatchKits(homeTeam, awayTeam) {
+  const hPrimary = homeTeam.primaryColor || "#ffffff";
+  const hSecondary = homeTeam.secondaryColor || "#1e293b";
+  const hText = homeTeam.textColor || "#ffffff";
+
+  let aPrimary = awayTeam.primaryColor || "#000000";
+  let aSecondary = awayTeam.secondaryColor || "#ffffff";
+  let aText = awayTeam.textColor || "#ffffff";
+
+  // Si la camiseta principal del rival coincide o es muy similar a la del equipo local
+  if (areColorsConfusing(hPrimary, aPrimary)) {
+    // 1. Probar la segunda equipación oficial (awayKit) del visitante
+    if (awayTeam.awayKit && !areColorsConfusing(hPrimary, awayTeam.awayKit.primaryColor)) {
+      aPrimary = awayTeam.awayKit.primaryColor;
+      aSecondary = awayTeam.awayKit.secondaryColor || "#ffffff";
+      aText = awayTeam.awayKit.textColor || "#ffffff";
+    }
+    // 2. Si no tiene o aún confunde, probar el color secundario del visitante
+    else if (!areColorsConfusing(hPrimary, aSecondary)) {
+      aPrimary = aSecondary;
+      aSecondary = awayTeam.primaryColor || "#ffffff";
+      aText = awayTeam.textColor || "#ffffff";
+    }
+    // 3. Fallback inteligente de contraste absoluto
+    else {
+      const hRgb = hexToRgb(hPrimary);
+      const hLum = (hRgb.r * 299 + hRgb.g * 587 + hRgb.b * 114) / 1000;
+      if (hLum > 130) {
+        aPrimary = "#18181b";
+        aSecondary = "#38bdf8";
+        aText = "#ffffff";
+      } else {
+        aPrimary = "#facc15";
+        aSecondary = "#18181b";
+        aText = "#0f172a";
+      }
+    }
+  }
+
+  // Porteros: garantizar contraste total frente a las camisetas de los jugadores de campo
+  let hKeeper = "#10b981"; // Verde esmeralda
+  if (areColorsConfusing(hPrimary, hKeeper) || areColorsConfusing(aPrimary, hKeeper)) {
+    hKeeper = "#06b6d4"; // Cian neón
+  }
+
+  let aKeeper = "#f59e0b"; // Ámbar neón
+  if (areColorsConfusing(hPrimary, aKeeper) || areColorsConfusing(aPrimary, aKeeper) || areColorsConfusing(hKeeper, aKeeper)) {
+    aKeeper = "#ec4899"; // Rosa neón
+  }
+
+  return {
+    home: {
+      jersey: hPrimary,
+      shorts: hSecondary,
+      socks: hPrimary,
+      collar: hSecondary,
+      keeper: hKeeper,
+      number: hText
+    },
+    away: {
+      jersey: aPrimary,
+      shorts: aSecondary,
+      socks: aPrimary,
+      collar: aSecondary,
+      keeper: aKeeper,
+      number: aText
+    }
+  };
+}
+
 export function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   const currentRoundData = gameState.schedule[gameState.currentRound - 1];
   const userMatch = currentRoundData.matches.find(
@@ -1336,6 +1429,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
     SaveManager.saveGame(gameState);
 
+    // Resolver equipaciones contrastadas oficiales para el partido
+    const matchKits = resolveMatchKits(homeTeam, awayTeam);
+
     // Aplicar alineaciones oficiales de ambos equipos
     const oppLineupData = getOpponentLineup(opponentTeam);
     if (isUserHome) {
@@ -1424,7 +1520,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <h3 class="text-xs font-bold text-white truncate">${awayTeam.name}</h3>
                 <span class="text-[9px] text-slate-400">Visitante</span>
               </div>
-              <div class="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700/60" style="background: linear-gradient(135deg, ${awayTeam.primaryColor}, ${awayTeam.secondaryColor}); color: ${awayTeam.textColor};">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700/60" style="background: linear-gradient(135deg, ${matchKits.away.jersey}, ${matchKits.away.shorts}); color: ${matchKits.away.number};">
                 ${awayTeam.shortName}
               </div>
             </div>
@@ -1544,7 +1640,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <span>⚽ Balón 3D</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${awayTeam.primaryColor};"></span>
+                <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${matchKits.away.jersey};"></span>
                 <span>${awayTeam.shortName}</span>
               </div>
             </div>
@@ -1559,7 +1655,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               </div>
               <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden flex">
                 <div id="bar-poss-h" class="h-full transition-all duration-300" style="width: 50%; background-color: ${homeTeam.primaryColor};"></div>
-                <div id="bar-poss-a" class="h-full transition-all duration-300" style="width: 50%; background-color: ${awayTeam.primaryColor};"></div>
+                <div id="bar-poss-a" class="h-full transition-all duration-300" style="width: 50%; background-color: ${matchKits.away.jersey};"></div>
               </div>
             </div>
 
@@ -1671,7 +1767,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <span class="text-slate-600 text-xl">-</span>
                 <span id="ht-away-score">0</span>
               </div>
-              <div class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700" style="background: linear-gradient(135deg, ${awayTeam.primaryColor}, ${awayTeam.secondaryColor}); color: ${awayTeam.textColor};">
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700" style="background: linear-gradient(135deg, ${matchKits.away.jersey}, ${matchKits.away.shorts}); color: ${matchKits.away.number};">
                 ${awayTeam.shortName}
               </div>
             </div>
@@ -1685,7 +1781,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 </div>
                 <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden flex">
                   <div id="ht-bar-poss-h" class="h-full" style="width: 50%; background-color: ${homeTeam.primaryColor};"></div>
-                  <div id="ht-bar-poss-a" class="h-full" style="width: 50%; background-color: ${awayTeam.primaryColor};"></div>
+                  <div id="ht-bar-poss-a" class="h-full" style="width: 50%; background-color: ${matchKits.away.jersey};"></div>
                 </div>
               </div>
               <div class="grid grid-cols-2 gap-2 text-center text-[11px] pt-1">
@@ -1956,36 +2052,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     let netRippleA = 0;
 
     function getKitColors() {
-      const hPrimary = homeTeam.primaryColor || "#ffffff";
-      const hSecondary = homeTeam.secondaryColor || "#1e293b";
-      let aPrimary = awayTeam.primaryColor || "#000000";
-      let aSecondary = awayTeam.secondaryColor || "#ffffff";
-
-      if (hPrimary.toLowerCase() === aPrimary.toLowerCase()) {
-        aPrimary = awayTeam.secondaryColor || "#f59e0b";
-      }
-
-      return {
-        home: {
-          jersey: hPrimary,
-          shorts: hSecondary,
-          socks: hPrimary,
-          collar: hSecondary,
-          keeper: "#10b981", // Verde neón
-          number: homeTeam.textColor || "#ffffff"
-        },
-        away: {
-          jersey: aPrimary,
-          shorts: aSecondary,
-          socks: aPrimary,
-          collar: aSecondary,
-          keeper: "#f59e0b", // Ámbar neón
-          number: awayTeam.textColor || "#ffffff"
-        }
-      };
+      return matchKits;
     }
 
-    const kits = getKitColors();
+    const kits = matchKits;
 
     // Proyección de coordenadas 3D a pantalla con perspectiva isométrica de retransmisión televisiva Football Manager (Exacta al pantallazo)
     function toScreen3D(pitchX, pitchY, pitchZ = 0, w, h) {

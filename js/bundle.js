@@ -14,6 +14,7 @@ const TEAMS_DATA = [
     primaryColor: "#FFFFFF",
     secondaryColor: "#1E293B",
     textColor: "#0F172A",
+    awayKit: { primaryColor: "#FF6600", secondaryColor: "#18181B", textColor: "#FFFFFF" },
     budget: 140000000,
     reputation: 95,
     defaultFormation: "4-3-3",
@@ -53,6 +54,7 @@ const TEAMS_DATA = [
     primaryColor: "#004D98",
     secondaryColor: "#A50044",
     textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#18181B", secondaryColor: "#A50044", textColor: "#FFFFFF" },
     budget: 95000000,
     reputation: 94,
     defaultFormation: "4-3-3",
@@ -93,6 +95,7 @@ const TEAMS_DATA = [
     primaryColor: "#CB3524",
     secondaryColor: "#1B365D",
     textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#0D1B2A", secondaryColor: "#38BDF8", textColor: "#FFFFFF" },
     budget: 90000000,
     reputation: 91,
     defaultFormation: "5-3-2",
@@ -130,7 +133,8 @@ const TEAMS_DATA = [
     stadium: "San Mames",
     primaryColor: "#EE2524",
     secondaryColor: "#FFFFFF",
-    textColor: "#0F172A",
+    textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#006B3F", secondaryColor: "#FFFFFF", textColor: "#FFFFFF" },
     budget: 55000000,
     reputation: 87,
     defaultFormation: "4-2-3-1",
@@ -164,6 +168,7 @@ const TEAMS_DATA = [
     primaryColor: "#FEE100",
     secondaryColor: "#00519E",
     textColor: "#0F172A",
+    awayKit: { primaryColor: "#002B49", secondaryColor: "#FEE100", textColor: "#FFFFFF" },
     budget: 60000000,
     reputation: 85,
     defaultFormation: "4-4-2",
@@ -196,7 +201,8 @@ const TEAMS_DATA = [
     stadium: "Reale Arena",
     primaryColor: "#0067B1",
     secondaryColor: "#FFFFFF",
-    textColor: "#0F172A",
+    textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#EAB308", secondaryColor: "#18181B", textColor: "#0F172A" },
     budget: 58000000,
     reputation: 86,
     defaultFormation: "4-3-3",
@@ -229,7 +235,8 @@ const TEAMS_DATA = [
     stadium: "Benito Villamarin",
     primaryColor: "#00954C",
     secondaryColor: "#FFFFFF",
-    textColor: "#0F172A",
+    textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#18181B", secondaryColor: "#00954C", textColor: "#FFFFFF" },
     budget: 52000000,
     reputation: 85,
     defaultFormation: "4-2-3-1",
@@ -262,7 +269,8 @@ const TEAMS_DATA = [
     stadium: "Abanca-Riazor",
     primaryColor: "#0055A5",
     secondaryColor: "#FFFFFF",
-    textColor: "#0F172A",
+    textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#EAB308", secondaryColor: "#0055A5", textColor: "#0F172A" },
     budget: 35000000,
     reputation: 80,
     defaultFormation: "4-2-3-1",
@@ -293,9 +301,10 @@ const TEAMS_DATA = [
     shortName: "SEV",
     city: "Sevilla",
     stadium: "Ramon Sanchez-Pizjuan",
-    primaryColor: "#D4001F",
-    secondaryColor: "#FFFFFF",
+    primaryColor: "#FFFFFF",
+    secondaryColor: "#D4001F",
     textColor: "#0F172A",
+    awayKit: { primaryColor: "#D4001F", secondaryColor: "#FFFFFF", textColor: "#FFFFFF" },
     budget: 48000000,
     reputation: 84,
     defaultFormation: "4-3-3",
@@ -327,8 +336,9 @@ const TEAMS_DATA = [
     city: "Valencia",
     stadium: "Mestalla",
     primaryColor: "#FFFFFF",
-    secondaryColor: "#000000",
+    secondaryColor: "#18181B",
     textColor: "#0F172A",
+    awayKit: { primaryColor: "#FF6B00", secondaryColor: "#18181B", textColor: "#FFFFFF" },
     budget: 45000000,
     reputation: 83,
     defaultFormation: "4-4-2",
@@ -360,6 +370,7 @@ const TEAMS_DATA = [
     primaryColor: "#8AC3EE",
     secondaryColor: "#FFFFFF",
     textColor: "#0F172A",
+    awayKit: { primaryColor: "#1E293B", secondaryColor: "#8AC3EE", textColor: "#FFFFFF" },
     budget: 42000000,
     reputation: 82,
     defaultFormation: "3-4-3",
@@ -388,9 +399,10 @@ const TEAMS_DATA = [
     shortName: "OSA",
     city: "Pamplona",
     stadium: "El Sadar",
-    primaryColor: "#0A1E40",
-    secondaryColor: "#D91A2A",
+    primaryColor: "#D91A2A",
+    secondaryColor: "#0A1E40",
     textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#15803D", secondaryColor: "#FFFFFF", textColor: "#FFFFFF" },
     budget: 40000000,
     reputation: 82,
     defaultFormation: "4-3-3",
@@ -422,6 +434,7 @@ const TEAMS_DATA = [
     primaryColor: "#005999",
     secondaryColor: "#FFFFFF",
     textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#DC2626", secondaryColor: "#FFFFFF", textColor: "#FFFFFF" },
     budget: 35000000,
     reputation: 80,
     defaultFormation: "5-3-2",
@@ -452,7 +465,8 @@ const TEAMS_DATA = [
     stadium: "Mendizorroza",
     primaryColor: "#0055A5",
     secondaryColor: "#FFFFFF",
-    textColor: "#0F172A",
+    textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#15803D", secondaryColor: "#FFFFFF", textColor: "#FFFFFF" },
     budget: 34000000,
     reputation: 80,
     defaultFormation: "4-2-3-1",
@@ -483,8 +497,9 @@ const TEAMS_DATA = [
     city: "Valencia",
     stadium: "Ciutat de València",
     primaryColor: "#004077",
-    secondaryColor: "#A6192E",
+    secondaryColor: "#800020",
     textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#F8FAFC", secondaryColor: "#004077", textColor: "#0F172A" },
     budget: 35000000,
     reputation: 80,
     defaultFormation: "4-2-3-1",
@@ -515,9 +530,10 @@ const TEAMS_DATA = [
     shortName: "RAY",
     city: "Madrid",
     stadium: "Campo de Vallecas",
-    primaryColor: "#E30613",
-    secondaryColor: "#FFFFFF",
+    primaryColor: "#FFFFFF",
+    secondaryColor: "#E30613",
     textColor: "#0F172A",
+    awayKit: { primaryColor: "#18181B", secondaryColor: "#E30613", textColor: "#FFFFFF" },
     budget: 34000000,
     reputation: 80,
     defaultFormation: "4-2-3-1",
@@ -547,8 +563,9 @@ const TEAMS_DATA = [
     city: "Santander",
     stadium: "Campos de Sport de El Sardinero",
     primaryColor: "#008037",
-    secondaryColor: "#000000",
+    secondaryColor: "#18181B",
     textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#DC2626", secondaryColor: "#18181B", textColor: "#FFFFFF" },
     budget: 32000000,
     reputation: 79,
     defaultFormation: "4-2-3-1",
@@ -578,7 +595,8 @@ const TEAMS_DATA = [
     stadium: "RCDE Stadium",
     primaryColor: "#007FC8",
     secondaryColor: "#FFFFFF",
-    textColor: "#0F172A",
+    textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#7E22CE", secondaryColor: "#FFFFFF", textColor: "#FFFFFF" },
     budget: 32000000,
     reputation: 79,
     defaultFormation: "4-4-2",
@@ -609,7 +627,8 @@ const TEAMS_DATA = [
     stadium: "La Rosaleda",
     primaryColor: "#0072CE",
     secondaryColor: "#FFFFFF",
-    textColor: "#0F172A",
+    textColor: "#FFFFFF",
+    awayKit: { primaryColor: "#84CC16", secondaryColor: "#0072CE", textColor: "#0F172A" },
     budget: 30000000,
     reputation: 79,
     defaultFormation: "4-2-3-1",
@@ -638,9 +657,10 @@ const TEAMS_DATA = [
     shortName: "ELC",
     city: "Elche",
     stadium: "Martinez Valero",
-    primaryColor: "#006837",
-    secondaryColor: "#FFFFFF",
-    textColor: "#FFFFFF",
+    primaryColor: "#FFFFFF",
+    secondaryColor: "#006837",
+    textColor: "#0F172A",
+    awayKit: { primaryColor: "#18181B", secondaryColor: "#006837", textColor: "#FFFFFF" },
     budget: 31000000,
     reputation: 79,
     defaultFormation: "4-4-2",
@@ -5865,6 +5885,97 @@ function renderSeasonEndView(container, gameState, onRestartSeason, onNewGame) {
 // =========================================================
 
 // Vista del Día de Partido: Alineación Previa al Encuentro, Radar 2D y Cambios en Vivo
+
+// Utilidades de color y contraste visual para equipaciones
+function hexToRgb(hex) {
+  if (!hex) return { r: 0, g: 0, b: 0 };
+  let c = String(hex).replace("#", "").trim();
+  if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
+  const num = parseInt(c, 16);
+  if (isNaN(num)) return { r: 0, g: 0, b: 0 };
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+function areColorsConfusing(hex1, hex2) {
+  if (!hex1 || !hex2) return false;
+  if (String(hex1).toLowerCase() === String(hex2).toLowerCase()) return true;
+  const c1 = hexToRgb(hex1);
+  const c2 = hexToRgb(hex2);
+  const dr = c1.r - c2.r;
+  const dg = c1.g - c2.g;
+  const db = c1.b - c2.b;
+  // Distancia cromática perceptual en el ojo humano
+  const dist = Math.sqrt(dr * dr * 0.299 + dg * dg * 0.587 + db * db * 0.114);
+  return dist < 65;
+}
+function resolveMatchKits(homeTeam, awayTeam) {
+  const hPrimary = homeTeam.primaryColor || "#ffffff";
+  const hSecondary = homeTeam.secondaryColor || "#1e293b";
+  const hText = homeTeam.textColor || "#ffffff";
+
+  let aPrimary = awayTeam.primaryColor || "#000000";
+  let aSecondary = awayTeam.secondaryColor || "#ffffff";
+  let aText = awayTeam.textColor || "#ffffff";
+
+  // Si la camiseta principal del rival coincide o es muy similar a la del equipo local
+  if (areColorsConfusing(hPrimary, aPrimary)) {
+    // 1. Probar la segunda equipación oficial (awayKit) del visitante
+    if (awayTeam.awayKit && !areColorsConfusing(hPrimary, awayTeam.awayKit.primaryColor)) {
+      aPrimary = awayTeam.awayKit.primaryColor;
+      aSecondary = awayTeam.awayKit.secondaryColor || "#ffffff";
+      aText = awayTeam.awayKit.textColor || "#ffffff";
+    }
+    // 2. Si no tiene o aún confunde, probar el color secundario del visitante
+    else if (!areColorsConfusing(hPrimary, aSecondary)) {
+      aPrimary = aSecondary;
+      aSecondary = awayTeam.primaryColor || "#ffffff";
+      aText = awayTeam.textColor || "#ffffff";
+    }
+    // 3. Fallback inteligente de contraste absoluto
+    else {
+      const hRgb = hexToRgb(hPrimary);
+      const hLum = (hRgb.r * 299 + hRgb.g * 587 + hRgb.b * 114) / 1000;
+      if (hLum > 130) {
+        aPrimary = "#18181b";
+        aSecondary = "#38bdf8";
+        aText = "#ffffff";
+      } else {
+        aPrimary = "#facc15";
+        aSecondary = "#18181b";
+        aText = "#0f172a";
+      }
+    }
+  }
+
+  // Porteros: garantizar contraste total frente a las camisetas de los jugadores de campo
+  let hKeeper = "#10b981"; // Verde esmeralda
+  if (areColorsConfusing(hPrimary, hKeeper) || areColorsConfusing(aPrimary, hKeeper)) {
+    hKeeper = "#06b6d4"; // Cian neón
+  }
+
+  let aKeeper = "#f59e0b"; // Ámbar neón
+  if (areColorsConfusing(hPrimary, aKeeper) || areColorsConfusing(aPrimary, aKeeper) || areColorsConfusing(hKeeper, aKeeper)) {
+    aKeeper = "#ec4899"; // Rosa neón
+  }
+
+  return {
+    home: {
+      jersey: hPrimary,
+      shorts: hSecondary,
+      socks: hPrimary,
+      collar: hSecondary,
+      keeper: hKeeper,
+      number: hText
+    },
+    away: {
+      jersey: aPrimary,
+      shorts: aSecondary,
+      socks: aPrimary,
+      collar: aSecondary,
+      keeper: aKeeper,
+      number: aText
+    }
+  };
+}
 function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   const currentRoundData = gameState.schedule[gameState.currentRound - 1];
   const userMatch = currentRoundData.matches.find(
@@ -7196,6 +7307,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
     SaveManager.saveGame(gameState);
 
+    // Resolver equipaciones contrastadas oficiales para el partido
+    const matchKits = resolveMatchKits(homeTeam, awayTeam);
+
     // Aplicar alineaciones oficiales de ambos equipos
     const oppLineupData = getOpponentLineup(opponentTeam);
     if (isUserHome) {
@@ -7284,7 +7398,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 <h3 class="text-xs font-bold text-white truncate">${awayTeam.name}</h3>
                 <span class="text-[9px] text-slate-400">Visitante</span>
               </div>
-              <div class="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700/60" style="background: linear-gradient(135deg, ${awayTeam.primaryColor}, ${awayTeam.secondaryColor}); color: ${awayTeam.textColor};">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700/60" style="background: linear-gradient(135deg, ${matchKits.away.jersey}, ${matchKits.away.shorts}); color: ${matchKits.away.number};">
                 ${awayTeam.shortName}
               </div>
             </div>
@@ -7404,7 +7518,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 <span>⚽ Balón 3D</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${awayTeam.primaryColor};"></span>
+                <span class="w-2.5 h-2.5 rounded-full inline-block" style="background-color: ${matchKits.away.jersey};"></span>
                 <span>${awayTeam.shortName}</span>
               </div>
             </div>
@@ -7419,7 +7533,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               </div>
               <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden flex">
                 <div id="bar-poss-h" class="h-full transition-all duration-300" style="width: 50%; background-color: ${homeTeam.primaryColor};"></div>
-                <div id="bar-poss-a" class="h-full transition-all duration-300" style="width: 50%; background-color: ${awayTeam.primaryColor};"></div>
+                <div id="bar-poss-a" class="h-full transition-all duration-300" style="width: 50%; background-color: ${matchKits.away.jersey};"></div>
               </div>
             </div>
 
@@ -7531,7 +7645,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 <span class="text-slate-600 text-xl">-</span>
                 <span id="ht-away-score">0</span>
               </div>
-              <div class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700" style="background: linear-gradient(135deg, ${awayTeam.primaryColor}, ${awayTeam.secondaryColor}); color: ${awayTeam.textColor};">
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm shadow border border-slate-700" style="background: linear-gradient(135deg, ${matchKits.away.jersey}, ${matchKits.away.shorts}); color: ${matchKits.away.number};">
                 ${awayTeam.shortName}
               </div>
             </div>
@@ -7545,7 +7659,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 </div>
                 <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden flex">
                   <div id="ht-bar-poss-h" class="h-full" style="width: 50%; background-color: ${homeTeam.primaryColor};"></div>
-                  <div id="ht-bar-poss-a" class="h-full" style="width: 50%; background-color: ${awayTeam.primaryColor};"></div>
+                  <div id="ht-bar-poss-a" class="h-full" style="width: 50%; background-color: ${matchKits.away.jersey};"></div>
                 </div>
               </div>
               <div class="grid grid-cols-2 gap-2 text-center text-[11px] pt-1">
@@ -7816,36 +7930,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     let netRippleA = 0;
 
     function getKitColors() {
-      const hPrimary = homeTeam.primaryColor || "#ffffff";
-      const hSecondary = homeTeam.secondaryColor || "#1e293b";
-      let aPrimary = awayTeam.primaryColor || "#000000";
-      let aSecondary = awayTeam.secondaryColor || "#ffffff";
-
-      if (hPrimary.toLowerCase() === aPrimary.toLowerCase()) {
-        aPrimary = awayTeam.secondaryColor || "#f59e0b";
-      }
-
-      return {
-        home: {
-          jersey: hPrimary,
-          shorts: hSecondary,
-          socks: hPrimary,
-          collar: hSecondary,
-          keeper: "#10b981", // Verde neón
-          number: homeTeam.textColor || "#ffffff"
-        },
-        away: {
-          jersey: aPrimary,
-          shorts: aSecondary,
-          socks: aPrimary,
-          collar: aSecondary,
-          keeper: "#f59e0b", // Ámbar neón
-          number: awayTeam.textColor || "#ffffff"
-        }
-      };
+      return matchKits;
     }
 
-    const kits = getKitColors();
+    const kits = matchKits;
 
     // Proyección de coordenadas 3D a pantalla con perspectiva isométrica de retransmisión televisiva Football Manager (Exacta al pantallazo)
     function toScreen3D(pitchX, pitchY, pitchZ = 0, w, h) {
