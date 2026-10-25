@@ -1,4 +1,4 @@
-// Base de datos oficial de los 20 clubes de LaLiga EA Sports
+﻿// Base de datos oficial de los 20 clubes de LaLiga EA Sports
 // Fuentes oficiales: Transfermarkt (ES1), Flashscore y LaLiga.com (Clubes y Plantillas)
 
 export const TEAMS_DATA = [
@@ -15,8 +15,8 @@ export const TEAMS_DATA = [
     reputation: 95,
     defaultFormation: "4-3-3",
     players: [
-      { id: "rma_1", name: "Thibaut Courtois", number: 1, pos: "POR", ovr: 89, pot: 89, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
-      { id: "rma_2", name: "Andriy Lunin", number: 13, pos: "POR", ovr: 81, pot: 85, pac: 42, sho: 14, pas: 70, dri: 45, def: 15, phy: 73, energy: 100 },
+      { id: "rma_1", name: "Thibaut Courtois", number: 1, pos: "POR", ovr: 89, pot: 89, par: 90, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
+      { id: "rma_2", name: "Andriy Lunin", number: 13, pos: "POR", ovr: 81, pot: 85, par: 81, pac: 42, sho: 14, pas: 70, dri: 45, def: 15, phy: 73, energy: 100 },
       { id: "rma_3", name: "Trent Alexander-Arnold", number: 12, pos: "LD", secondaryPos: ["MD"], ovr: 87, pot: 88, pac: 76, sho: 77, pas: 92, dri: 82, def: 81, phy: 75, energy: 100 },
       { id: "rma_4", name: "Asencio", number: 2, pos: "DFC", ovr: 78, pot: 85, pac: 83, sho: 47, pas: 71, dri: 72, def: 77, phy: 82, energy: 100 },
       { id: "rma_5", name: "Antonio Rudiger", number: 22, pos: "DFC", ovr: 87, pot: 87, pac: 82, sho: 53, pas: 71, dri: 67, def: 87, phy: 86, energy: 100 },
@@ -58,7 +58,7 @@ export const TEAMS_DATA = [
       { id: "bar_2", name: "Pedri", number: 8, pos: "MC", secondaryPos: ["MCD", "MCO"], ovr: 90, pot: 93, pac: 80, sho: 78, pas: 91, dri: 92, def: 72, phy: 75, energy: 100 },
       { id: "bar_3", name: "Lamine Yamal", number: 10, pos: "ED", secondaryPos: ["MD"], ovr: 90, pot: 95, pac: 92, sho: 84, pas: 87, dri: 93, def: 36, phy: 66, energy: 100 },
       { id: "bar_4", name: "Raphinha", number: 11, pos: "DC", secondaryPos: ["ED", "EI", "MCO", "MI"], ovr: 88, pot: 90, pac: 91, sho: 85, pas: 84, dri: 88, def: 55, phy: 76, energy: 100 },
-      { id: "bar_5", name: "Joan Garcia", number: 1, pos: "POR", ovr: 86, pot: 89, pac: 50, sho: 16, pas: 82, dri: 52, def: 16, phy: 78, energy: 100 },
+      { id: "bar_5", name: "Joan Garcia", number: 1, pos: "POR", ovr: 86, pot: 89, par: 87, pac: 50, sho: 16, pas: 82, dri: 52, def: 16, phy: 78, energy: 100 },
       { id: "bar_6", name: "Pau Cubarsi", number: 5, pos: "DFC", ovr: 86, pot: 91, pac: 76, sho: 45, pas: 85, dri: 78, def: 87, phy: 81, energy: 100 },
       { id: "bar_7", name: "Eric Garcia", number: 24, pos: "DFC", secondaryPos: ["LD", "MCD", "MC"], ovr: 85, pot: 86, pac: 75, sho: 56, pas: 80, dri: 78, def: 86, phy: 79, energy: 100 },
       { id: "bar_8", name: "Fermin Lopez", number: 7, pos: "MCO", secondaryPos: ["MC", "MI"], ovr: 85, pot: 88, pac: 83, sho: 84, pas: 81, dri: 85, def: 69, phy: 76, energy: 100 },
@@ -74,8 +74,8 @@ export const TEAMS_DATA = [
       { id: "bar_18", name: "Andreas Christensen", number: 15, pos: "DFC", secondaryPos: ["MC", "MCD"], ovr: 79, pot: 83, pac: 64, sho: 32, pas: 72, dri: 69, def: 82, phy: 72, energy: 100 },
       { id: "bar_19", name: "Gabriel Jesus", number: 9, pos: "DC", secondaryPos: ["MCO"], ovr: 79, pot: 84, pac: 80, sho: 79, pas: 73, dri: 84, def: 40, phy: 72, energy: 100 },
       { id: "bar_20", name: "Marc Bernal", number: 22, pos: "MCD", secondaryPos: ["MC"], ovr: 78, pot: 88, pac: 72, sho: 68, pas: 79, dri: 78, def: 77, phy: 77, energy: 100 },
-      { id: "bar_21", name: "Dominik Livakovic", number: 25, pos: "POR", ovr: 78, pot: 82, pac: 45, sho: 15, pas: 70, dri: 47, def: 16, phy: 73, energy: 100 },
-      { id: "bar_22", name: "Wojciech Szczesny", number: 1, pos: "POR", ovr: 81, pot: 87, pac: 44, sho: 16, pas: 74, dri: 45, def: 16, phy: 72, energy: 100 },
+      { id: "bar_21", name: "Dominik Livakovic", number: 25, pos: "POR", ovr: 78, pot: 82, par: 78, pac: 45, sho: 15, pas: 70, dri: 47, def: 16, phy: 73, energy: 100 },
+      { id: "bar_22", name: "Wojciech Szczesny", number: 1, pos: "POR", ovr: 81, pot: 87, par: 81, pac: 44, sho: 16, pas: 74, dri: 45, def: 16, phy: 72, energy: 100 },
       { id: "bar_23", name: "Roony Bardghji", number: 27, pos: "ED", ovr: 74, pot: 85, pac: 79, sho: 72, pas: 71, dri: 78, def: 32, phy: 63, energy: 100 },
       { id: "bar_24", name: "Xavi Espart", number: 12, pos: "LD", secondaryPos: ["MCD", "LI", "MC"], ovr: 71, pot: 85, pac: 78, sho: 50, pas: 68, dri: 70, def: 70, phy: 68, energy: 100 },
       { id: "bar_25", name: "Hamza Abdelkarim", number: 29, pos: "DC", ovr: 65, pot: 84, pac: 74, sho: 61, pas: 58, dri: 63, def: 27, phy: 69, energy: 100 }
@@ -94,7 +94,7 @@ export const TEAMS_DATA = [
     reputation: 91,
     defaultFormation: "5-3-2",
     players: [
-      { id: "atm_1", name: "Jan Oblak", number: 13, pos: "POR", ovr: 88, pot: 91, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
+      { id: "atm_1", name: "Jan Oblak", number: 13, pos: "POR", ovr: 88, pot: 91, par: 89, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
       { id: "atm_2", name: "Julian Alvarez", number: 19, pos: "DC", secondaryPos: ["MCO", "ED"], ovr: 86, pot: 89, pac: 85, sho: 85, pas: 81, dri: 87, def: 55, phy: 81, energy: 100 },
       { id: "atm_3", name: "Alejandro Grimaldo", number: 22, pos: "LI", secondaryPos: ["MI","MCO"], ovr: 85, pot: 86, pac: 74, sho: 76, pas: 85, dri: 84, def: 68, phy: 67, energy: 100 },
       { id: "atm_4", name: "Marcos Llorente", number: 14, pos: "LD", secondaryPos: ["MC", "MD", "DC"], ovr: 85, pot: 86, pac: 90, sho: 80, pas: 81, dri: 82, def: 79, phy: 82, energy: 100 },
@@ -106,7 +106,7 @@ export const TEAMS_DATA = [
       { id: "atm_10", name: "Cristian Romero", number: 21, pos: "DFC", ovr: 82, pot: 84, pac: 74, sho: 46, pas: 65, dri: 68, def: 84, phy: 84, energy: 100 },
       { id: "atm_11", name: "Marc Pubill", number: 18, pos: "DFC", secondaryPos: ["LD"], ovr: 81, pot: 88, pac: 82, sho: 55, pas: 72, dri: 76, def: 80, phy: 81, energy: 100 },
       { id: "atm_12", name: "Alexander Sorloth", number: 9, pos: "DC", ovr: 83, pot: 84, pac: 82, sho: 84, pas: 72, dri: 77, def: 38, phy: 87, energy: 100 },
-      { id: "atm_13", name: "Juan Musso", number: 1, pos: "POR", ovr: 82, pot: 82, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 74, energy: 100 },
+      { id: "atm_13", name: "Juan Musso", number: 1, pos: "POR", ovr: 82, pot: 82, par: 82, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 74, energy: 100 },
       { id: "atm_14", name: "Giuliano Simeone", number: 20, pos: "MD", secondaryPos: ["ED", "MI", "EI", "DC"], ovr: 82, pot: 85, pac: 87, sho: 78, pas: 74, dri: 82, def: 60, phy: 78, energy: 100 },
       { id: "atm_15", name: "Koke", number: 6, pos: "MC", secondaryPos: ["MCD", "MD"], ovr: 81, pot: 86, pac: 60, sho: 71, pas: 83, dri: 77, def: 77, phy: 76, energy: 100 },
       { id: "atm_16", name: "Robin Le Normand", number: 24, pos: "DFC", ovr: 81, pot: 83, pac: 69, sho: 37, pas: 64, dri: 63, def: 82, phy: 80, energy: 100 },
@@ -132,8 +132,8 @@ export const TEAMS_DATA = [
     reputation: 87,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "ath_1", name: "Unai Simon", number: 1, pos: "POR", ovr: 84, pot: 86, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
-      { id: "ath_2", name: "Julen Agirrezabala", number: 13, pos: "POR", ovr: 78, pot: 83, pac: 43, sho: 15, pas: 71, dri: 45, def: 15, phy: 74, energy: 100 },
+      { id: "ath_1", name: "Unai Simon", number: 1, pos: "POR", ovr: 84, pot: 86, par: 85, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
+      { id: "ath_2", name: "Julen Agirrezabala", number: 13, pos: "POR", ovr: 78, pot: 83, par: 78, pac: 43, sho: 15, pas: 71, dri: 45, def: 15, phy: 74, energy: 100 },
       { id: "ath_3", name: "Oscar de Marcos", number: 18, pos: "LD", ovr: 79, pot: 79, pac: 78, sho: 67, pas: 75, dri: 77, def: 77, phy: 75, energy: 100 },
       { id: "ath_4", name: "Andoni Gorosabel", number: 2, pos: "LD", ovr: 76, pot: 77, pac: 79, sho: 50, pas: 70, dri: 73, def: 75, phy: 72, energy: 100 },
       { id: "ath_5", name: "Daniel Vivian", number: 3, pos: "DFC", ovr: 82, pot: 85, pac: 77, sho: 40, pas: 63, dri: 64, def: 83, phy: 83, energy: 100 },
@@ -165,8 +165,8 @@ export const TEAMS_DATA = [
     reputation: 85,
     defaultFormation: "4-4-2",
     players: [
-      { id: "vil_1", name: "Diego Conde", number: 13, pos: "POR", ovr: 79, pot: 82, pac: 43, sho: 15, pas: 71, dri: 44, def: 15, phy: 74, energy: 100 },
-      { id: "vil_2", name: "Luiz Junior", number: 1, pos: "POR", ovr: 77, pot: 83, pac: 42, sho: 14, pas: 69, dri: 43, def: 14, phy: 73, energy: 100 },
+      { id: "vil_1", name: "Diego Conde", number: 13, pos: "POR", ovr: 79, pot: 82, par: 79, pac: 43, sho: 15, pas: 71, dri: 44, def: 15, phy: 74, energy: 100 },
+      { id: "vil_2", name: "Luiz Junior", number: 1, pos: "POR", ovr: 77, pot: 83, par: 77, pac: 42, sho: 14, pas: 69, dri: 43, def: 14, phy: 73, energy: 100 },
       { id: "vil_3", name: "Kiko Femenia", number: 17, pos: "LD", ovr: 76, pot: 76, pac: 79, sho: 54, pas: 72, dri: 74, def: 73, phy: 70, energy: 100 },
       { id: "vil_4", name: "Raul Albiol", number: 3, pos: "DFC", ovr: 78, pot: 78, pac: 52, sho: 42, pas: 64, dri: 62, def: 81, phy: 75, energy: 100 },
       { id: "vil_5", name: "Logan Costa", number: 2, pos: "DFC", ovr: 78, pot: 83, pac: 74, sho: 38, pas: 62, dri: 63, def: 79, phy: 82, energy: 100 },
@@ -198,8 +198,8 @@ export const TEAMS_DATA = [
     reputation: 86,
     defaultFormation: "4-3-3",
     players: [
-      { id: "rso_1", name: "Alex Remiro", number: 1, pos: "POR", ovr: 84, pot: 85, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
-      { id: "rso_2", name: "Unai Marrero", number: 13, pos: "POR", ovr: 71, pot: 79, pac: 39, sho: 14, pas: 65, dri: 42, def: 14, phy: 68, energy: 100 },
+      { id: "rso_1", name: "Alex Remiro", number: 1, pos: "POR", ovr: 84, pot: 85, par: 85, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
+      { id: "rso_2", name: "Unai Marrero", number: 13, pos: "POR", ovr: 71, pot: 79, par: 71, pac: 39, sho: 14, pas: 65, dri: 42, def: 14, phy: 68, energy: 100 },
       { id: "rso_3", name: "Hamari Traore", number: 2, pos: "LD", ovr: 79, pot: 79, pac: 81, sho: 58, pas: 73, dri: 76, def: 76, phy: 77, energy: 100 },
       { id: "rso_4", name: "Jon Aramburu", number: 27, pos: "LD", ovr: 76, pot: 83, pac: 80, sho: 50, pas: 69, dri: 73, def: 75, phy: 75, energy: 100 },
       { id: "rso_5", name: "Igor Zubeldia", number: 5, pos: "DFC", ovr: 81, pot: 82, pac: 67, sho: 50, pas: 70, dri: 68, def: 82, phy: 80, energy: 100 },
@@ -231,8 +231,8 @@ export const TEAMS_DATA = [
     reputation: 85,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "bet_1", name: "Rui Silva", number: 1, pos: "POR", ovr: 80, pot: 81, pac: 42, sho: 15, pas: 71, dri: 45, def: 15, phy: 74, energy: 100 },
-      { id: "bet_2", name: "Adrian San Miguel", number: 13, pos: "POR", ovr: 73, pot: 73, pac: 38, sho: 13, pas: 66, dri: 40, def: 14, phy: 69, energy: 100 },
+      { id: "bet_1", name: "Rui Silva", number: 1, pos: "POR", ovr: 80, pot: 81, par: 80, pac: 42, sho: 15, pas: 71, dri: 45, def: 15, phy: 74, energy: 100 },
+      { id: "bet_2", name: "Adrian San Miguel", number: 13, pos: "POR", ovr: 73, pot: 73, par: 73, pac: 38, sho: 13, pas: 66, dri: 40, def: 14, phy: 69, energy: 100 },
       { id: "bet_3", name: "Hector Bellerin", number: 2, pos: "LD", ovr: 78, pot: 78, pac: 82, sho: 52, pas: 72, dri: 77, def: 74, phy: 66, energy: 100 },
       { id: "bet_4", name: "Youssouf Sabaly", number: 23, pos: "LD", ovr: 77, pot: 77, pac: 78, sho: 55, pas: 71, dri: 76, def: 75, phy: 73, energy: 100 },
       { id: "bet_5", name: "Diego Llorente", number: 3, pos: "DFC", ovr: 80, pot: 80, pac: 70, sho: 48, pas: 68, dri: 66, def: 81, phy: 78, energy: 100 },
@@ -264,8 +264,8 @@ export const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "dep_1", name: "Helton Leite", number: 1, pos: "POR", ovr: 74, pot: 74, pac: 41, sho: 14, pas: 68, dri: 42, def: 14, phy: 73, energy: 100 },
-      { id: "dep_2", name: "German Parreno", number: 13, pos: "POR", ovr: 68, pot: 68, pac: 37, sho: 13, pas: 63, dri: 39, def: 13, phy: 68, energy: 100 },
+      { id: "dep_1", name: "Helton Leite", number: 1, pos: "POR", ovr: 74, pot: 74, par: 74, pac: 41, sho: 14, pas: 68, dri: 42, def: 14, phy: 73, energy: 100 },
+      { id: "dep_2", name: "German Parreno", number: 13, pos: "POR", ovr: 68, pot: 68, par: 68, pac: 37, sho: 13, pas: 63, dri: 39, def: 13, phy: 68, energy: 100 },
       { id: "dep_3", name: "Ximo Navarro", number: 2, pos: "LD", ovr: 71, pot: 71, pac: 73, sho: 48, pas: 65, dri: 68, def: 71, phy: 73, energy: 100 },
       { id: "dep_4", name: "Alex Petxarroman", number: 18, pos: "LD", ovr: 70, pot: 73, pac: 76, sho: 50, pas: 66, dri: 69, def: 70, phy: 71, energy: 100 },
       { id: "dep_5", name: "Pablo Vazquez", number: 5, pos: "DFC", ovr: 72, pot: 72, pac: 60, sho: 38, pas: 58, dri: 56, def: 74, phy: 78, energy: 100 },
@@ -297,8 +297,8 @@ export const TEAMS_DATA = [
     reputation: 84,
     defaultFormation: "4-3-3",
     players: [
-      { id: "sev_1", name: "Orjan Nyland", number: 13, pos: "POR", ovr: 79, pot: 79, pac: 42, sho: 15, pas: 71, dri: 44, def: 15, phy: 73, energy: 100 },
-      { id: "sev_2", name: "Alvaro Fernandez", number: 1, pos: "POR", ovr: 74, pot: 77, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
+      { id: "sev_1", name: "Orjan Nyland", number: 13, pos: "POR", ovr: 79, pot: 79, par: 79, pac: 42, sho: 15, pas: 71, dri: 44, def: 15, phy: 73, energy: 100 },
+      { id: "sev_2", name: "Alvaro Fernandez", number: 1, pos: "POR", ovr: 74, pot: 77, par: 74, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
       { id: "sev_3", name: "Juanlu Sanchez", number: 26, pos: "LD", ovr: 76, pot: 83, pac: 82, sho: 64, pas: 73, dri: 76, def: 72, phy: 74, energy: 100 },
       { id: "sev_4", name: "Gonzalo Montiel", number: 15, pos: "LD", ovr: 76, pot: 77, pac: 78, sho: 55, pas: 71, dri: 74, def: 75, phy: 76, energy: 100 },
       { id: "sev_5", name: "Loic Bade", number: 22, pos: "DFC", ovr: 80, pot: 84, pac: 76, sho: 38, pas: 64, dri: 66, def: 81, phy: 82, energy: 100 },
@@ -330,8 +330,8 @@ export const TEAMS_DATA = [
     reputation: 83,
     defaultFormation: "4-4-2",
     players: [
-      { id: "val_1", name: "Giorgi Mamardashvili", number: 25, pos: "POR", ovr: 83, pot: 87, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 78, energy: 100 },
-      { id: "val_2", name: "Stole Dimitrievski", number: 13, pos: "POR", ovr: 78, pot: 78, pac: 42, sho: 15, pas: 72, dri: 44, def: 15, phy: 75, energy: 100 },
+      { id: "val_1", name: "Giorgi Mamardashvili", number: 25, pos: "POR", ovr: 83, pot: 87, par: 83, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 78, energy: 100 },
+      { id: "val_2", name: "Stole Dimitrievski", number: 13, pos: "POR", ovr: 78, pot: 78, par: 78, pac: 42, sho: 15, pas: 72, dri: 44, def: 15, phy: 75, energy: 100 },
       { id: "val_3", name: "Thierry Correia", number: 12, pos: "LD", ovr: 78, pot: 80, pac: 87, sho: 54, pas: 70, dri: 76, def: 75, phy: 76, energy: 100 },
       { id: "val_4", name: "Dimitri Foulquier", number: 20, pos: "LD", ovr: 76, pot: 76, pac: 78, sho: 52, pas: 68, dri: 72, def: 76, phy: 80, energy: 100 },
       { id: "val_5", name: "Cristhian Mosquera", number: 3, pos: "DFC", ovr: 79, pot: 86, pac: 78, sho: 35, pas: 65, dri: 66, def: 80, phy: 81, energy: 100 },
@@ -361,8 +361,8 @@ export const TEAMS_DATA = [
     reputation: 82,
     defaultFormation: "3-4-3",
     players: [
-      { id: "cel_1", name: "Vicente Guaita", number: 13, pos: "POR", ovr: 79, pot: 79, pac: 41, sho: 15, pas: 72, dri: 44, def: 15, phy: 73, energy: 100 },
-      { id: "cel_2", name: "Ivan Villar", number: 1, pos: "POR", ovr: 73, pot: 75, pac: 40, sho: 14, pas: 66, dri: 42, def: 14, phy: 71, energy: 100 },
+      { id: "cel_1", name: "Vicente Guaita", number: 13, pos: "POR", ovr: 79, pot: 79, par: 79, pac: 41, sho: 15, pas: 72, dri: 44, def: 15, phy: 73, energy: 100 },
+      { id: "cel_2", name: "Ivan Villar", number: 1, pos: "POR", ovr: 73, pot: 75, par: 73, pac: 40, sho: 14, pas: 66, dri: 42, def: 14, phy: 71, energy: 100 },
       { id: "cel_3", name: "Oscar Mingueza", number: 3, pos: "LD", ovr: 80, pot: 83, pac: 78, sho: 64, pas: 78, dri: 77, def: 79, phy: 76, energy: 100 },
       { id: "cel_4", name: "Carl Starfelt", number: 2, pos: "DFC", ovr: 77, pot: 77, pac: 67, sho: 35, pas: 58, dri: 58, def: 79, phy: 82, energy: 100 },
       { id: "cel_5", name: "Carlos Dominguez", number: 24, pos: "DFC", ovr: 75, pot: 81, pac: 66, sho: 32, pas: 62, dri: 62, def: 77, phy: 78, energy: 100 },
@@ -392,8 +392,8 @@ export const TEAMS_DATA = [
     reputation: 82,
     defaultFormation: "4-3-3",
     players: [
-      { id: "osa_1", name: "Sergio Herrera", number: 1, pos: "POR", ovr: 80, pot: 80, pac: 43, sho: 15, pas: 72, dri: 45, def: 15, phy: 74, energy: 100 },
-      { id: "osa_2", name: "Aitor Fernandez", number: 13, pos: "POR", ovr: 75, pot: 75, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
+      { id: "osa_1", name: "Sergio Herrera", number: 1, pos: "POR", ovr: 80, pot: 80, par: 80, pac: 43, sho: 15, pas: 72, dri: 45, def: 15, phy: 74, energy: 100 },
+      { id: "osa_2", name: "Aitor Fernandez", number: 13, pos: "POR", ovr: 75, pot: 75, par: 75, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
       { id: "osa_3", name: "Jesus Areso", number: 12, pos: "LD", ovr: 77, pot: 81, pac: 86, sho: 55, pas: 72, dri: 74, def: 73, phy: 76, energy: 100 },
       { id: "osa_4", name: "Alejandro Catena", number: 24, pos: "DFC", ovr: 78, pot: 78, pac: 63, sho: 44, pas: 65, dri: 62, def: 79, phy: 82, energy: 100 },
       { id: "osa_5", name: "Flavien Boyomo", number: 22, pos: "DFC", ovr: 77, pot: 83, pac: 77, sho: 36, pas: 62, dri: 64, def: 78, phy: 81, energy: 100 },
@@ -423,8 +423,8 @@ export const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "5-3-2",
     players: [
-      { id: "get_1", name: "David Soria", number: 13, pos: "POR", ovr: 81, pot: 81, pac: 44, sho: 16, pas: 72, dri: 46, def: 16, phy: 75, energy: 100 },
-      { id: "get_2", name: "Jiri Letacek", number: 1, pos: "POR", ovr: 72, pot: 76, pac: 38, sho: 14, pas: 65, dri: 41, def: 14, phy: 71, energy: 100 },
+      { id: "get_1", name: "David Soria", number: 13, pos: "POR", ovr: 81, pot: 81, par: 81, pac: 44, sho: 16, pas: 72, dri: 46, def: 16, phy: 75, energy: 100 },
+      { id: "get_2", name: "Jiri Letacek", number: 1, pos: "POR", ovr: 72, pot: 76, par: 72, pac: 38, sho: 14, pas: 65, dri: 41, def: 14, phy: 71, energy: 100 },
       { id: "get_3", name: "Juan Iglesias", number: 21, pos: "LD", ovr: 76, pot: 78, pac: 78, sho: 52, pas: 68, dri: 72, def: 75, phy: 74, energy: 100 },
       { id: "get_4", name: "Djene Dakonam", number: 2, pos: "DFC", ovr: 78, pot: 78, pac: 75, sho: 38, pas: 62, dri: 65, def: 80, phy: 80, energy: 100 },
       { id: "get_5", name: "Omar Alderete", number: 15, pos: "DFC", ovr: 78, pot: 79, pac: 68, sho: 50, pas: 64, dri: 62, def: 79, phy: 83, energy: 100 },
@@ -454,8 +454,8 @@ export const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "ala_1", name: "Antonio Sivera", number: 1, pos: "POR", ovr: 79, pot: 81, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 73, energy: 100 },
-      { id: "ala_2", name: "Jesus Owono", number: 31, pos: "POR", ovr: 70, pot: 76, pac: 38, sho: 13, pas: 64, dri: 40, def: 14, phy: 68, energy: 100 },
+      { id: "ala_1", name: "Antonio Sivera", number: 1, pos: "POR", ovr: 79, pot: 81, par: 79, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 73, energy: 100 },
+      { id: "ala_2", name: "Jesus Owono", number: 31, pos: "POR", ovr: 70, pot: 76, par: 70, pac: 38, sho: 13, pas: 64, dri: 40, def: 14, phy: 68, energy: 100 },
       { id: "ala_3", name: "Nahuel Tenaglia", number: 14, pos: "LD", ovr: 76, pot: 77, pac: 76, sho: 50, pas: 68, dri: 70, def: 76, phy: 79, energy: 100 },
       { id: "ala_4", name: "Hugo Novoa", number: 2, pos: "LD", ovr: 73, pot: 80, pac: 85, sho: 64, pas: 68, dri: 75, def: 66, phy: 67, energy: 100 },
       { id: "ala_5", name: "Abdel Abqar", number: 5, pos: "DFC", ovr: 76, pot: 80, pac: 70, sho: 34, pas: 58, dri: 60, def: 78, phy: 82, energy: 100 },
@@ -486,8 +486,8 @@ export const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "lev_1", name: "Andres Fernandez", number: 1, pos: "POR", ovr: 75, pot: 75, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 72, energy: 100 },
-      { id: "lev_2", name: "Alfonso Pastor", number: 13, pos: "POR", ovr: 68, pot: 74, pac: 38, sho: 13, pas: 63, dri: 39, def: 13, phy: 68, energy: 100 },
+      { id: "lev_1", name: "Andres Fernandez", number: 1, pos: "POR", ovr: 75, pot: 75, par: 75, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 72, energy: 100 },
+      { id: "lev_2", name: "Alfonso Pastor", number: 13, pos: "POR", ovr: 68, pot: 74, par: 68, pac: 38, sho: 13, pas: 63, dri: 39, def: 13, phy: 68, energy: 100 },
       { id: "lev_3", name: "Andres Garcia", number: 2, pos: "LD", ovr: 72, pot: 81, pac: 84, sho: 58, pas: 66, dri: 73, def: 67, phy: 69, energy: 100 },
       { id: "lev_4", name: "Unai Elgezabal", number: 5, pos: "DFC", ovr: 73, pot: 73, pac: 62, sho: 40, pas: 60, dri: 58, def: 74, phy: 78, energy: 100 },
       { id: "lev_5", name: "Adrian de la Fuente", number: 4, pos: "DFC", ovr: 72, pot: 77, pac: 67, sho: 38, pas: 62, dri: 61, def: 73, phy: 76, energy: 100 },
@@ -519,8 +519,8 @@ export const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "ray_1", name: "Augusto Batalla", number: 13, pos: "POR", ovr: 79, pot: 81, pac: 42, sho: 15, pas: 70, dri: 44, def: 15, phy: 74, energy: 100 },
-      { id: "ray_2", name: "Dani Cardenas", number: 1, pos: "POR", ovr: 74, pot: 77, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
+      { id: "ray_1", name: "Augusto Batalla", number: 13, pos: "POR", ovr: 79, pot: 81, par: 79, pac: 42, sho: 15, pas: 70, dri: 44, def: 15, phy: 74, energy: 100 },
+      { id: "ray_2", name: "Dani Cardenas", number: 1, pos: "POR", ovr: 74, pot: 77, par: 74, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
       { id: "ray_3", name: "Andrei Ratiu", number: 2, pos: "LD", ovr: 76, pot: 80, pac: 88, sho: 52, pas: 68, dri: 73, def: 73, phy: 74, energy: 100 },
       { id: "ray_4", name: "Ivan Balliu", number: 20, pos: "LD", ovr: 75, pot: 75, pac: 77, sho: 50, pas: 69, dri: 71, def: 74, phy: 72, energy: 100 },
       { id: "ray_5", name: "Florian Lejeune", number: 24, pos: "DFC", ovr: 79, pot: 79, pac: 58, sho: 64, pas: 68, dri: 62, def: 80, phy: 82, energy: 100 },
@@ -550,8 +550,8 @@ export const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "rac_1", name: "Jokin Ezkieta", number: 1, pos: "POR", ovr: 75, pot: 78, pac: 42, sho: 14, pas: 70, dri: 44, def: 14, phy: 73, energy: 100 },
-      { id: "rac_2", name: "Miquel Parera", number: 13, pos: "POR", ovr: 70, pot: 71, pac: 39, sho: 13, pas: 65, dri: 41, def: 13, phy: 70, energy: 100 },
+      { id: "rac_1", name: "Jokin Ezkieta", number: 1, pos: "POR", ovr: 75, pot: 78, par: 75, pac: 42, sho: 14, pas: 70, dri: 44, def: 14, phy: 73, energy: 100 },
+      { id: "rac_2", name: "Miquel Parera", number: 13, pos: "POR", ovr: 70, pot: 71, par: 70, pac: 39, sho: 13, pas: 65, dri: 41, def: 13, phy: 70, energy: 100 },
       { id: "rac_3", name: "Clement Michelin", number: 2, pos: "LD", ovr: 73, pot: 74, pac: 79, sho: 55, pas: 70, dri: 72, def: 71, phy: 71, energy: 100 },
       { id: "rac_4", name: "Marco Sangalli", number: 7, pos: "LD", ovr: 72, pot: 72, pac: 77, sho: 62, pas: 69, dri: 72, def: 68, phy: 70, energy: 100 },
       { id: "rac_5", name: "Javi Montero", number: 4, pos: "DFC", ovr: 74, pot: 77, pac: 68, sho: 36, pas: 64, dri: 62, def: 75, phy: 77, energy: 100 },
@@ -580,8 +580,8 @@ export const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-4-2",
     players: [
-      { id: "esp_1", name: "Joan Garcia", number: 1, pos: "POR", ovr: 78, pot: 84, pac: 43, sho: 15, pas: 71, dri: 46, def: 15, phy: 73, energy: 100 },
-      { id: "esp_2", name: "Fernando Pacheco", number: 13, pos: "POR", ovr: 74, pot: 74, pac: 39, sho: 14, pas: 67, dri: 42, def: 14, phy: 72, energy: 100 },
+      { id: "esp_1", name: "Fortuño", number: 1, pos: "POR", ovr: 65, pot: 73, par: 65, pac: 42, sho: 16, pas: 33, dri: 39, def: 11, phy: 44, energy: 100 },
+      { id: "esp_2", name: "Marko Dmitrovic", number: 13, pos: "POR", ovr: 79, pot: 81, par: 79, pac: 37, sho: 31, pas: 41, dri: 39, def: 20, phy: 59, energy: 100 },
       { id: "esp_3", name: "Alvaro Tejero", number: 12, pos: "LD", ovr: 75, pot: 75, pac: 77, sho: 62, pas: 74, dri: 73, def: 72, phy: 71, energy: 100 },
       { id: "esp_4", name: "Omar El Hilali", number: 23, pos: "LD", ovr: 74, pot: 81, pac: 79, sho: 48, pas: 66, dri: 71, def: 73, phy: 73, energy: 100 },
       { id: "esp_5", name: "Leandro Cabrera", number: 6, pos: "DFC", ovr: 76, pot: 76, pac: 62, sho: 44, pas: 62, dri: 58, def: 77, phy: 80, energy: 100 },
@@ -611,8 +611,8 @@ export const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "mal_1", name: "Alfonso Herrero", number: 1, pos: "POR", ovr: 75, pot: 76, pac: 42, sho: 14, pas: 69, dri: 44, def: 14, phy: 73, energy: 100 },
-      { id: "mal_2", name: "Carlos Lopez", number: 13, pos: "POR", ovr: 67, pot: 75, pac: 38, sho: 13, pas: 62, dri: 39, def: 13, phy: 68, energy: 100 },
+      { id: "mal_1", name: "Alfonso Herrero", number: 1, pos: "POR", ovr: 75, pot: 76, par: 75, pac: 42, sho: 14, pas: 69, dri: 44, def: 14, phy: 73, energy: 100 },
+      { id: "mal_2", name: "Carlos Lopez", number: 13, pos: "POR", ovr: 67, pot: 75, par: 67, pac: 38, sho: 13, pas: 62, dri: 39, def: 13, phy: 68, energy: 100 },
       { id: "mal_3", name: "Carlos Puga", number: 2, pos: "LD", ovr: 71, pot: 76, pac: 81, sho: 48, pas: 65, dri: 70, def: 69, phy: 71, energy: 100 },
       { id: "mal_4", name: "Einar Galilea", number: 4, pos: "DFC", ovr: 72, pot: 72, pac: 62, sho: 40, pas: 61, dri: 58, def: 74, phy: 77, energy: 100 },
       { id: "mal_5", name: "Nelson Monte", number: 5, pos: "DFC", ovr: 72, pot: 72, pac: 67, sho: 38, pas: 60, dri: 61, def: 73, phy: 76, energy: 100 },
@@ -642,8 +642,8 @@ export const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-4-2",
     players: [
-      { id: "elc_1", name: "Matias Dituro", number: 13, pos: "POR", ovr: 75, pot: 75, pac: 40, sho: 14, pas: 72, dri: 45, def: 14, phy: 72, energy: 100 },
-      { id: "elc_2", name: "Miguel San Roman", number: 1, pos: "POR", ovr: 69, pot: 71, pac: 38, sho: 13, pas: 64, dri: 40, def: 13, phy: 69, energy: 100 },
+      { id: "elc_1", name: "Matias Dituro", number: 13, pos: "POR", ovr: 75, pot: 75, par: 75, pac: 40, sho: 14, pas: 72, dri: 45, def: 14, phy: 72, energy: 100 },
+      { id: "elc_2", name: "Miguel San Roman", number: 1, pos: "POR", ovr: 69, pot: 71, par: 69, pac: 38, sho: 13, pas: 64, dri: 40, def: 13, phy: 69, energy: 100 },
       { id: "elc_3", name: "Alvaro Nunez", number: 2, pos: "LD", ovr: 73, pot: 78, pac: 81, sho: 50, pas: 68, dri: 72, def: 71, phy: 69, energy: 100 },
       { id: "elc_4", name: "Pedro Bigas", number: 6, pos: "DFC", ovr: 74, pot: 74, pac: 64, sho: 42, pas: 64, dri: 62, def: 75, phy: 76, energy: 100 },
       { id: "elc_5", name: "David Affengruber", number: 22, pos: "DFC", ovr: 73, pot: 79, pac: 67, sho: 38, pas: 62, dri: 61, def: 74, phy: 78, energy: 100 },

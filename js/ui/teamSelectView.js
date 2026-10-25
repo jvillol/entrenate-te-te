@@ -117,7 +117,7 @@ export function renderTeamSelect(container, teams, onSelectTeam) {
                     <span class="font-medium text-slate-200">${p.name}</span>
                   </div>
                   <div class="flex items-center gap-3">
-                    <div class="text-[10px] text-slate-400 hidden sm:block">RIT ${p.pac} | TIR ${p.sho} | PAS ${p.pas}</div>
+                    <div class="text-[10px] text-slate-400 hidden sm:block">${p.pos === 'POR' ? `PAR ${p.par !== undefined ? p.par : p.ovr} | REF ${p.pac} | PAS ${p.pas}` : `RIT ${p.pac} | TIR ${p.sho} | PAS ${p.pas}`}</div>
                     <span class="font-black text-amber-400 text-xs">${p.ovr}</span>
                   </div>
                 </div>

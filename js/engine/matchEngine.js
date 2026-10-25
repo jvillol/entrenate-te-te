@@ -1184,8 +1184,13 @@ export class MatchSimulator {
     const boxY = 36 + Math.random() * 28;
 
     // Determinar resultado y rincón de disparo de forma coherente
-    const shotQuality = (shooter.sho || 75) + (Math.random() * 30 - 15);
-    const gkSavePower = (goalkeeper.ovr || 78) + (Math.random() * 25 - 10);
+    const shooterSho = shooter.sho !== undefined ? shooter.sho : 75;
+    const shotQuality = shooterSho + (Math.random() * 28 - 14);
+
+    // Habilidad específica de parada del portero ('par') modulada por su energía física
+    const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
+    const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
+    const gkSavePower = (gkSkill * gkFitness) + (Math.random() * 26 - 13);
     const onTarget = Math.random() < 0.72;
     const isDefenderBlock = !onTarget && Math.random() < 0.22;
 
@@ -1206,7 +1211,8 @@ export class MatchSimulator {
     } else if (!onTarget) {
       outcome = Math.random() < 0.35 ? "POST" : "WIDE";
     } else {
-      if (shotQuality > gkSavePower + 3) {
+      // Duelo directo entre la calidad del disparo (sho) y la capacidad de parada del portero (par)
+      if (shotQuality > gkSavePower + 3.5) {
         outcome = "GOAL";
       } else {
         outcome = "SAVE";
@@ -1972,9 +1978,10 @@ export class MatchSimulator {
           const azarRemate = (Math.random() * 38 - 19);
           const remateScore = remateStat + azarRemate;
 
-          const gkStat = (goalkeeper.ovr || 78);
-          const azarGK = (Math.random() * 30 - 15);
-          const gkScore = gkStat + azarGK;
+          const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
+          const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
+          const azarGK = (Math.random() * 28 - 14);
+          const gkScore = (gkSkill * gkFitness) + azarGK;
 
           if (kickQuality < 56) {
             this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
@@ -2324,7 +2331,12 @@ export class MatchSimulator {
         // Si el jugador está centrado hacia la medular (amplitud interior)
         if (item2D && item2D.baseY >= 35 && item2D.baseY <= 65) power *= 1.08;
       } else if (type === "def") {
-        power = (p.def * 0.5 + p.phy * 0.3 + p.pac * 0.2) * (0.6 + p.energy / 250);
+        if (p.pos === "POR") {
+          const gkPar = p.par !== undefined ? p.par : (p.gks || p.ovr || 75);
+          power = (gkPar * 0.75 + (p.phy || 70) * 0.25) * (0.6 + (p.energy !== undefined ? p.energy : 100) / 250);
+        } else {
+          power = ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.pac || 70) * 0.2) * (0.6 + (p.energy !== undefined ? p.energy : 100) / 250);
+        }
         if (role && role.defMod) power *= role.defMod;
         // Si el jugador está retrasado hacia campo propio (refuerzo defensivo)
         if (item2D) {

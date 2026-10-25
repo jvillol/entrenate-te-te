@@ -18,8 +18,8 @@ const TEAMS_DATA = [
     reputation: 95,
     defaultFormation: "4-3-3",
     players: [
-      { id: "rma_1", name: "Thibaut Courtois", number: 1, pos: "POR", ovr: 89, pot: 89, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
-      { id: "rma_2", name: "Andriy Lunin", number: 13, pos: "POR", ovr: 81, pot: 85, pac: 42, sho: 14, pas: 70, dri: 45, def: 15, phy: 73, energy: 100 },
+      { id: "rma_1", name: "Thibaut Courtois", number: 1, pos: "POR", ovr: 89, pot: 89, par: 90, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
+      { id: "rma_2", name: "Andriy Lunin", number: 13, pos: "POR", ovr: 81, pot: 85, par: 81, pac: 42, sho: 14, pas: 70, dri: 45, def: 15, phy: 73, energy: 100 },
       { id: "rma_3", name: "Trent Alexander-Arnold", number: 12, pos: "LD", secondaryPos: ["MD"], ovr: 87, pot: 88, pac: 76, sho: 77, pas: 92, dri: 82, def: 81, phy: 75, energy: 100 },
       { id: "rma_4", name: "Asencio", number: 2, pos: "DFC", ovr: 78, pot: 85, pac: 83, sho: 47, pas: 71, dri: 72, def: 77, phy: 82, energy: 100 },
       { id: "rma_5", name: "Antonio Rudiger", number: 22, pos: "DFC", ovr: 87, pot: 87, pac: 82, sho: 53, pas: 71, dri: 67, def: 87, phy: 86, energy: 100 },
@@ -61,7 +61,7 @@ const TEAMS_DATA = [
       { id: "bar_2", name: "Pedri", number: 8, pos: "MC", secondaryPos: ["MCD", "MCO"], ovr: 90, pot: 93, pac: 80, sho: 78, pas: 91, dri: 92, def: 72, phy: 75, energy: 100 },
       { id: "bar_3", name: "Lamine Yamal", number: 10, pos: "ED", secondaryPos: ["MD"], ovr: 90, pot: 95, pac: 92, sho: 84, pas: 87, dri: 93, def: 36, phy: 66, energy: 100 },
       { id: "bar_4", name: "Raphinha", number: 11, pos: "DC", secondaryPos: ["ED", "EI", "MCO", "MI"], ovr: 88, pot: 90, pac: 91, sho: 85, pas: 84, dri: 88, def: 55, phy: 76, energy: 100 },
-      { id: "bar_5", name: "Joan Garcia", number: 1, pos: "POR", ovr: 86, pot: 89, pac: 50, sho: 16, pas: 82, dri: 52, def: 16, phy: 78, energy: 100 },
+      { id: "bar_5", name: "Joan Garcia", number: 1, pos: "POR", ovr: 86, pot: 89, par: 87, pac: 50, sho: 16, pas: 82, dri: 52, def: 16, phy: 78, energy: 100 },
       { id: "bar_6", name: "Pau Cubarsi", number: 5, pos: "DFC", ovr: 86, pot: 91, pac: 76, sho: 45, pas: 85, dri: 78, def: 87, phy: 81, energy: 100 },
       { id: "bar_7", name: "Eric Garcia", number: 24, pos: "DFC", secondaryPos: ["LD", "MCD", "MC"], ovr: 85, pot: 86, pac: 75, sho: 56, pas: 80, dri: 78, def: 86, phy: 79, energy: 100 },
       { id: "bar_8", name: "Fermin Lopez", number: 7, pos: "MCO", secondaryPos: ["MC", "MI"], ovr: 85, pot: 88, pac: 83, sho: 84, pas: 81, dri: 85, def: 69, phy: 76, energy: 100 },
@@ -77,8 +77,8 @@ const TEAMS_DATA = [
       { id: "bar_18", name: "Andreas Christensen", number: 15, pos: "DFC", secondaryPos: ["MC", "MCD"], ovr: 79, pot: 83, pac: 64, sho: 32, pas: 72, dri: 69, def: 82, phy: 72, energy: 100 },
       { id: "bar_19", name: "Gabriel Jesus", number: 9, pos: "DC", secondaryPos: ["MCO"], ovr: 79, pot: 84, pac: 80, sho: 79, pas: 73, dri: 84, def: 40, phy: 72, energy: 100 },
       { id: "bar_20", name: "Marc Bernal", number: 22, pos: "MCD", secondaryPos: ["MC"], ovr: 78, pot: 88, pac: 72, sho: 68, pas: 79, dri: 78, def: 77, phy: 77, energy: 100 },
-      { id: "bar_21", name: "Dominik Livakovic", number: 25, pos: "POR", ovr: 78, pot: 82, pac: 45, sho: 15, pas: 70, dri: 47, def: 16, phy: 73, energy: 100 },
-      { id: "bar_22", name: "Wojciech Szczesny", number: 1, pos: "POR", ovr: 81, pot: 87, pac: 44, sho: 16, pas: 74, dri: 45, def: 16, phy: 72, energy: 100 },
+      { id: "bar_21", name: "Dominik Livakovic", number: 25, pos: "POR", ovr: 78, pot: 82, par: 78, pac: 45, sho: 15, pas: 70, dri: 47, def: 16, phy: 73, energy: 100 },
+      { id: "bar_22", name: "Wojciech Szczesny", number: 1, pos: "POR", ovr: 81, pot: 87, par: 81, pac: 44, sho: 16, pas: 74, dri: 45, def: 16, phy: 72, energy: 100 },
       { id: "bar_23", name: "Roony Bardghji", number: 27, pos: "ED", ovr: 74, pot: 85, pac: 79, sho: 72, pas: 71, dri: 78, def: 32, phy: 63, energy: 100 },
       { id: "bar_24", name: "Xavi Espart", number: 12, pos: "LD", secondaryPos: ["MCD", "LI", "MC"], ovr: 71, pot: 85, pac: 78, sho: 50, pas: 68, dri: 70, def: 70, phy: 68, energy: 100 },
       { id: "bar_25", name: "Hamza Abdelkarim", number: 29, pos: "DC", ovr: 65, pot: 84, pac: 74, sho: 61, pas: 58, dri: 63, def: 27, phy: 69, energy: 100 }
@@ -97,7 +97,7 @@ const TEAMS_DATA = [
     reputation: 91,
     defaultFormation: "5-3-2",
     players: [
-      { id: "atm_1", name: "Jan Oblak", number: 13, pos: "POR", ovr: 88, pot: 91, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
+      { id: "atm_1", name: "Jan Oblak", number: 13, pos: "POR", ovr: 88, pot: 91, par: 89, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
       { id: "atm_2", name: "Julian Alvarez", number: 19, pos: "DC", secondaryPos: ["MCO", "ED"], ovr: 86, pot: 89, pac: 85, sho: 85, pas: 81, dri: 87, def: 55, phy: 81, energy: 100 },
       { id: "atm_3", name: "Alejandro Grimaldo", number: 22, pos: "LI", secondaryPos: ["MI","MCO"], ovr: 85, pot: 86, pac: 74, sho: 76, pas: 85, dri: 84, def: 68, phy: 67, energy: 100 },
       { id: "atm_4", name: "Marcos Llorente", number: 14, pos: "LD", secondaryPos: ["MC", "MD", "DC"], ovr: 85, pot: 86, pac: 90, sho: 80, pas: 81, dri: 82, def: 79, phy: 82, energy: 100 },
@@ -109,7 +109,7 @@ const TEAMS_DATA = [
       { id: "atm_10", name: "Cristian Romero", number: 21, pos: "DFC", ovr: 82, pot: 84, pac: 74, sho: 46, pas: 65, dri: 68, def: 84, phy: 84, energy: 100 },
       { id: "atm_11", name: "Marc Pubill", number: 18, pos: "DFC", secondaryPos: ["LD"], ovr: 81, pot: 88, pac: 82, sho: 55, pas: 72, dri: 76, def: 80, phy: 81, energy: 100 },
       { id: "atm_12", name: "Alexander Sorloth", number: 9, pos: "DC", ovr: 83, pot: 84, pac: 82, sho: 84, pas: 72, dri: 77, def: 38, phy: 87, energy: 100 },
-      { id: "atm_13", name: "Juan Musso", number: 1, pos: "POR", ovr: 82, pot: 82, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 74, energy: 100 },
+      { id: "atm_13", name: "Juan Musso", number: 1, pos: "POR", ovr: 82, pot: 82, par: 82, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 74, energy: 100 },
       { id: "atm_14", name: "Giuliano Simeone", number: 20, pos: "MD", secondaryPos: ["ED", "MI", "EI", "DC"], ovr: 82, pot: 85, pac: 87, sho: 78, pas: 74, dri: 82, def: 60, phy: 78, energy: 100 },
       { id: "atm_15", name: "Koke", number: 6, pos: "MC", secondaryPos: ["MCD", "MD"], ovr: 81, pot: 86, pac: 60, sho: 71, pas: 83, dri: 77, def: 77, phy: 76, energy: 100 },
       { id: "atm_16", name: "Robin Le Normand", number: 24, pos: "DFC", ovr: 81, pot: 83, pac: 69, sho: 37, pas: 64, dri: 63, def: 82, phy: 80, energy: 100 },
@@ -135,8 +135,8 @@ const TEAMS_DATA = [
     reputation: 87,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "ath_1", name: "Unai Simon", number: 1, pos: "POR", ovr: 84, pot: 86, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
-      { id: "ath_2", name: "Julen Agirrezabala", number: 13, pos: "POR", ovr: 78, pot: 83, pac: 43, sho: 15, pas: 71, dri: 45, def: 15, phy: 74, energy: 100 },
+      { id: "ath_1", name: "Unai Simon", number: 1, pos: "POR", ovr: 84, pot: 86, par: 85, pac: 46, sho: 16, pas: 75, dri: 48, def: 16, phy: 77, energy: 100 },
+      { id: "ath_2", name: "Julen Agirrezabala", number: 13, pos: "POR", ovr: 78, pot: 83, par: 78, pac: 43, sho: 15, pas: 71, dri: 45, def: 15, phy: 74, energy: 100 },
       { id: "ath_3", name: "Oscar de Marcos", number: 18, pos: "LD", ovr: 79, pot: 79, pac: 78, sho: 67, pas: 75, dri: 77, def: 77, phy: 75, energy: 100 },
       { id: "ath_4", name: "Andoni Gorosabel", number: 2, pos: "LD", ovr: 76, pot: 77, pac: 79, sho: 50, pas: 70, dri: 73, def: 75, phy: 72, energy: 100 },
       { id: "ath_5", name: "Daniel Vivian", number: 3, pos: "DFC", ovr: 82, pot: 85, pac: 77, sho: 40, pas: 63, dri: 64, def: 83, phy: 83, energy: 100 },
@@ -168,8 +168,8 @@ const TEAMS_DATA = [
     reputation: 85,
     defaultFormation: "4-4-2",
     players: [
-      { id: "vil_1", name: "Diego Conde", number: 13, pos: "POR", ovr: 79, pot: 82, pac: 43, sho: 15, pas: 71, dri: 44, def: 15, phy: 74, energy: 100 },
-      { id: "vil_2", name: "Luiz Junior", number: 1, pos: "POR", ovr: 77, pot: 83, pac: 42, sho: 14, pas: 69, dri: 43, def: 14, phy: 73, energy: 100 },
+      { id: "vil_1", name: "Diego Conde", number: 13, pos: "POR", ovr: 79, pot: 82, par: 79, pac: 43, sho: 15, pas: 71, dri: 44, def: 15, phy: 74, energy: 100 },
+      { id: "vil_2", name: "Luiz Junior", number: 1, pos: "POR", ovr: 77, pot: 83, par: 77, pac: 42, sho: 14, pas: 69, dri: 43, def: 14, phy: 73, energy: 100 },
       { id: "vil_3", name: "Kiko Femenia", number: 17, pos: "LD", ovr: 76, pot: 76, pac: 79, sho: 54, pas: 72, dri: 74, def: 73, phy: 70, energy: 100 },
       { id: "vil_4", name: "Raul Albiol", number: 3, pos: "DFC", ovr: 78, pot: 78, pac: 52, sho: 42, pas: 64, dri: 62, def: 81, phy: 75, energy: 100 },
       { id: "vil_5", name: "Logan Costa", number: 2, pos: "DFC", ovr: 78, pot: 83, pac: 74, sho: 38, pas: 62, dri: 63, def: 79, phy: 82, energy: 100 },
@@ -201,8 +201,8 @@ const TEAMS_DATA = [
     reputation: 86,
     defaultFormation: "4-3-3",
     players: [
-      { id: "rso_1", name: "Alex Remiro", number: 1, pos: "POR", ovr: 84, pot: 85, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
-      { id: "rso_2", name: "Unai Marrero", number: 13, pos: "POR", ovr: 71, pot: 79, pac: 39, sho: 14, pas: 65, dri: 42, def: 14, phy: 68, energy: 100 },
+      { id: "rso_1", name: "Alex Remiro", number: 1, pos: "POR", ovr: 84, pot: 85, par: 85, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 76, energy: 100 },
+      { id: "rso_2", name: "Unai Marrero", number: 13, pos: "POR", ovr: 71, pot: 79, par: 71, pac: 39, sho: 14, pas: 65, dri: 42, def: 14, phy: 68, energy: 100 },
       { id: "rso_3", name: "Hamari Traore", number: 2, pos: "LD", ovr: 79, pot: 79, pac: 81, sho: 58, pas: 73, dri: 76, def: 76, phy: 77, energy: 100 },
       { id: "rso_4", name: "Jon Aramburu", number: 27, pos: "LD", ovr: 76, pot: 83, pac: 80, sho: 50, pas: 69, dri: 73, def: 75, phy: 75, energy: 100 },
       { id: "rso_5", name: "Igor Zubeldia", number: 5, pos: "DFC", ovr: 81, pot: 82, pac: 67, sho: 50, pas: 70, dri: 68, def: 82, phy: 80, energy: 100 },
@@ -234,8 +234,8 @@ const TEAMS_DATA = [
     reputation: 85,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "bet_1", name: "Rui Silva", number: 1, pos: "POR", ovr: 80, pot: 81, pac: 42, sho: 15, pas: 71, dri: 45, def: 15, phy: 74, energy: 100 },
-      { id: "bet_2", name: "Adrian San Miguel", number: 13, pos: "POR", ovr: 73, pot: 73, pac: 38, sho: 13, pas: 66, dri: 40, def: 14, phy: 69, energy: 100 },
+      { id: "bet_1", name: "Rui Silva", number: 1, pos: "POR", ovr: 80, pot: 81, par: 80, pac: 42, sho: 15, pas: 71, dri: 45, def: 15, phy: 74, energy: 100 },
+      { id: "bet_2", name: "Adrian San Miguel", number: 13, pos: "POR", ovr: 73, pot: 73, par: 73, pac: 38, sho: 13, pas: 66, dri: 40, def: 14, phy: 69, energy: 100 },
       { id: "bet_3", name: "Hector Bellerin", number: 2, pos: "LD", ovr: 78, pot: 78, pac: 82, sho: 52, pas: 72, dri: 77, def: 74, phy: 66, energy: 100 },
       { id: "bet_4", name: "Youssouf Sabaly", number: 23, pos: "LD", ovr: 77, pot: 77, pac: 78, sho: 55, pas: 71, dri: 76, def: 75, phy: 73, energy: 100 },
       { id: "bet_5", name: "Diego Llorente", number: 3, pos: "DFC", ovr: 80, pot: 80, pac: 70, sho: 48, pas: 68, dri: 66, def: 81, phy: 78, energy: 100 },
@@ -267,8 +267,8 @@ const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "dep_1", name: "Helton Leite", number: 1, pos: "POR", ovr: 74, pot: 74, pac: 41, sho: 14, pas: 68, dri: 42, def: 14, phy: 73, energy: 100 },
-      { id: "dep_2", name: "German Parreno", number: 13, pos: "POR", ovr: 68, pot: 68, pac: 37, sho: 13, pas: 63, dri: 39, def: 13, phy: 68, energy: 100 },
+      { id: "dep_1", name: "Helton Leite", number: 1, pos: "POR", ovr: 74, pot: 74, par: 74, pac: 41, sho: 14, pas: 68, dri: 42, def: 14, phy: 73, energy: 100 },
+      { id: "dep_2", name: "German Parreno", number: 13, pos: "POR", ovr: 68, pot: 68, par: 68, pac: 37, sho: 13, pas: 63, dri: 39, def: 13, phy: 68, energy: 100 },
       { id: "dep_3", name: "Ximo Navarro", number: 2, pos: "LD", ovr: 71, pot: 71, pac: 73, sho: 48, pas: 65, dri: 68, def: 71, phy: 73, energy: 100 },
       { id: "dep_4", name: "Alex Petxarroman", number: 18, pos: "LD", ovr: 70, pot: 73, pac: 76, sho: 50, pas: 66, dri: 69, def: 70, phy: 71, energy: 100 },
       { id: "dep_5", name: "Pablo Vazquez", number: 5, pos: "DFC", ovr: 72, pot: 72, pac: 60, sho: 38, pas: 58, dri: 56, def: 74, phy: 78, energy: 100 },
@@ -300,8 +300,8 @@ const TEAMS_DATA = [
     reputation: 84,
     defaultFormation: "4-3-3",
     players: [
-      { id: "sev_1", name: "Orjan Nyland", number: 13, pos: "POR", ovr: 79, pot: 79, pac: 42, sho: 15, pas: 71, dri: 44, def: 15, phy: 73, energy: 100 },
-      { id: "sev_2", name: "Alvaro Fernandez", number: 1, pos: "POR", ovr: 74, pot: 77, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
+      { id: "sev_1", name: "Orjan Nyland", number: 13, pos: "POR", ovr: 79, pot: 79, par: 79, pac: 42, sho: 15, pas: 71, dri: 44, def: 15, phy: 73, energy: 100 },
+      { id: "sev_2", name: "Alvaro Fernandez", number: 1, pos: "POR", ovr: 74, pot: 77, par: 74, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
       { id: "sev_3", name: "Juanlu Sanchez", number: 26, pos: "LD", ovr: 76, pot: 83, pac: 82, sho: 64, pas: 73, dri: 76, def: 72, phy: 74, energy: 100 },
       { id: "sev_4", name: "Gonzalo Montiel", number: 15, pos: "LD", ovr: 76, pot: 77, pac: 78, sho: 55, pas: 71, dri: 74, def: 75, phy: 76, energy: 100 },
       { id: "sev_5", name: "Loic Bade", number: 22, pos: "DFC", ovr: 80, pot: 84, pac: 76, sho: 38, pas: 64, dri: 66, def: 81, phy: 82, energy: 100 },
@@ -333,8 +333,8 @@ const TEAMS_DATA = [
     reputation: 83,
     defaultFormation: "4-4-2",
     players: [
-      { id: "val_1", name: "Giorgi Mamardashvili", number: 25, pos: "POR", ovr: 83, pot: 87, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 78, energy: 100 },
-      { id: "val_2", name: "Stole Dimitrievski", number: 13, pos: "POR", ovr: 78, pot: 78, pac: 42, sho: 15, pas: 72, dri: 44, def: 15, phy: 75, energy: 100 },
+      { id: "val_1", name: "Giorgi Mamardashvili", number: 25, pos: "POR", ovr: 83, pot: 87, par: 83, pac: 46, sho: 16, pas: 74, dri: 48, def: 16, phy: 78, energy: 100 },
+      { id: "val_2", name: "Stole Dimitrievski", number: 13, pos: "POR", ovr: 78, pot: 78, par: 78, pac: 42, sho: 15, pas: 72, dri: 44, def: 15, phy: 75, energy: 100 },
       { id: "val_3", name: "Thierry Correia", number: 12, pos: "LD", ovr: 78, pot: 80, pac: 87, sho: 54, pas: 70, dri: 76, def: 75, phy: 76, energy: 100 },
       { id: "val_4", name: "Dimitri Foulquier", number: 20, pos: "LD", ovr: 76, pot: 76, pac: 78, sho: 52, pas: 68, dri: 72, def: 76, phy: 80, energy: 100 },
       { id: "val_5", name: "Cristhian Mosquera", number: 3, pos: "DFC", ovr: 79, pot: 86, pac: 78, sho: 35, pas: 65, dri: 66, def: 80, phy: 81, energy: 100 },
@@ -364,8 +364,8 @@ const TEAMS_DATA = [
     reputation: 82,
     defaultFormation: "3-4-3",
     players: [
-      { id: "cel_1", name: "Vicente Guaita", number: 13, pos: "POR", ovr: 79, pot: 79, pac: 41, sho: 15, pas: 72, dri: 44, def: 15, phy: 73, energy: 100 },
-      { id: "cel_2", name: "Ivan Villar", number: 1, pos: "POR", ovr: 73, pot: 75, pac: 40, sho: 14, pas: 66, dri: 42, def: 14, phy: 71, energy: 100 },
+      { id: "cel_1", name: "Vicente Guaita", number: 13, pos: "POR", ovr: 79, pot: 79, par: 79, pac: 41, sho: 15, pas: 72, dri: 44, def: 15, phy: 73, energy: 100 },
+      { id: "cel_2", name: "Ivan Villar", number: 1, pos: "POR", ovr: 73, pot: 75, par: 73, pac: 40, sho: 14, pas: 66, dri: 42, def: 14, phy: 71, energy: 100 },
       { id: "cel_3", name: "Oscar Mingueza", number: 3, pos: "LD", ovr: 80, pot: 83, pac: 78, sho: 64, pas: 78, dri: 77, def: 79, phy: 76, energy: 100 },
       { id: "cel_4", name: "Carl Starfelt", number: 2, pos: "DFC", ovr: 77, pot: 77, pac: 67, sho: 35, pas: 58, dri: 58, def: 79, phy: 82, energy: 100 },
       { id: "cel_5", name: "Carlos Dominguez", number: 24, pos: "DFC", ovr: 75, pot: 81, pac: 66, sho: 32, pas: 62, dri: 62, def: 77, phy: 78, energy: 100 },
@@ -395,8 +395,8 @@ const TEAMS_DATA = [
     reputation: 82,
     defaultFormation: "4-3-3",
     players: [
-      { id: "osa_1", name: "Sergio Herrera", number: 1, pos: "POR", ovr: 80, pot: 80, pac: 43, sho: 15, pas: 72, dri: 45, def: 15, phy: 74, energy: 100 },
-      { id: "osa_2", name: "Aitor Fernandez", number: 13, pos: "POR", ovr: 75, pot: 75, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
+      { id: "osa_1", name: "Sergio Herrera", number: 1, pos: "POR", ovr: 80, pot: 80, par: 80, pac: 43, sho: 15, pas: 72, dri: 45, def: 15, phy: 74, energy: 100 },
+      { id: "osa_2", name: "Aitor Fernandez", number: 13, pos: "POR", ovr: 75, pot: 75, par: 75, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
       { id: "osa_3", name: "Jesus Areso", number: 12, pos: "LD", ovr: 77, pot: 81, pac: 86, sho: 55, pas: 72, dri: 74, def: 73, phy: 76, energy: 100 },
       { id: "osa_4", name: "Alejandro Catena", number: 24, pos: "DFC", ovr: 78, pot: 78, pac: 63, sho: 44, pas: 65, dri: 62, def: 79, phy: 82, energy: 100 },
       { id: "osa_5", name: "Flavien Boyomo", number: 22, pos: "DFC", ovr: 77, pot: 83, pac: 77, sho: 36, pas: 62, dri: 64, def: 78, phy: 81, energy: 100 },
@@ -426,8 +426,8 @@ const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "5-3-2",
     players: [
-      { id: "get_1", name: "David Soria", number: 13, pos: "POR", ovr: 81, pot: 81, pac: 44, sho: 16, pas: 72, dri: 46, def: 16, phy: 75, energy: 100 },
-      { id: "get_2", name: "Jiri Letacek", number: 1, pos: "POR", ovr: 72, pot: 76, pac: 38, sho: 14, pas: 65, dri: 41, def: 14, phy: 71, energy: 100 },
+      { id: "get_1", name: "David Soria", number: 13, pos: "POR", ovr: 81, pot: 81, par: 81, pac: 44, sho: 16, pas: 72, dri: 46, def: 16, phy: 75, energy: 100 },
+      { id: "get_2", name: "Jiri Letacek", number: 1, pos: "POR", ovr: 72, pot: 76, par: 72, pac: 38, sho: 14, pas: 65, dri: 41, def: 14, phy: 71, energy: 100 },
       { id: "get_3", name: "Juan Iglesias", number: 21, pos: "LD", ovr: 76, pot: 78, pac: 78, sho: 52, pas: 68, dri: 72, def: 75, phy: 74, energy: 100 },
       { id: "get_4", name: "Djene Dakonam", number: 2, pos: "DFC", ovr: 78, pot: 78, pac: 75, sho: 38, pas: 62, dri: 65, def: 80, phy: 80, energy: 100 },
       { id: "get_5", name: "Omar Alderete", number: 15, pos: "DFC", ovr: 78, pot: 79, pac: 68, sho: 50, pas: 64, dri: 62, def: 79, phy: 83, energy: 100 },
@@ -457,8 +457,8 @@ const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "ala_1", name: "Antonio Sivera", number: 1, pos: "POR", ovr: 79, pot: 81, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 73, energy: 100 },
-      { id: "ala_2", name: "Jesus Owono", number: 31, pos: "POR", ovr: 70, pot: 76, pac: 38, sho: 13, pas: 64, dri: 40, def: 14, phy: 68, energy: 100 },
+      { id: "ala_1", name: "Antonio Sivera", number: 1, pos: "POR", ovr: 79, pot: 81, par: 79, pac: 44, sho: 15, pas: 70, dri: 46, def: 15, phy: 73, energy: 100 },
+      { id: "ala_2", name: "Jesus Owono", number: 31, pos: "POR", ovr: 70, pot: 76, par: 70, pac: 38, sho: 13, pas: 64, dri: 40, def: 14, phy: 68, energy: 100 },
       { id: "ala_3", name: "Nahuel Tenaglia", number: 14, pos: "LD", ovr: 76, pot: 77, pac: 76, sho: 50, pas: 68, dri: 70, def: 76, phy: 79, energy: 100 },
       { id: "ala_4", name: "Hugo Novoa", number: 2, pos: "LD", ovr: 73, pot: 80, pac: 85, sho: 64, pas: 68, dri: 75, def: 66, phy: 67, energy: 100 },
       { id: "ala_5", name: "Abdel Abqar", number: 5, pos: "DFC", ovr: 76, pot: 80, pac: 70, sho: 34, pas: 58, dri: 60, def: 78, phy: 82, energy: 100 },
@@ -489,8 +489,8 @@ const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "lev_1", name: "Andres Fernandez", number: 1, pos: "POR", ovr: 75, pot: 75, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 72, energy: 100 },
-      { id: "lev_2", name: "Alfonso Pastor", number: 13, pos: "POR", ovr: 68, pot: 74, pac: 38, sho: 13, pas: 63, dri: 39, def: 13, phy: 68, energy: 100 },
+      { id: "lev_1", name: "Andres Fernandez", number: 1, pos: "POR", ovr: 75, pot: 75, par: 75, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 72, energy: 100 },
+      { id: "lev_2", name: "Alfonso Pastor", number: 13, pos: "POR", ovr: 68, pot: 74, par: 68, pac: 38, sho: 13, pas: 63, dri: 39, def: 13, phy: 68, energy: 100 },
       { id: "lev_3", name: "Andres Garcia", number: 2, pos: "LD", ovr: 72, pot: 81, pac: 84, sho: 58, pas: 66, dri: 73, def: 67, phy: 69, energy: 100 },
       { id: "lev_4", name: "Unai Elgezabal", number: 5, pos: "DFC", ovr: 73, pot: 73, pac: 62, sho: 40, pas: 60, dri: 58, def: 74, phy: 78, energy: 100 },
       { id: "lev_5", name: "Adrian de la Fuente", number: 4, pos: "DFC", ovr: 72, pot: 77, pac: 67, sho: 38, pas: 62, dri: 61, def: 73, phy: 76, energy: 100 },
@@ -522,8 +522,8 @@ const TEAMS_DATA = [
     reputation: 80,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "ray_1", name: "Augusto Batalla", number: 13, pos: "POR", ovr: 79, pot: 81, pac: 42, sho: 15, pas: 70, dri: 44, def: 15, phy: 74, energy: 100 },
-      { id: "ray_2", name: "Dani Cardenas", number: 1, pos: "POR", ovr: 74, pot: 77, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
+      { id: "ray_1", name: "Augusto Batalla", number: 13, pos: "POR", ovr: 79, pot: 81, par: 79, pac: 42, sho: 15, pas: 70, dri: 44, def: 15, phy: 74, energy: 100 },
+      { id: "ray_2", name: "Dani Cardenas", number: 1, pos: "POR", ovr: 74, pot: 77, par: 74, pac: 40, sho: 14, pas: 68, dri: 42, def: 14, phy: 71, energy: 100 },
       { id: "ray_3", name: "Andrei Ratiu", number: 2, pos: "LD", ovr: 76, pot: 80, pac: 88, sho: 52, pas: 68, dri: 73, def: 73, phy: 74, energy: 100 },
       { id: "ray_4", name: "Ivan Balliu", number: 20, pos: "LD", ovr: 75, pot: 75, pac: 77, sho: 50, pas: 69, dri: 71, def: 74, phy: 72, energy: 100 },
       { id: "ray_5", name: "Florian Lejeune", number: 24, pos: "DFC", ovr: 79, pot: 79, pac: 58, sho: 64, pas: 68, dri: 62, def: 80, phy: 82, energy: 100 },
@@ -553,8 +553,8 @@ const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "rac_1", name: "Jokin Ezkieta", number: 1, pos: "POR", ovr: 75, pot: 78, pac: 42, sho: 14, pas: 70, dri: 44, def: 14, phy: 73, energy: 100 },
-      { id: "rac_2", name: "Miquel Parera", number: 13, pos: "POR", ovr: 70, pot: 71, pac: 39, sho: 13, pas: 65, dri: 41, def: 13, phy: 70, energy: 100 },
+      { id: "rac_1", name: "Jokin Ezkieta", number: 1, pos: "POR", ovr: 75, pot: 78, par: 75, pac: 42, sho: 14, pas: 70, dri: 44, def: 14, phy: 73, energy: 100 },
+      { id: "rac_2", name: "Miquel Parera", number: 13, pos: "POR", ovr: 70, pot: 71, par: 70, pac: 39, sho: 13, pas: 65, dri: 41, def: 13, phy: 70, energy: 100 },
       { id: "rac_3", name: "Clement Michelin", number: 2, pos: "LD", ovr: 73, pot: 74, pac: 79, sho: 55, pas: 70, dri: 72, def: 71, phy: 71, energy: 100 },
       { id: "rac_4", name: "Marco Sangalli", number: 7, pos: "LD", ovr: 72, pot: 72, pac: 77, sho: 62, pas: 69, dri: 72, def: 68, phy: 70, energy: 100 },
       { id: "rac_5", name: "Javi Montero", number: 4, pos: "DFC", ovr: 74, pot: 77, pac: 68, sho: 36, pas: 64, dri: 62, def: 75, phy: 77, energy: 100 },
@@ -583,8 +583,8 @@ const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-4-2",
     players: [
-      { id: "esp_1", name: "Joan Garcia", number: 1, pos: "POR", ovr: 78, pot: 84, pac: 43, sho: 15, pas: 71, dri: 46, def: 15, phy: 73, energy: 100 },
-      { id: "esp_2", name: "Fernando Pacheco", number: 13, pos: "POR", ovr: 74, pot: 74, pac: 39, sho: 14, pas: 67, dri: 42, def: 14, phy: 72, energy: 100 },
+      { id: "esp_1", name: "Fortuño", number: 1, pos: "POR", ovr: 65, pot: 73, par: 65, pac: 42, sho: 16, pas: 33, dri: 39, def: 11, phy: 44, energy: 100 },
+      { id: "esp_2", name: "Marko Dmitrovic", number: 13, pos: "POR", ovr: 79, pot: 81, par: 79, pac: 37, sho: 31, pas: 41, dri: 39, def: 20, phy: 59, energy: 100 },
       { id: "esp_3", name: "Alvaro Tejero", number: 12, pos: "LD", ovr: 75, pot: 75, pac: 77, sho: 62, pas: 74, dri: 73, def: 72, phy: 71, energy: 100 },
       { id: "esp_4", name: "Omar El Hilali", number: 23, pos: "LD", ovr: 74, pot: 81, pac: 79, sho: 48, pas: 66, dri: 71, def: 73, phy: 73, energy: 100 },
       { id: "esp_5", name: "Leandro Cabrera", number: 6, pos: "DFC", ovr: 76, pot: 76, pac: 62, sho: 44, pas: 62, dri: 58, def: 77, phy: 80, energy: 100 },
@@ -614,8 +614,8 @@ const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-2-3-1",
     players: [
-      { id: "mal_1", name: "Alfonso Herrero", number: 1, pos: "POR", ovr: 75, pot: 76, pac: 42, sho: 14, pas: 69, dri: 44, def: 14, phy: 73, energy: 100 },
-      { id: "mal_2", name: "Carlos Lopez", number: 13, pos: "POR", ovr: 67, pot: 75, pac: 38, sho: 13, pas: 62, dri: 39, def: 13, phy: 68, energy: 100 },
+      { id: "mal_1", name: "Alfonso Herrero", number: 1, pos: "POR", ovr: 75, pot: 76, par: 75, pac: 42, sho: 14, pas: 69, dri: 44, def: 14, phy: 73, energy: 100 },
+      { id: "mal_2", name: "Carlos Lopez", number: 13, pos: "POR", ovr: 67, pot: 75, par: 67, pac: 38, sho: 13, pas: 62, dri: 39, def: 13, phy: 68, energy: 100 },
       { id: "mal_3", name: "Carlos Puga", number: 2, pos: "LD", ovr: 71, pot: 76, pac: 81, sho: 48, pas: 65, dri: 70, def: 69, phy: 71, energy: 100 },
       { id: "mal_4", name: "Einar Galilea", number: 4, pos: "DFC", ovr: 72, pot: 72, pac: 62, sho: 40, pas: 61, dri: 58, def: 74, phy: 77, energy: 100 },
       { id: "mal_5", name: "Nelson Monte", number: 5, pos: "DFC", ovr: 72, pot: 72, pac: 67, sho: 38, pas: 60, dri: 61, def: 73, phy: 76, energy: 100 },
@@ -645,8 +645,8 @@ const TEAMS_DATA = [
     reputation: 79,
     defaultFormation: "4-4-2",
     players: [
-      { id: "elc_1", name: "Matias Dituro", number: 13, pos: "POR", ovr: 75, pot: 75, pac: 40, sho: 14, pas: 72, dri: 45, def: 14, phy: 72, energy: 100 },
-      { id: "elc_2", name: "Miguel San Roman", number: 1, pos: "POR", ovr: 69, pot: 71, pac: 38, sho: 13, pas: 64, dri: 40, def: 13, phy: 69, energy: 100 },
+      { id: "elc_1", name: "Matias Dituro", number: 13, pos: "POR", ovr: 75, pot: 75, par: 75, pac: 40, sho: 14, pas: 72, dri: 45, def: 14, phy: 72, energy: 100 },
+      { id: "elc_2", name: "Miguel San Roman", number: 1, pos: "POR", ovr: 69, pot: 71, par: 69, pac: 38, sho: 13, pas: 64, dri: 40, def: 13, phy: 69, energy: 100 },
       { id: "elc_3", name: "Alvaro Nunez", number: 2, pos: "LD", ovr: 73, pot: 78, pac: 81, sho: 50, pas: 68, dri: 72, def: 71, phy: 69, energy: 100 },
       { id: "elc_4", name: "Pedro Bigas", number: 6, pos: "DFC", ovr: 74, pot: 74, pac: 64, sho: 42, pas: 64, dri: 62, def: 75, phy: 76, energy: 100 },
       { id: "elc_5", name: "David Affengruber", number: 22, pos: "DFC", ovr: 73, pot: 79, pac: 67, sho: 38, pas: 62, dri: 61, def: 74, phy: 78, energy: 100 },
@@ -908,7 +908,8 @@ function calculateEffectiveRating(player, slotPos) {
   const curEnergy = player.energy !== undefined ? player.energy : 100;
   const energyFactor = 0.5 + (curEnergy / 100) * 0.5; // La energía baja reduce rendimiento
   const injuryPenalty = player.injury ? 0.40 : 1.0; // Los futbolistas lesionados ven mermado su rendimiento drásticamente
-  return Math.round(player.ovr * affinity * energyFactor * injuryPenalty);
+  const baseRating = (slotPos === "POR" && player.pos === "POR" && player.par !== undefined) ? player.par : (player.ovr || 70);
+  return Math.round(baseRating * affinity * energyFactor * injuryPenalty);
 }
 
 // Media global de un equipo en base a su 11 inicial
@@ -1022,7 +1023,11 @@ function buildOptimalLineup(team, targetFormationKey = null) {
   const lineup = new Array(11).fill(null);
 
   // 1. Guardameta en Slot 0 (POR)
-  const gks = availablePlayers.filter(p => p.pos === "POR").sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+  const gks = availablePlayers.filter(p => p.pos === "POR").sort((a, b) => {
+    const valA = (a.par !== undefined ? a.par : a.ovr || 70) * (0.6 + ((a.energy !== undefined ? a.energy : 100) / 250));
+    const valB = (b.par !== undefined ? b.par : b.ovr || 70) * (0.6 + ((b.energy !== undefined ? b.energy : 100) / 250));
+    return valB - valA;
+  });
   const bestGk = gks[0] || availablePlayers[0];
   if (bestGk) {
     lineup[0] = bestGk;
@@ -1031,7 +1036,6 @@ function buildOptimalLineup(team, targetFormationKey = null) {
 
   // Helper para comprobar coincidencia de posición (incluyendo equivalencias de banda MD<->ED y MI<->EI)
   const matchesPosDirect = (playerPos, slotPos) => {
-    if (!playerPos || !slotPos) return false;
     if (playerPos === slotPos) return true;
     if ((playerPos === "MD" && slotPos === "ED") || (playerPos === "ED" && slotPos === "MD")) return true;
     if ((playerPos === "MI" && slotPos === "EI") || (playerPos === "EI" && slotPos === "MI")) return true;
@@ -1048,58 +1052,55 @@ function buildOptimalLineup(team, targetFormationKey = null) {
     return list.some(sec => matchesPosDirect(sec, slotPos));
   };
 
-  // Comprobar si la formación actual contiene algún slot para una posición dada
-  const formationContainsPos = targetPos => {
-    return formation.slots.some(s => matchesPosDirect(targetPos, s.pos));
-  };
-
-  // Evaluar adecuación de un jugador a un slot
-  const getSlotSuitability = (player, slotPos) => {
-    const baseOvr = player.ovr || 70;
-    const fitness = 0.6 + ((player.energy !== undefined ? player.energy : 100) / 250);
-    const score = baseOvr * fitness;
-
-    if (hasPrimaryMatch(player, slotPos)) {
-      return 100 + score; // Coincidencia natural primaria
-    }
-    if (hasSecondaryMatch(player, slotPos)) {
-      // Si la posición primaria del jugador ni siquiera existe en esta formación táctica (ej: Baena MI en 5-3-2),
-      // su posición secundaria en el campo compite como posición natural
-      if (!formationContainsPos(player.pos)) {
-        return 100 + score - 0.1; // Ligerísimo desempate si hubiera un especialista idéntico en OVR
-      }
-      return 50 + score; // Posición secundaria cuando su puesto primario sí está disponible en el esquema
-    }
-    // Si no es natural ni secundaria, calcular efectividad
-    const eff = calculateEffectiveRating(player, slotPos);
-    return eff;
-  };
-
-  // Asignar slots ordenados por especificidad (primero los puestos con menos especialistas)
-  // Indices 1..10
-  const slotIndices = formation.slots.map((s, idx) => idx).filter(idx => idx > 0);
-
-  // Ordenar slots por número de especialistas naturales disponibles (los puestos más restringidos primero)
-  slotIndices.sort((a, b) => {
-    const posA = formation.slots[a].pos;
-    const posB = formation.slots[b].pos;
-    const countA = availablePlayers.filter(p => p.pos !== "POR" && (hasPrimaryMatch(p, posA) || hasSecondaryMatch(p, posA))).length;
-    const countB = availablePlayers.filter(p => p.pos !== "POR" && (hasPrimaryMatch(p, posB) || hasSecondaryMatch(p, posB))).length;
-    return countA - countB;
-  });
-
-  for (const idx of slotIndices) {
-    const slot = formation.slots[idx];
+  // 2. Asignar slots de campo (1 a 10)
+  // Paso A: Jugadores con coincidencia exacta en posición principal (ordenados por OVR)
+  formation.slots.forEach((slot, idx) => {
+    if (idx === 0) return;
     const candidates = availablePlayers
-      .filter(p => !used.has(p.id) && p.pos !== "POR")
-      .sort((a, b) => getSlotSuitability(b, slot.pos) - getSlotSuitability(a, slot.pos));
+      .filter(p => !used.has(p.id) && p.pos !== "POR" && hasPrimaryMatch(p, slot.pos))
+      .sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
 
     if (candidates.length > 0) {
-      const chosen = candidates[0];
-      lineup[idx] = chosen;
-      used.add(chosen.id);
+      lineup[idx] = candidates[0];
+      used.add(candidates[0].id);
     }
-  }
+  });
+
+  // Paso B: Slots restantes no cubiertos -> buscar coincidencia en posición secundaria (ordenados por OVR)
+  formation.slots.forEach((slot, idx) => {
+    if (idx === 0 || lineup[idx] !== null) return;
+    const candidates = availablePlayers
+      .filter(p => !used.has(p.id) && p.pos !== "POR" && hasSecondaryMatch(p, slot.pos))
+      .sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+
+    if (candidates.length > 0) {
+      lineup[idx] = candidates[0];
+      used.add(candidates[0].id);
+    }
+  });
+
+  // Paso C: Slots aún vacíos -> mejor efectividad calculada en esa posición
+  formation.slots.forEach((slot, idx) => {
+    if (idx === 0 || lineup[idx] !== null) return;
+    const candidates = availablePlayers
+      .filter(p => !used.has(p.id) && p.pos !== "POR")
+      .sort((a, b) => calculateEffectiveRating(b, slot.pos) - calculateEffectiveRating(a, slot.pos));
+
+    if (candidates.length > 0) {
+      lineup[idx] = candidates[0];
+      used.add(candidates[0].id);
+    }
+  });
+
+  // Paso D: Fallback de seguridad si faltaran huecos
+  formation.slots.forEach((slot, idx) => {
+    if (lineup[idx] !== null) return;
+    const fallback = availablePlayers.find(p => !used.has(p.id));
+    if (fallback) {
+      lineup[idx] = fallback;
+      used.add(fallback.id);
+    }
+  });
 
   const bench = team.players.filter(p => !used.has(p.id)).sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
 
@@ -1443,10 +1444,12 @@ function getTeamStrength(team) {
     ? attackers.reduce((acc, p) => acc + ((p.sho || 70) * 0.45 + (p.dri || 70) * 0.3 + (p.pac || 70) * 0.25), 0) / attackers.length
     : avgOvr;
 
-  // Defensa (DFC, LD, LI, MCD, POR)
-  const defenders = starters.filter(p => ["DFC", "LD", "LI", "MCD", "POR"].includes(p.pos));
+  // Defensa (DFC, LD, LI, MCD) y Portero (POR)
+  const gk = starters.find(p => p.pos === "POR") || (team.players || []).find(p => p.pos === "POR");
+  const gkVal = gk ? (gk.par !== undefined ? gk.par : (gk.gks || gk.ovr || 75)) : avgOvr;
+  const defenders = starters.filter(p => ["DFC", "LD", "LI", "MCD"].includes(p.pos));
   const def = defenders.length > 0
-    ? defenders.reduce((acc, p) => acc + ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.ovr || 70) * 0.2), 0) / defenders.length
+    ? (defenders.reduce((acc, p) => acc + ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.ovr || 70) * 0.2), 0) / defenders.length) * 0.70 + (gkVal * 0.30)
     : avgOvr;
 
   // Mediocampo (MC, MCD, MCO, MD, MI)
@@ -2894,8 +2897,13 @@ class MatchSimulator {
     const boxY = 36 + Math.random() * 28;
 
     // Determinar resultado y rincón de disparo de forma coherente
-    const shotQuality = (shooter.sho || 75) + (Math.random() * 30 - 15);
-    const gkSavePower = (goalkeeper.ovr || 78) + (Math.random() * 25 - 10);
+    const shooterSho = shooter.sho !== undefined ? shooter.sho : 75;
+    const shotQuality = shooterSho + (Math.random() * 28 - 14);
+
+    // Habilidad específica de parada del portero ('par') modulada por su energía física
+    const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
+    const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
+    const gkSavePower = (gkSkill * gkFitness) + (Math.random() * 26 - 13);
     const onTarget = Math.random() < 0.72;
     const isDefenderBlock = !onTarget && Math.random() < 0.22;
 
@@ -2916,7 +2924,8 @@ class MatchSimulator {
     } else if (!onTarget) {
       outcome = Math.random() < 0.35 ? "POST" : "WIDE";
     } else {
-      if (shotQuality > gkSavePower + 3) {
+      // Duelo directo entre la calidad del disparo (sho) y la capacidad de parada del portero (par)
+      if (shotQuality > gkSavePower + 3.5) {
         outcome = "GOAL";
       } else {
         outcome = "SAVE";
@@ -3682,9 +3691,10 @@ class MatchSimulator {
           const azarRemate = (Math.random() * 38 - 19);
           const remateScore = remateStat + azarRemate;
 
-          const gkStat = (goalkeeper.ovr || 78);
-          const azarGK = (Math.random() * 30 - 15);
-          const gkScore = gkStat + azarGK;
+          const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
+          const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
+          const azarGK = (Math.random() * 28 - 14);
+          const gkScore = (gkSkill * gkFitness) + azarGK;
 
           if (kickQuality < 56) {
             this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
@@ -4034,7 +4044,12 @@ class MatchSimulator {
         // Si el jugador está centrado hacia la medular (amplitud interior)
         if (item2D && item2D.baseY >= 35 && item2D.baseY <= 65) power *= 1.08;
       } else if (type === "def") {
-        power = (p.def * 0.5 + p.phy * 0.3 + p.pac * 0.2) * (0.6 + p.energy / 250);
+        if (p.pos === "POR") {
+          const gkPar = p.par !== undefined ? p.par : (p.gks || p.ovr || 75);
+          power = (gkPar * 0.75 + (p.phy || 70) * 0.25) * (0.6 + (p.energy !== undefined ? p.energy : 100) / 250);
+        } else {
+          power = ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.pac || 70) * 0.2) * (0.6 + (p.energy !== undefined ? p.energy : 100) / 250);
+        }
         if (role && role.defMod) power *= role.defMod;
         // Si el jugador está retrasado hacia campo propio (refuerzo defensivo)
         if (item2D) {
@@ -4339,7 +4354,7 @@ function renderTeamSelect(container, teams, onSelectTeam) {
                     <span class="font-medium text-slate-200">${p.name}</span>
                   </div>
                   <div class="flex items-center gap-3">
-                    <div class="text-[10px] text-slate-400 hidden sm:block">RIT ${p.pac} | TIR ${p.sho} | PAS ${p.pas}</div>
+                    <div class="text-[10px] text-slate-400 hidden sm:block">${p.pos === 'POR' ? `PAR ${p.par !== undefined ? p.par : p.ovr} | REF ${p.pac} | PAS ${p.pas}` : `RIT ${p.pac} | TIR ${p.sho} | PAS ${p.pas}`}</div>
                     <span class="font-black text-amber-400 text-xs">${p.ovr}</span>
                   </div>
                 </div>
@@ -5296,9 +5311,41 @@ function renderTacticsView(container, gameState, onSaveTactics) {
   }
 
   function autoAlignLineup() {
-    const optimal = buildOptimalLineup(team, tactics.formation);
-    tactics.lineup = optimal.lineupIds;
-    tactics.bench = optimal.benchIds;
+    const formationKey = tactics.formation;
+    const formation = FORMATIONS[formationKey] || FORMATIONS["4-3-3"];
+    const getMatchFitness = p => (p.ovr || 70) * (0.6 + ((p.energy !== undefined ? p.energy : 100) / 250));
+    const availablePlayers = [...team.players].filter(p => !p.injury && !p.suspension).sort((a, b) => getMatchFitness(b) - getMatchFitness(a));
+    const used = new Set();
+    const newLineup = [];
+
+    // Portero
+    const gk = availablePlayers.find(p => p.pos === "POR");
+    if (gk) {
+      newLineup[0] = gk.id;
+      used.add(gk.id);
+    }
+
+    // Resto de posiciones
+    formation.slots.forEach((slot, idx) => {
+      if (idx === 0) return;
+      let best = availablePlayers.find(p => !used.has(p.id) && (
+        p.pos === slot.pos ||
+        (Array.isArray(p.secondaryPos) && p.secondaryPos.includes(slot.pos)) ||
+        (typeof p.secondaryPos === "string" && p.secondaryPos.includes(slot.pos))
+      ));
+      if (!best) {
+        best = availablePlayers.find(p => !used.has(p.id) && p.pos !== "POR");
+      }
+      if (best) {
+        newLineup[idx] = best.id;
+        used.add(best.id);
+      }
+    });
+
+    const newBench = team.players.filter(p => !used.has(p.id)).map(p => p.id);
+
+    tactics.lineup = newLineup;
+    tactics.bench = newBench;
   }
 
   render();
@@ -5394,8 +5441,13 @@ function renderSquadView(container, gameState) {
               <!-- Media FC y Atributos rápidos -->
               <div class="flex items-center gap-3">
                 <div class="text-right hidden sm:block">
-                  <div class="text-[10px] text-slate-400 font-mono">PAC ${p.pac} | SHO ${p.sho}</div>
-                  <div class="text-[10px] text-slate-400 font-mono">PAS ${p.pas} | DEF ${p.def}</div>
+                  ${p.pos === "POR" ? `
+                    <div class="text-[10px] text-amber-400 font-mono font-bold">🧤 PAR ${p.par !== undefined ? p.par : p.ovr}</div>
+                    <div class="text-[10px] text-slate-400 font-mono">REF ${p.pac} | PAS ${p.pas}</div>
+                  ` : `
+                    <div class="text-[10px] text-slate-400 font-mono">PAC ${p.pac} | SHO ${p.sho}</div>
+                    <div class="text-[10px] text-slate-400 font-mono">PAS ${p.pas} | DEF ${p.def}</div>
+                  `}
                 </div>
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-br ${p.ovr >= 85 ? 'from-amber-500/20 to-amber-700/30 text-amber-400 border border-amber-500/40' : 'from-slate-800 to-slate-900 text-slate-200 border border-slate-700'} flex items-center justify-center font-black text-sm shadow">
                   ${p.ovr}
@@ -5490,15 +5542,24 @@ function renderSquadView(container, gameState) {
 
           <!-- Atributos estilo FC (Hexágono / Barras) -->
           <div class="space-y-2 mb-4 bg-slate-950/70 p-3.5 rounded-2xl border border-slate-800/80">
-            <div class="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">Atributos Principales</div>
-            ${[
+            <div class="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">
+              ${p.pos === "POR" ? "🧤 Atributos de Portería" : "Atributos Principales"}
+            </div>
+            ${(p.pos === "POR" ? [
+              { label: "Paradas (PAR)", val: p.par !== undefined ? p.par : p.ovr, color: "bg-amber-400" },
+              { label: "Reflejos / Ritmo (PAC)", val: p.pac, color: "bg-emerald-500" },
+              { label: "Saque / Pase (PAS)", val: p.pas, color: "bg-sky-500" },
+              { label: "Salidas / Agilidad (DRI)", val: p.dri, color: "bg-amber-500" },
+              { label: "Colocación (DEF)", val: p.def, color: "bg-indigo-500" },
+              { label: "Físico (PHY)", val: p.phy, color: "bg-purple-500" }
+            ] : [
               { label: "Ritmo (PAC)", val: p.pac, color: "bg-emerald-500" },
               { label: "Tiro (SHO)", val: p.sho, color: "bg-red-500" },
               { label: "Pase (PAS)", val: p.pas, color: "bg-sky-500" },
               { label: "Regate (DRI)", val: p.dri, color: "bg-amber-500" },
               { label: "Defensa (DEF)", val: p.def, color: "bg-indigo-500" },
               { label: "Físico (PHY)", val: p.phy, color: "bg-purple-500" }
-            ].map(attr => `
+            ]).map(attr => `
               <div>
                 <div class="flex justify-between text-[11px] font-semibold text-slate-300 mb-0.5">
                   <span>${attr.label}</span>

@@ -85,8 +85,13 @@ export function renderSquadView(container, gameState) {
               <!-- Media FC y Atributos rápidos -->
               <div class="flex items-center gap-3">
                 <div class="text-right hidden sm:block">
-                  <div class="text-[10px] text-slate-400 font-mono">PAC ${p.pac} | SHO ${p.sho}</div>
-                  <div class="text-[10px] text-slate-400 font-mono">PAS ${p.pas} | DEF ${p.def}</div>
+                  ${p.pos === "POR" ? `
+                    <div class="text-[10px] text-amber-400 font-mono font-bold">🧤 PAR ${p.par !== undefined ? p.par : p.ovr}</div>
+                    <div class="text-[10px] text-slate-400 font-mono">REF ${p.pac} | PAS ${p.pas}</div>
+                  ` : `
+                    <div class="text-[10px] text-slate-400 font-mono">PAC ${p.pac} | SHO ${p.sho}</div>
+                    <div class="text-[10px] text-slate-400 font-mono">PAS ${p.pas} | DEF ${p.def}</div>
+                  `}
                 </div>
                 <div class="w-10 h-10 rounded-xl bg-gradient-to-br ${p.ovr >= 85 ? 'from-amber-500/20 to-amber-700/30 text-amber-400 border border-amber-500/40' : 'from-slate-800 to-slate-900 text-slate-200 border border-slate-700'} flex items-center justify-center font-black text-sm shadow">
                   ${p.ovr}
@@ -181,15 +186,24 @@ export function renderSquadView(container, gameState) {
 
           <!-- Atributos estilo FC (Hexágono / Barras) -->
           <div class="space-y-2 mb-4 bg-slate-950/70 p-3.5 rounded-2xl border border-slate-800/80">
-            <div class="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">Atributos Principales</div>
-            ${[
+            <div class="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-1">
+              ${p.pos === "POR" ? "🧤 Atributos de Portería" : "Atributos Principales"}
+            </div>
+            ${(p.pos === "POR" ? [
+              { label: "Paradas (PAR)", val: p.par !== undefined ? p.par : p.ovr, color: "bg-amber-400" },
+              { label: "Reflejos / Ritmo (PAC)", val: p.pac, color: "bg-emerald-500" },
+              { label: "Saque / Pase (PAS)", val: p.pas, color: "bg-sky-500" },
+              { label: "Salidas / Agilidad (DRI)", val: p.dri, color: "bg-amber-500" },
+              { label: "Colocación (DEF)", val: p.def, color: "bg-indigo-500" },
+              { label: "Físico (PHY)", val: p.phy, color: "bg-purple-500" }
+            ] : [
               { label: "Ritmo (PAC)", val: p.pac, color: "bg-emerald-500" },
               { label: "Tiro (SHO)", val: p.sho, color: "bg-red-500" },
               { label: "Pase (PAS)", val: p.pas, color: "bg-sky-500" },
               { label: "Regate (DRI)", val: p.dri, color: "bg-amber-500" },
               { label: "Defensa (DEF)", val: p.def, color: "bg-indigo-500" },
               { label: "Físico (PHY)", val: p.phy, color: "bg-purple-500" }
-            ].map(attr => `
+            ]).map(attr => `
               <div>
                 <div class="flex justify-between text-[11px] font-semibold text-slate-300 mb-0.5">
                   <span>${attr.label}</span>

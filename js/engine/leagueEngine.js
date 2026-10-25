@@ -175,10 +175,12 @@ function getTeamStrength(team) {
     ? attackers.reduce((acc, p) => acc + ((p.sho || 70) * 0.45 + (p.dri || 70) * 0.3 + (p.pac || 70) * 0.25), 0) / attackers.length
     : avgOvr;
 
-  // Defensa (DFC, LD, LI, MCD, POR)
-  const defenders = starters.filter(p => ["DFC", "LD", "LI", "MCD", "POR"].includes(p.pos));
+  // Defensa (DFC, LD, LI, MCD) y Portero (POR)
+  const gk = starters.find(p => p.pos === "POR") || (team.players || []).find(p => p.pos === "POR");
+  const gkVal = gk ? (gk.par !== undefined ? gk.par : (gk.gks || gk.ovr || 75)) : avgOvr;
+  const defenders = starters.filter(p => ["DFC", "LD", "LI", "MCD"].includes(p.pos));
   const def = defenders.length > 0
-    ? defenders.reduce((acc, p) => acc + ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.ovr || 70) * 0.2), 0) / defenders.length
+    ? (defenders.reduce((acc, p) => acc + ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.ovr || 70) * 0.2), 0) / defenders.length) * 0.70 + (gkVal * 0.30)
     : avgOvr;
 
   // Mediocampo (MC, MCD, MCO, MD, MI)

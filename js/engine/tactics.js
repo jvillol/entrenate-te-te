@@ -243,7 +243,8 @@ export function calculateEffectiveRating(player, slotPos) {
   const curEnergy = player.energy !== undefined ? player.energy : 100;
   const energyFactor = 0.5 + (curEnergy / 100) * 0.5; // La energía baja reduce rendimiento
   const injuryPenalty = player.injury ? 0.40 : 1.0; // Los futbolistas lesionados ven mermado su rendimiento drásticamente
-  return Math.round(player.ovr * affinity * energyFactor * injuryPenalty);
+  const baseRating = (slotPos === "POR" && player.pos === "POR" && player.par !== undefined) ? player.par : (player.ovr || 70);
+  return Math.round(baseRating * affinity * energyFactor * injuryPenalty);
 }
 
 // Media global de un equipo en base a su 11 inicial
@@ -358,7 +359,11 @@ export function buildOptimalLineup(team, targetFormationKey = null) {
   const lineup = new Array(11).fill(null);
 
   // 1. Guardameta en Slot 0 (POR)
-  const gks = availablePlayers.filter(p => p.pos === "POR").sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+  const gks = availablePlayers.filter(p => p.pos === "POR").sort((a, b) => {
+    const valA = (a.par !== undefined ? a.par : a.ovr || 70) * (0.6 + ((a.energy !== undefined ? a.energy : 100) / 250));
+    const valB = (b.par !== undefined ? b.par : b.ovr || 70) * (0.6 + ((b.energy !== undefined ? b.energy : 100) / 250));
+    return valB - valA;
+  });
   const bestGk = gks[0] || availablePlayers[0];
   if (bestGk) {
     lineup[0] = bestGk;
@@ -367,7 +372,6 @@ export function buildOptimalLineup(team, targetFormationKey = null) {
 
   // Helper para comprobar coincidencia de posición (incluyendo equivalencias de banda MD<->ED y MI<->EI)
   const matchesPosDirect = (playerPos, slotPos) => {
-    if (!playerPos || !slotPos) return false;
     if (playerPos === slotPos) return true;
     if ((playerPos === "MD" && slotPos === "ED") || (playerPos === "ED" && slotPos === "MD")) return true;
     if ((playerPos === "MI" && slotPos === "EI") || (playerPos === "EI" && slotPos === "MI")) return true;
@@ -384,58 +388,55 @@ export function buildOptimalLineup(team, targetFormationKey = null) {
     return list.some(sec => matchesPosDirect(sec, slotPos));
   };
 
-  // Comprobar si la formación actual contiene algún slot para una posición dada
-  const formationContainsPos = targetPos => {
-    return formation.slots.some(s => matchesPosDirect(targetPos, s.pos));
-  };
-
-  // Evaluar adecuación de un jugador a un slot
-  const getSlotSuitability = (player, slotPos) => {
-    const baseOvr = player.ovr || 70;
-    const fitness = 0.6 + ((player.energy !== undefined ? player.energy : 100) / 250);
-    const score = baseOvr * fitness;
-
-    if (hasPrimaryMatch(player, slotPos)) {
-      return 100 + score; // Coincidencia natural primaria
-    }
-    if (hasSecondaryMatch(player, slotPos)) {
-      // Si la posición primaria del jugador ni siquiera existe en esta formación táctica (ej: Baena MI en 5-3-2),
-      // su posición secundaria en el campo compite como posición natural
-      if (!formationContainsPos(player.pos)) {
-        return 100 + score - 0.1; // Ligerísimo desempate si hubiera un especialista idéntico en OVR
-      }
-      return 50 + score; // Posición secundaria cuando su puesto primario sí está disponible en el esquema
-    }
-    // Si no es natural ni secundaria, calcular efectividad
-    const eff = calculateEffectiveRating(player, slotPos);
-    return eff;
-  };
-
-  // Asignar slots ordenados por especificidad (primero los puestos con menos especialistas)
-  // Indices 1..10
-  const slotIndices = formation.slots.map((s, idx) => idx).filter(idx => idx > 0);
-
-  // Ordenar slots por número de especialistas naturales disponibles (los puestos más restringidos primero)
-  slotIndices.sort((a, b) => {
-    const posA = formation.slots[a].pos;
-    const posB = formation.slots[b].pos;
-    const countA = availablePlayers.filter(p => p.pos !== "POR" && (hasPrimaryMatch(p, posA) || hasSecondaryMatch(p, posA))).length;
-    const countB = availablePlayers.filter(p => p.pos !== "POR" && (hasPrimaryMatch(p, posB) || hasSecondaryMatch(p, posB))).length;
-    return countA - countB;
-  });
-
-  for (const idx of slotIndices) {
-    const slot = formation.slots[idx];
+  // 2. Asignar slots de campo (1 a 10)
+  // Paso A: Jugadores con coincidencia exacta en posición principal (ordenados por OVR)
+  formation.slots.forEach((slot, idx) => {
+    if (idx === 0) return;
     const candidates = availablePlayers
-      .filter(p => !used.has(p.id) && p.pos !== "POR")
-      .sort((a, b) => getSlotSuitability(b, slot.pos) - getSlotSuitability(a, slot.pos));
+      .filter(p => !used.has(p.id) && p.pos !== "POR" && hasPrimaryMatch(p, slot.pos))
+      .sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
 
     if (candidates.length > 0) {
-      const chosen = candidates[0];
-      lineup[idx] = chosen;
-      used.add(chosen.id);
+      lineup[idx] = candidates[0];
+      used.add(candidates[0].id);
     }
-  }
+  });
+
+  // Paso B: Slots restantes no cubiertos -> buscar coincidencia en posición secundaria (ordenados por OVR)
+  formation.slots.forEach((slot, idx) => {
+    if (idx === 0 || lineup[idx] !== null) return;
+    const candidates = availablePlayers
+      .filter(p => !used.has(p.id) && p.pos !== "POR" && hasSecondaryMatch(p, slot.pos))
+      .sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+
+    if (candidates.length > 0) {
+      lineup[idx] = candidates[0];
+      used.add(candidates[0].id);
+    }
+  });
+
+  // Paso C: Slots aún vacíos -> mejor efectividad calculada en esa posición
+  formation.slots.forEach((slot, idx) => {
+    if (idx === 0 || lineup[idx] !== null) return;
+    const candidates = availablePlayers
+      .filter(p => !used.has(p.id) && p.pos !== "POR")
+      .sort((a, b) => calculateEffectiveRating(b, slot.pos) - calculateEffectiveRating(a, slot.pos));
+
+    if (candidates.length > 0) {
+      lineup[idx] = candidates[0];
+      used.add(candidates[0].id);
+    }
+  });
+
+  // Paso D: Fallback de seguridad si faltaran huecos
+  formation.slots.forEach((slot, idx) => {
+    if (lineup[idx] !== null) return;
+    const fallback = availablePlayers.find(p => !used.has(p.id));
+    if (fallback) {
+      lineup[idx] = fallback;
+      used.add(fallback.id);
+    }
+  });
 
   const bench = team.players.filter(p => !used.has(p.id)).sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
 
