@@ -631,14 +631,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
             <div>
               <div class="font-black text-white text-xs">${userTeam.name}</div>
-              <div class="text-[10px] text-slate-400">${isUserHome ? 'Local' : 'Visitante'} · Media <b class="text-amber-400">${averages.overall}</b></div>
+              <div class="text-[10px] text-slate-400">${isUserHome ? 'Local · 🏟️ Factor Campo' : 'Visitante'} · Media <b class="text-amber-400">${averages.overall}</b></div>
             </div>
           </div>
           <span class="font-mono font-bold text-slate-500 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">VS</span>
           <div id="btn-matchup-rival" class="flex items-center gap-2 text-right cursor-pointer p-1 rounded-xl transition ${preMatchTab === 'OPPONENT' ? 'ring-2 ring-amber-500/80 bg-amber-500/10' : 'hover:bg-slate-800/50'}">
             <div>
               <div class="font-black text-white text-xs">${opponentTeam.name}</div>
-              <div class="text-[10px] text-slate-400">Rival · Media <b class="text-amber-400">${oppAverages.overall}</b></div>
+              <div class="text-[10px] text-slate-400">${!isUserHome ? 'Local · 🏟️ Factor Campo' : 'Visitante'} · Media <b class="text-amber-400">${oppAverages.overall}</b></div>
             </div>
             <div class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shadow" style="background: linear-gradient(135deg, ${opponentTeam.primaryColor}, ${opponentTeam.secondaryColor}); color: ${opponentTeam.textColor};">
               ${opponentTeam.shortName}
@@ -646,12 +646,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           </div>
         </div>
 
-        <!-- MEJORA 3 y MEJORA 6: Barra de Clima del Partido y Entrenamiento Semanal Activo -->
-        <div class="px-3 py-1.5 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between gap-2 text-[10px]">
-          <div class="flex items-center gap-1.5 text-sky-300 font-bold truncate" title="${matchWeather.pitchEffect}">
+        <!-- MEJORA 3, MEJORA 6 y FACTOR CAMPO: Barra de Clima, Factor Campo y Entrenamiento Semanal -->
+        <div class="px-3 py-1.5 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between gap-1.5 text-[10px]">
+          <div class="flex items-center gap-1 text-sky-300 font-bold truncate" title="${matchWeather.pitchEffect}">
             <span>${matchWeather.icon}</span>
             <span>${matchWeather.label}</span>
-            <span class="text-[9px] text-slate-400 font-normal hidden sm:inline">· ${matchWeather.pitchEffect}</span>
+          </div>
+          <div class="flex items-center gap-1 px-2 py-0.5 rounded-full ${isUserHome ? 'bg-amber-500/15 border border-amber-500/40 text-amber-300' : 'bg-slate-800/80 border border-slate-700 text-slate-400'} font-bold whitespace-nowrap" title="${isUserHome ? 'Juegas en tu estadio (+4% empuje de tu afición)' : 'Juegas fuera de casa: El rival cuenta con el empuje de su estadio'}">
+            <span>🏟️</span>
+            <span>${isUserHome ? 'Local (+Factor Campo)' : 'Visitante'}</span>
           </div>
           <div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold whitespace-nowrap" title="${activeWeeklyTraining.shortEffect}">
             <span>${activeWeeklyTraining.icon}</span>

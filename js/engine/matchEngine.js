@@ -1231,7 +1231,7 @@ export class MatchSimulator {
 
     const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0) * (this.weeklyTraining === "recovery" ? 0.93 : 1.0);
     const homeTalkDrain = (this.userSide === "home" ? userDrainTalkMod : 1.0) * weatherHalfDrain;
-    const awayTalkDrain = (this.userSide === "away" ? userDrainTalkMod : 1.0) * weatherHalfDrain;
+    const awayTalkDrain = (this.userSide === "away" ? userDrainTalkMod : 1.0) * weatherHalfDrain * 1.04; // Factor campo: el visitante acusa el desplazamiento
 
     // Desgaste físico gradual y acumulación de minutos según atributos físicos (PHY), media (OVR), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
@@ -1299,13 +1299,14 @@ export class MatchSimulator {
     const homeDefBonus = this.homeInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.homeInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
     const awayDefBonus = this.awayInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.awayInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
 
-    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 2) * (homeMod.atk + homeAtkBonus);
-    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 2) * (homeMod.def + homeDefBonus);
+    // Factor Campo: El equipo local cuenta con un empuje ambiental base (+2.8 ATA / +2.6 DEF)
+    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 2.8) * (homeMod.atk + homeAtkBonus);
+    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 2.6) * (homeMod.def + homeDefBonus);
     const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk", "away") * (awayMod.atk + awayAtkBonus);
     const awayDef = this.calcTeamPower(this.awayPlayersOnPitch, "def", "away") * (awayMod.def + awayDefBonus);
 
-    // Disputa de la posesión con impacto de estilo de pase y presión alta
-    const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home");
+    // Disputa de la posesión con impacto de estilo de pase, presión alta y factor campo en la medular
+    const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home") + 1.8;
     const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid", "away");
 
     const wShortBonus = this.weather?.shortPassBonus || 0;
@@ -1324,7 +1325,8 @@ export class MatchSimulator {
       else possModAway += this.activeShout.possBonus;
     }
 
-    const probHomePoss = Math.max(0.20, Math.min(0.80, (midHome / (midHome + midAway)) + 0.03 + possModHome - possModAway));
+    // Ventaja base ambiental del estadio local en posesión (+3.8%)
+    const probHomePoss = Math.max(0.20, Math.min(0.80, (midHome / (midHome + midAway)) + 0.038 + possModHome - possModAway));
 
     let currentPoss = Math.random() < probHomePoss ? "home" : "away";
 
@@ -1379,8 +1381,9 @@ export class MatchSimulator {
       this.ball.targetX = 65 + Math.random() * 28;
       this.ball.targetY = ballYTarget;
 
-      // Ocasión de ataque local
-      let homeChanceMult = 0.28;
+      // Ocasión de ataque local (con arreón final de la afición local si empata o pierde en el tramo final)
+      const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.035 : 0;
+      let homeChanceMult = 0.285 + lateHomeSurge;
       if (this.activeShout) {
         if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.16;
         else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.72;
@@ -1852,19 +1855,23 @@ export class MatchSimulator {
     const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
     const boxY = 36 + Math.random() * 28;
 
-    // Determinar resultado y rincón de disparo de forma coherente (con impacto de Entrenamiento Semanal y Clima)
+    // Determinar resultado y rincón de disparo de forma coherente (con impacto de Factor Campo, Entrenamiento Semanal y Clima)
     const shooterSho = shooter.sho !== undefined ? shooter.sho : 75;
     const isLongShotPattern = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
     const weatherShotBonus = isLongShotPattern ? (this.weather?.longShotBonus || 0) : ((this.weather?.longShotBonus || 0) * 0.45);
     const userFinishingBonus = (attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 3.5 : 0;
-    const shotQuality = shooterSho + weatherShotBonus + userFinishingBonus + (Math.random() * 28 - 14);
+    const homeGroundShotBonus = isHome ? 2.2 : 0;
+    const lateHomeShotSurge = (isHome && this.minute >= 70 && this.homeScore <= this.awayScore) ? 1.4 : 0;
+    const shotQuality = shooterSho + weatherShotBonus + userFinishingBonus + homeGroundShotBonus + lateHomeShotSurge + (Math.random() * 28 - 14);
 
-    // Habilidad específica de parada del portero ('par') modulada por su energía física y entrenamiento defensivo
+    // Habilidad específica de parada del portero ('par') modulada por su energía física, entrenamiento defensivo y factor campo en casa
     const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
     const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
     const userDefBonus = (defSide === this.userSide && this.weeklyTraining === "defensive") ? 3.5 : 0;
-    const gkSavePower = (gkSkill * gkFitness) + userDefBonus + (Math.random() * 26 - 13);
-    const onTargetProb = 0.72 + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.05 : 0);
+    const homeGkSaveBonus = (!isHome) ? 1.8 : 0; // El portero local se agiganta con el apoyo de su estadio
+    const gkSavePower = (gkSkill * gkFitness) + userDefBonus + homeGkSaveBonus + (Math.random() * 26 - 13);
+    const homeOnTargetBonus = isHome ? 0.035 : 0;
+    const onTargetProb = 0.72 + homeOnTargetBonus + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.05 : 0);
     const onTarget = Math.random() < onTargetProb;
     const isDefenderBlock = !onTarget && Math.random() < 0.22;
 
@@ -3162,6 +3169,11 @@ export class MatchSimulator {
         else if (type === "mid") avgPower *= (this.activeShout.midMod || 1.0);
         else if (type === "def") avgPower *= (this.activeShout.defMod || 1.0);
       }
+    }
+
+    // Factor Campo: El equipo local cuenta con un empuje ambiental permanente (+3.5%)
+    if (side === "home") {
+      avgPower *= 1.035;
     }
 
     // Feature B: Aliento de la Grada (Factor campo de remontada local)
