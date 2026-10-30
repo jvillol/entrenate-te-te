@@ -680,3 +680,7 @@ export const TEAMS_DATA = [
     ]
   }
 ];
+
+if (typeof window !== "undefined") {
+  window.TEAMS_DATA = TEAMS_DATA;
+}

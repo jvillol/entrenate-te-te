@@ -684,6 +684,10 @@ const TEAMS_DATA = [
   }
 ];
 
+if (typeof window !== "undefined") {
+  window.TEAMS_DATA = TEAMS_DATA;
+}
+
 // =========================================================
 // ARCHIVO: js\engine\tactics.js
 // =========================================================
@@ -3602,7 +3606,7 @@ class MatchSimulator {
     return false;
   }
 
-  // Ejecución de jugada clave en varias fases cinematográficas estilo Football Manager
+  // Ejecución de jugada clave orgánica y conectada a la simulación en tiempo real
   executeKeyHighlight(attackingSide, onComplete) {
     this.isHighlightRunning = true;
     this.speed = 1; // Ritmo deliberado para apreciar la jugada en detalle
@@ -3615,180 +3619,122 @@ class MatchSimulator {
     const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
     const teamInst = isHome ? this.homeInstructions : this.awayInstructions;
 
-    // Analizar las funciones tácticas reales de los futbolistas en el campo para elegir el patrón ideal
-    const fieldAtk = atkPlayers.filter(p => p.pos !== "POR");
-    const activeRoles = fieldAtk.map(p => this.getPlayerRole(p, attackingSide)?.id).filter(Boolean);
-    const hasRole = (...ids) => ids.some(id => activeRoles.includes(id));
+    const atk2D = isHome ? this.home2D : this.away2D;
+    const def2D = isHome ? this.away2D : this.home2D;
 
-    const hasWinger = hasRole("w_winger");
-    const hasInsideForward = hasRole("w_inside_forward");
-    const hasAttackingFB = hasRole("fb_attacking");
-    const hasTargetMan = hasRole("st_target");
-    const hasPoacher = hasRole("st_poacher");
-    const hasFalseNine = hasRole("st_false_nine");
-    const hasPlaymaker = hasRole("am_playmaker", "cm_playmaker", "dm_playmaker");
-    const hasBoxToBox = hasRole("cm_box_to_box", "am_shadow_striker");
-    const hasBallWinner = hasRole("cm_ball_winner", "dm_destroyer", "cb_stopper");
+    // 1. CAPTURAR LA SITUACIÓN EXACTA EN VIVO DEL BALÓN Y JUGADORES EN EL CÉSPED
+    const liveBallX = typeof this.ball.x === "number" ? Math.max(5, Math.min(95, this.ball.x)) : (isHome ? 46 : 54);
+    const liveBallY = typeof this.ball.y === "number" ? Math.max(8, Math.min(92, this.ball.y)) : 50;
+    const prevPossession = this.ball.possession; // Quién tenía el balón antes de generarse la jugada
 
-    const isUserAtk = attackingSide === this.userSide;
-    const shoutCrossBoost = (isUserAtk && this.activeShout?.id === "CROSS_BOX") ? 2.2 : 0;
-    const shoutShootBoost = (isUserAtk && this.activeShout?.id === "SHOOT_ON_SIGHT") ? 2.2 : 0;
+    // Progreso horizontal del equipo atacante (0 = propia línea de fondo, 100 = línea de gol rival)
+    const relProgress = isHome ? liveBallX : (100 - liveBallX);
+    const isFlankLeft = liveBallY < 38;
+    const isFlankRight = liveBallY > 62;
+    const isCenterLane = !isFlankLeft && !isFlankRight;
+    const isTurnoverFromOpponent = prevPossession === defSide;
 
-    // 12 Patrones Tácticos de Jugada Clave ponderados según roles activos e instrucciones del equipo
-    const patternWeights = [
-      {
-        id: "TIKI_TAKA_CENTRAL",
-        weight: 1.0 + (hasPlaymaker ? 1.4 : 0) + (teamInst?.inPossession?.passingStyle === "short" ? 0.9 : 0) + (teamInst?.inPossession?.width === "center" ? 0.6 : 0)
-      },
-      {
-        id: "WING_CROSS_HEADER",
-        weight: 1.0 + shoutCrossBoost + (hasWinger ? 1.3 : 0) + (hasTargetMan ? 1.4 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.9 : 0) + (teamInst?.inPossession?.finalThird === "early_crosses" ? 0.8 : 0)
-      },
-      {
-        id: "NEAR_WING_CUTBACK",
-        weight: 1.0 + (shoutCrossBoost * 0.5) + (hasWinger ? 1.3 : 0) + (hasInsideForward ? 0.9 : 0) + (hasBoxToBox ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.7 : 0)
-      },
-      {
-        id: "COUNTER_THROUGH_BALL",
-        weight: 1.0 + (hasPoacher ? 1.5 : 0) + (teamInst?.inTransition?.win === "counter" ? 1.2 : 0) + (teamInst?.inPossession?.passingStyle === "direct" ? 0.8 : 0)
-      },
-      {
-        id: "INDIVIDUAL_SLALOM",
-        weight: 1.0 + (hasInsideForward ? 1.4 : 0) + (hasWinger ? 1.2 : 0) + (teamInst?.inPossession?.finalThird === "dribble" ? 1.1 : 0)
-      },
-      {
-        id: "LONG_RANGE_BOMB",
-        weight: 0.95 + shoutShootBoost + (hasBoxToBox ? 1.5 : 0) + (teamInst?.inPossession?.finalThird === "shoot_on_sight" ? 1.2 : 0)
-      },
-      {
-        id: "FALSE_NINE_DROP_AND_SPLIT",
-        weight: 0.9 + (hasFalseNine ? 2.1 : 0) + (hasPoacher || hasInsideForward ? 1.0 : 0) + (hasPlaymaker ? 0.6 : 0)
-      },
-      {
-        id: "OVERLAPPING_FULLBACK_CROSS",
-        weight: 0.95 + shoutCrossBoost + (hasAttackingFB ? 2.0 : 0) + (hasTargetMan || hasPoacher ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.8 : 0)
-      },
-      {
-        id: "CHIPPED_PASS_OVER_DEFENSE",
-        weight: 0.95 + (hasPlaymaker ? 1.6 : 0) + (hasPoacher || hasTargetMan ? 1.0 : 0) + (teamInst?.inPossession?.finalThird === "work_into_box" ? 0.8 : 0)
-      },
-      {
-        id: "THIRD_MAN_TRIANGLE",
-        weight: 1.0 + (hasBoxToBox ? 1.4 : 0) + (hasTargetMan || hasFalseNine ? 1.1 : 0) + (hasPlaymaker ? 0.8 : 0)
-      },
-      {
-        id: "HIGH_PRESS_TURNOVER",
-        weight: 0.95 + (hasBallWinner ? 1.6 : 0) + (teamInst?.outOfPossession?.pressing === "high" ? 1.3 : 0) + (teamInst?.inTransition?.lose === "counter_press" ? 0.9 : 0)
-      },
-      {
-        id: "INSIDE_FORWARD_CURLED_SHOT",
-        weight: 1.0 + (shoutShootBoost * 0.7) + (hasInsideForward ? 2.0 : 0) + (hasWinger ? 1.0 : 0) + (teamInst?.inPossession?.finalThird === "dribble" ? 0.8 : 0)
-      }
-    ];
+    // 2. DETERMINAR EL ORIGEN Y PATRÓN ORGÁNICO REAL DE LA JUGADA
+    let playPattern = "TIKI_TAKA_CENTRAL";
+    let situationalContext = "BUILDUP"; // "COUNTER", "HIGH_PRESS", "WING_LEFT", "WING_RIGHT", "CENTRAL"
 
-    if (!this.recentHighlightPatterns) this.recentHighlightPatterns = [];
-    let eligiblePatterns = patternWeights.filter(pw => !this.recentHighlightPatterns.includes(pw.id));
-    if (eligiblePatterns.length === 0) eligiblePatterns = patternWeights;
-
-    const totalPatWeight = eligiblePatterns.reduce((acc, item) => acc + item.weight, 0);
-    let patRoll = Math.random() * totalPatWeight;
-    let playPattern = eligiblePatterns[0].id;
-    for (const item of eligiblePatterns) {
-      patRoll -= item.weight;
-      if (patRoll <= 0) {
-        playPattern = item.id;
-        break;
-      }
+    if (relProgress < 38 || (isTurnoverFromOpponent && relProgress < 48)) {
+      situationalContext = "COUNTER";
+      playPattern = Math.random() < 0.65 ? "COUNTER_THROUGH_BALL" : "TIKI_TAKA_CENTRAL";
+    } else if (isTurnoverFromOpponent && relProgress >= 58) {
+      situationalContext = "HIGH_PRESS";
+      playPattern = "HIGH_PRESS_TURNOVER";
+    } else if (isFlankLeft) {
+      situationalContext = "WING_LEFT";
+      const roll = Math.random();
+      if (roll < 0.38) playPattern = "NEAR_WING_CUTBACK";
+      else if (roll < 0.72) playPattern = "WING_CROSS_HEADER";
+      else playPattern = "INSIDE_FORWARD_CURLED_SHOT";
+    } else if (isFlankRight) {
+      situationalContext = "WING_RIGHT";
+      const roll = Math.random();
+      if (roll < 0.42) playPattern = "WING_CROSS_HEADER";
+      else if (roll < 0.75) playPattern = "OVERLAPPING_FULLBACK_CROSS";
+      else playPattern = "INDIVIDUAL_SLALOM";
+    } else {
+      situationalContext = "CENTRAL";
+      const roll = Math.random();
+      if (roll < 0.30) playPattern = "TIKI_TAKA_CENTRAL";
+      else if (roll < 0.55) playPattern = "CHIPPED_PASS_OVER_DEFENSE";
+      else if (roll < 0.78) playPattern = "THIRD_MAN_TRIANGLE";
+      else if (roll < 0.90) playPattern = "LONG_RANGE_BOMB";
+      else playPattern = "FALSE_NINE_DROP_AND_SPLIT";
     }
-    this.recentHighlightPatterns.push(playPattern);
-    if (this.recentHighlightPatterns.length > 4) this.recentHighlightPatterns.shift();
+
     this.lastHighlightPattern = playPattern;
     const patternSeed = Math.random();
 
-    // Helper para elegir jugador único según la función táctica exacta de cada rol en el patrón
-    const pickUnique = (preferredPositions, actionType, excludePlayers = []) => {
-      const excludedIds = new Set(excludePlayers.filter(Boolean).map(p => p.id));
-      const pool = fieldAtk.filter(p => !excludedIds.has(p.id));
-      if (pool.length === 0) return fieldAtk[0] || atkPlayers[0];
-      return this.pickPlayerForAction(pool, preferredPositions, actionType, attackingSide);
-    };
+    // 3. SELECCIÓN DE JUGADORES ORGÁNICOS BASADOS EN QUIÉN ESTABA CERCA DEL BALÓN
+    const fieldAtk = atkPlayers.filter(p => p.pos !== "POR");
 
-    let shooter, passer, pivot, supportAttacker;
+    // Ordenar jugadores atacantes por proximidad física real a donde estaba el balón
+    const atkByProximity = fieldAtk.slice().sort((a, b) => {
+      const itemA = atk2D.find(p => p.player?.id === a.id);
+      const itemB = atk2D.find(p => p.player?.id === b.id);
+      const distA = Math.hypot((itemA?.curX ?? 50) - liveBallX, (itemA?.curY ?? 50) - liveBallY);
+      const distB = Math.hypot((itemB?.curX ?? 50) - liveBallX, (itemB?.curY ?? 50) - liveBallY);
+      return distA - distB;
+    });
 
-    if (playPattern === "TIKI_TAKA_CENTRAL") {
-      shooter = pickUnique(["DC", "MCO", "EI", "ED", "MC"], "poacher_run", []);
-      passer = pickUnique(["MCO", "MC", "EI", "ED", "DC"], "playmaker_pass", [shooter]);
-      supportAttacker = pickUnique(["MCO", "DC", "MC", "EI", "ED"], "playmaker_pass", [shooter, passer]);
-      pivot = pickUnique(["MCD", "MC", "DFC"], "playmaker_pass", [shooter, passer, supportAttacker]);
-    } else if (playPattern === "WING_CROSS_HEADER") {
-      shooter = pickUnique(["DC", "MCO", "MC", "EI", "ED"], "aerial_finish", []);
-      passer = pickUnique(["ED", "LD", "EI", "MCO", "MC"], "dribble_wing", [shooter]);
-      pivot = pickUnique(["MCD", "MC", "DFC"], "playmaker_pass", [shooter, passer]);
-      supportAttacker = pickUnique(["DC", "MCO", "EI", "MC"], "poacher_run", [shooter, passer, pivot]);
-    } else if (playPattern === "NEAR_WING_CUTBACK") {
-      passer = pickUnique(["EI", "LI", "MCO", "ED", "DC"], "dribble_wing", []);
-      shooter = pickUnique(["DC", "MCO", "MC", "ED"], "finish_box", [passer]);
-      pivot = pickUnique(["MC", "MCD", "LI"], "playmaker_pass", [passer, shooter]);
-      supportAttacker = pickUnique(["DC", "MCO", "ED", "MC"], "finish_box", [passer, shooter, pivot]);
-    } else if (playPattern === "COUNTER_THROUGH_BALL") {
-      shooter = pickUnique(["DC", "EI", "ED", "MCO"], "poacher_run", []);
-      passer = pickUnique(["MCO", "MC", "EI", "ED", "DC"], "playmaker_pass", [shooter]);
-      pivot = pickUnique(["MCD", "MC", "DFC"], "ball_winner", [shooter, passer]);
-      supportAttacker = pickUnique(["EI", "ED", "MCO", "DC"], "poacher_run", [shooter, passer, pivot]);
-    } else if (playPattern === "INDIVIDUAL_SLALOM") {
-      shooter = pickUnique(["EI", "ED", "MCO", "DC", "MC"], "inside_cut", []);
-      passer = pickUnique(["DC", "MCO", "MC", "EI", "ED"], "target_hold", [shooter]);
-      pivot = pickUnique(["MCD", "MC", "LD", "LI"], "playmaker_pass", [shooter, passer]);
-      supportAttacker = pickUnique(["ED", "EI", "DC", "MCO"], "dribble_wing", [shooter, passer, pivot]);
-    } else if (playPattern === "LONG_RANGE_BOMB") {
-      shooter = pickUnique(["MC", "MCO", "DC", "MCD", "EI", "ED"], "box_to_box_arrival", []);
-      passer = pickUnique(["MCO", "MC", "DC", "EI", "ED"], "playmaker_pass", [shooter]);
-      pivot = pickUnique(["MCD", "MC", "DFC"], "playmaker_pass", [shooter, passer]);
-      supportAttacker = pickUnique(["DC", "EI", "ED", "MCO"], "target_hold", [shooter, passer, pivot]);
-    } else if (playPattern === "FALSE_NINE_DROP_AND_SPLIT") {
-      passer = pickUnique(["DC", "MCO", "MC"], "false_nine", []);
-      shooter = pickUnique(["EI", "ED", "DC", "MCO", "MC"], "poacher_run", [passer]);
-      pivot = pickUnique(["MCD", "MC", "DFC"], "playmaker_pass", [passer, shooter]);
-      supportAttacker = pickUnique(["ED", "EI", "MCO", "MC"], "dribble_wing", [passer, shooter, pivot]);
-    } else if (playPattern === "OVERLAPPING_FULLBACK_CROSS") {
-      passer = pickUnique(["LD", "LI", "ED", "EI", "MC"], "overlap_fullback", []);
-      shooter = pickUnique(["DC", "MCO", "EI", "ED", "MC"], "finish_box", [passer]);
-      pivot = pickUnique(["ED", "EI", "MCO", "MC"], "dribble_wing", [passer, shooter]);
-      supportAttacker = pickUnique(["DC", "MCO", "MC", "EI"], "aerial_finish", [passer, shooter, pivot]);
-    } else if (playPattern === "CHIPPED_PASS_OVER_DEFENSE") {
-      passer = pickUnique(["MCO", "MC", "MCD", "DC"], "playmaker_pass", []);
-      shooter = pickUnique(["DC", "EI", "ED", "MCO"], "poacher_run", [passer]);
-      pivot = pickUnique(["MCD", "MC", "DFC"], "playmaker_pass", [passer, shooter]);
-      supportAttacker = pickUnique(["EI", "ED", "MC", "MCO"], "playmaker_pass", [passer, shooter, pivot]);
-    } else if (playPattern === "THIRD_MAN_TRIANGLE") {
-      shooter = pickUnique(["MC", "MCO", "DC", "EI", "ED"], "box_to_box_arrival", []);
-      passer = pickUnique(["DC", "MCO", "MC"], "target_hold", [shooter]);
-      pivot = pickUnique(["MC", "MCD", "DFC"], "playmaker_pass", [shooter, passer]);
-      supportAttacker = pickUnique(["EI", "ED", "DC", "MCO"], "poacher_run", [shooter, passer, pivot]);
-    } else if (playPattern === "HIGH_PRESS_TURNOVER") {
-      passer = pickUnique(["MC", "MCD", "DFC", "MCO", "EI", "ED"], "ball_winner", []);
-      shooter = pickUnique(["DC", "MCO", "EI", "ED"], "finish_box", [passer]);
-      pivot = pickUnique(["MC", "MCD", "EI", "ED", "MCO"], "ball_winner", [passer, shooter]);
-      supportAttacker = pickUnique(["EI", "ED", "DC", "MCO"], "poacher_run", [passer, shooter, pivot]);
-    } else {
-      // INSIDE_FORWARD_CURLED_SHOT
-      shooter = pickUnique(["EI", "ED", "MCO", "DC"], "inside_cut", []);
-      passer = pickUnique(["LI", "LD", "MC", "MCO"], "overlap_fullback", [shooter]);
-      pivot = pickUnique(["MCD", "MC", "DFC"], "playmaker_pass", [shooter, passer]);
-      supportAttacker = pickUnique(["DC", "MCO", "ED", "EI"], "finish_box", [shooter, passer, pivot]);
+    // Comprobar si el robo viene de un marcaje individual al hombre exitoso
+    const markingMap = isHome ? this.homeManMarking : this.awayManMarking;
+    let manMarkingHero = null;
+    if (isTurnoverFromOpponent && markingMap) {
+      for (const markerId in markingMap) {
+        const markerObj = fieldAtk.find(p => p.id === markerId);
+        if (markerObj) {
+          const targetObj = defPlayers.find(p => p.id === markingMap[markerId].targetId);
+          if (targetObj) {
+            manMarkingHero = { marker: markerObj, target: targetObj };
+            break;
+          }
+        }
+      }
     }
 
-    // Atacantes adicionales reales en el campo para acompañar en el área con sus dorsales verdaderos
-    const usedAtkIds = new Set([shooter?.id, passer?.id, pivot?.id, supportAttacker?.id]);
-    const remainingAtk = fieldAtk.filter(p => !usedAtkIds.has(p.id));
-    const atkBox1 = remainingAtk[0] || supportAttacker;
-    const atkBox2 = remainingAtk[1] || pivot;
+    // Iniciador del ataque (pivot): el jugador que estaba en la zona o el marcador
+    const pivot = manMarkingHero ? manMarkingHero.marker : (atkByProximity[0] || fieldAtk[0]);
 
-    // Defensores reales en el campo con sus dorsales verdaderos
+    // Pasador / Conductor: según la banda o canal por donde avanza el balón
+    let passerCandidates = fieldAtk.filter(p => p.id !== pivot.id);
+    if (isFlankLeft) {
+      const flankPreferred = passerCandidates.filter(p => ["EI", "LI", "MI", "MCO"].includes(p.pos));
+      if (flankPreferred.length > 0) passerCandidates = flankPreferred;
+    } else if (isFlankRight) {
+      const flankPreferred = passerCandidates.filter(p => ["ED", "LD", "MD", "MCO"].includes(p.pos));
+      if (flankPreferred.length > 0) passerCandidates = flankPreferred;
+    }
+    const passer = passerCandidates.length > 0 ? passerCandidates[0] : (fieldAtk.find(p => p.id !== pivot.id) || fieldAtk[1] || pivot);
+
+    // Rematador: Delantero centro o jugador ofensivo libre
+    const shooterCandidates = fieldAtk.filter(p => p.id !== pivot.id && p.id !== passer.id);
+    const strikers = shooterCandidates.filter(p => ["DC", "EI", "ED", "MCO"].includes(p.pos));
+    const shooter = (strikers.length > 0 ? strikers[0] : (shooterCandidates[0] || fieldAtk[0]));
+
+    // Apoyo en el área
+    const restAtk = fieldAtk.filter(p => p.id !== pivot.id && p.id !== passer.id && p.id !== shooter.id);
+    const supportAttacker = restAtk[0] || pivot;
+    const atkBox1 = restAtk[1] || supportAttacker;
+    const atkBox2 = restAtk[2] || pivot;
+
+    // Defensores rivales implicados (los que defienden esa zona real)
     const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
     const fieldDef = defPlayers.filter(p => p.id !== goalkeeper.id);
-    const defender = this.pickPlayerForAction(fieldDef, ["DFC", "MCD", "LD", "LI"], "ball_winner", defSide) || fieldDef[0] || defPlayers[1];
-    const defender2 = this.pickPlayerForAction(fieldDef.filter(p => p.id !== defender.id), ["DFC", "LD", "LI", "MCD"], "ball_winner", defSide) || fieldDef[1] || defPlayers[2];
+    const defByProximity = fieldDef.slice().sort((a, b) => {
+      const itemA = def2D.find(p => p.player?.id === a.id);
+      const itemB = def2D.find(p => p.player?.id === b.id);
+      const distA = Math.hypot((itemA?.curX ?? 50) - liveBallX, (itemA?.curY ?? 50) - liveBallY);
+      const distB = Math.hypot((itemB?.curX ?? 50) - liveBallX, (itemB?.curY ?? 50) - liveBallY);
+      return distA - distB;
+    });
+
+    const defender = defByProximity[0] || fieldDef[0] || defPlayers[1];
+    const defender2 = defByProximity[1] || fieldDef[1] || defPlayers[2];
     const restDefs = fieldDef.filter(p => p.id !== defender.id && p.id !== defender2.id);
     const defFieldPlayers = [
       restDefs[0] || defender2,
@@ -3807,9 +3753,7 @@ class MatchSimulator {
     const supportRole = this.getPlayerRole(supportAttacker, attackingSide);
     const defenderRole = this.getPlayerRole(defender, defSide);
 
-    const atk2D = isHome ? this.home2D : this.away2D;
-    const def2D = isHome ? this.away2D : this.home2D;
-
+    const pivotItem = atk2D.find(p => p.player?.id === pivot.id) || atk2D[0];
     const passerItem = atk2D.find(p => p.player?.id === passer.id);
     const shooterItem = atk2D.find(p => p.player?.id === shooter.id);
     const defItem = def2D.find(p => p.player?.id === defender.id) || def2D.find(p => !p.isKeeper);
@@ -3818,55 +3762,52 @@ class MatchSimulator {
     const fmtP = (p, role) => `${p.name} (#${p.number}${role?.tag ? ` · ${role.tag}` : ""})`;
     const fmtShort = (p) => `${p.name} (#${p.number})`;
 
-    let chanceComment = `⚡ ¡Ocasión de peligro de ${atkTeam.shortName}!`;
-    if (shooterRole && (shooterRole.tag === "Interior" || shooterRole.tag === "Desborde") && (playPattern === "INDIVIDUAL_SLALOM" || playPattern === "INSIDE_FORWARD_CURLED_SHOT")) {
-      chanceComment = `🔥 ${fmtP(shooter, shooterRole)} encara a su par buscando el disparo`;
-    } else if (passerRole && passerRole.tag === "Organizador") {
-      chanceComment = `🧠 ${fmtP(passer, passerRole)} canaliza el juego con visión magistral`;
-    } else if (passerRole && passerRole.tag === "Ofensivo") {
-      chanceComment = `🚀 ${fmtP(passer, passerRole)} dobla la banda con potencia y centra`;
-    } else if (passerRole && passerRole.tag === "Creativo") {
-      chanceComment = `✨ ${fmtP(passer, passerRole)} inventa un pase con magia`;
-    } else if (passerRole && passerRole.tag === "Desborde") {
-      chanceComment = `⚡ ${fmtP(passer, passerRole)} encara en el 1 vs 1 y desborda por banda`;
-    } else if (passerRole && passerRole.tag === "Falso 9") {
-      chanceComment = `🧠 ${fmtP(passer, passerRole)} baja a recibir entre líneas y filtra`;
-    } else if (passerRole && (passerRole.tag === "Recuperador" || passerRole.tag === "Contención")) {
-      chanceComment = `💪 ${fmtP(passer, passerRole)} roba en presión alta y lanza el ataque`;
+    // 4. COORDENADAS ORGÁNICAS SIN TELETRANSPORTE (NACIDAS DEL BALÓN EN VIVO)
+    // Coordenadas de progresión (midX, midY) avanzando naturalmente desde liveBall
+    let midX;
+    if (isHome) {
+      midX = Math.min(80, Math.max(62, liveBallX + 16 + Math.random() * 8));
+    } else {
+      midX = Math.max(20, Math.min(38, liveBallX - 16 - Math.random() * 8));
     }
 
-    // Coordenadas calculadas para la jugada en campo
-    const midX = isHome ? (58 + Math.random() * 8) : (42 - Math.random() * 8);
-    const midY = 28 + Math.random() * 44;
-    const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
-    const boxY = 36 + Math.random() * 28;
+    let midY = liveBallY;
+    if (isFlankLeft) {
+      midY = Math.max(14, Math.min(34, liveBallY + (Math.random() * 6 - 3)));
+    } else if (isFlankRight) {
+      midY = Math.max(66, Math.min(86, liveBallY + (Math.random() * 6 - 3)));
+    } else {
+      midY = 44 + Math.random() * 12;
+    }
 
-    // Determinar resultado y rincón de disparo de forma coherente (con impacto de Factor Campo, Entrenamiento Semanal y Clima)
+    // Coordenadas de remate en el área rival (boxX, boxY)
+    const boxX = isHome ? (86 + Math.random() * 6) : (14 - Math.random() * 6);
+    const boxY = 42 + Math.random() * 16;
+
+    // 5. DETERMINAR RESULTADO Y EFECTIVIDAD CON FACTOR CAMPO, CLIMA Y ENTRENAMIENTO
     const shooterSho = shooter.sho !== undefined ? shooter.sho : 75;
-    const isLongShotPattern = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
-    const weatherShotBonus = isLongShotPattern ? (this.weather?.longShotBonus || 0) : ((this.weather?.longShotBonus || 0) * 0.45);
+    const isLongShot = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
+    const weatherShotBonus = isLongShot ? (this.weather?.longShotBonus || 0) : ((this.weather?.longShotBonus || 0) * 0.45);
     const userFinishingBonus = (attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 3.5 : 0;
     const homeGroundShotBonus = isHome ? 2.2 : 0;
     const lateHomeShotSurge = (isHome && this.minute >= 70 && this.homeScore <= this.awayScore) ? 1.4 : 0;
-    const shotQuality = shooterSho + weatherShotBonus + userFinishingBonus + homeGroundShotBonus + lateHomeShotSurge + (Math.random() * 28 - 14);
+    const roarBoost = (attackingSide === "home" && this.activeCrowdRoar) ? 2.5 : 0;
+    const shotQuality = shooterSho + weatherShotBonus + userFinishingBonus + homeGroundShotBonus + lateHomeShotSurge + roarBoost + (Math.random() * 26 - 13);
 
-    // Habilidad específica de parada del portero ('par') modulada por su energía física, entrenamiento defensivo y factor campo en casa
     const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
     const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
     const userDefBonus = (defSide === this.userSide && this.weeklyTraining === "defensive") ? 3.5 : 0;
-    const homeGkSaveBonus = (!isHome) ? 1.8 : 0; // El portero local se agiganta con el apoyo de su estadio
-    const gkSavePower = (gkSkill * gkFitness) + userDefBonus + homeGkSaveBonus + (Math.random() * 26 - 13);
-    const homeOnTargetBonus = isHome ? 0.035 : 0;
-    const onTargetProb = 0.72 + homeOnTargetBonus + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.05 : 0);
+    const homeGkSaveBonus = (!isHome) ? 1.8 : 0;
+    const gkSavePower = (gkSkill * gkFitness) + userDefBonus + homeGkSaveBonus + (Math.random() * 24 - 12);
+
+    const onTargetProb = 0.72 + (isHome ? 0.035 : 0) + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.05 : 0);
     const onTarget = Math.random() < onTargetProb;
     const isDefenderBlock = !onTarget && Math.random() < 0.22;
 
     let outcome = "GOAL";
-    let targetCorner = "TOP_RIGHT";
     const cornersPool = ["TOP_RIGHT", "TOP_LEFT", "BOTTOM_RIGHT", "BOTTOM_LEFT"];
-    targetCorner = cornersPool[Math.floor(Math.random() * cornersPool.length)];
+    const targetCorner = cornersPool[Math.floor(Math.random() * cornersPool.length)];
 
-    // Dirección específica para disparos fuera (garantiza que jamás entre entre los palos)
     let wideDirection = "RIGHT";
     const wideRand = Math.random();
     if (wideRand < 0.42) wideDirection = "RIGHT";
@@ -3878,113 +3819,98 @@ class MatchSimulator {
     } else if (!onTarget) {
       outcome = Math.random() < 0.35 ? "POST" : "WIDE";
     } else {
-      // Duelo directo entre la calidad del disparo (sho) y la capacidad de parada del portero (par)
-      if (shotQuality > gkSavePower + 3.5) {
+      if (shotQuality > gkSavePower + 3.2) {
         outcome = "GOAL";
       } else {
         outcome = "SAVE";
       }
     }
 
-    const patternDescriptions = {
-      TIKI_TAKA_CENTRAL: {
-        buildNote: `🧠 ${fmtP(pivot, pivotRole)} combina en corto con ${fmtShort(supportAttacker)} por el eje central`,
-        progAlert: ["PARED EN LA FRONTAL", `✨ ¡Pared eléctrica entre ${fmtShort(supportAttacker)} y ${fmtP(passer, passerRole)} en la media luna!`],
-        progNote: `✨ ${fmtShort(passer)} tira la pared en la frontal mientras ${fmtP(shooter, shooterRole)} rompe entre centrales`,
-        passAlert: ["PASE FILTRADO", `🎯 ¡Pase interior milimétrico de ${fmtShort(passer)} dejando solo a ${fmtShort(shooter)}!`],
-        passNote: `🎯 Pase raso entre líneas de ${fmtShort(passer)}. ¡${fmtShort(shooter)} controla en el punto de penalti!`,
-        shotNote: `⚽ ¡${fmtP(shooter, shooterRole)} define de primeras ante la salida de ${goalkeeper.name} (#${goalkeeper.number})!`
-      },
-      WING_CROSS_HEADER: {
-        buildNote: `🔄 ${fmtP(pivot, pivotRole)} cambia la orientación en largo hacia la banda derecha`,
-        progAlert: ["DESBORDE EN BANDA", `🚀 ${fmtP(passer, passerRole)} encara al lateral a toda velocidad hasta la línea de fondo`],
-        progNote: `🚀 ${fmtShort(passer)} gana línea de fondo mientras ${fmtP(shooter, shooterRole)} carga el área`,
-        passAlert: ["CENTRO AL ÁREA", `🎯 ¡Centro tenso con rosca de ${fmtShort(passer)} al corazón del área!`],
-        passNote: `🎯 Centro medido de ${fmtShort(passer)} buscando el remate en el segundo palo`,
-        shotNote: `⚽ ¡${fmtP(shooter, shooterRole)} se eleva sobre ${fmtShort(defender)} y conecta un testarazo letal!`
-      },
-      NEAR_WING_CUTBACK: {
-        buildNote: `⚡ ${fmtP(pivot, pivotRole)} abre hacia el costado izquierdo para la subida de ${fmtShort(passer)}`,
-        progAlert: ["ENCARE Y DESBORDE", `🔥 ¡${fmtP(passer, passerRole)} encara por fuera y se mete hasta la cocina por la izquierda!`],
-        progNote: `🔥 ${fmtShort(passer)} desborda por el costado del área atrayendo a dos defensores`,
-        passAlert: ["PASE DE LA MUERTE", `🎯 ¡Pase atrás raso de ${fmtShort(passer)} buscando la llegada en el punto de penalti!`],
-        passNote: `🎯 Pase de la muerte de ${fmtShort(passer)} hacia la llegada de ${fmtP(shooter, shooterRole)}`,
-        shotNote: `⚽ ¡${fmtShort(shooter)} llega en carrera y empalma de primeras a portería!`
-      },
-      COUNTER_THROUGH_BALL: {
-        buildNote: `🏹 ¡Recuperación de ${fmtP(pivot, pivotRole)} y transición relámpago con la defensa adelantada!`,
-        progAlert: ["CONTRAATAQUE VELOZ", `⚡ ${fmtP(passer, passerRole)} conduce a campo abierto con ${fmtP(shooter, shooterRole)} en ruptura`],
-        progNote: `⚡ La zaga rival corre hacia atrás desesperada intentando cerrar el desmarque de ${fmtShort(shooter)}`,
-        passAlert: ["BALÓN AL ESPACIO", `🎯 ¡Pase en profundidad de ${fmtShort(passer)} a la espalda de ${fmtShort(defender)}!`],
-        passNote: `🎯 ¡${fmtShort(shooter)} gana la carrera al espacio y se planta en el mano a mano!`,
-        shotNote: `⚽ ¡${fmtP(shooter, shooterRole)} encara al guardameta y cruza el disparo!`
-      },
-      INDIVIDUAL_SLALOM: {
-        buildNote: `✨ ${fmtP(pivot, pivotRole)} entrega en banda para ${fmtP(shooter, shooterRole)}, que se perfila para encarar`,
-        progAlert: ["ENCARE EN SLALOM", `🪄 ¡Jugada individual de ${fmtP(shooter, shooterRole)} sorteando rivales en diagonal!`],
-        progNote: `🪄 ${fmtShort(shooter)} recorta en seco, tira una pared de tacón con ${fmtP(passer, passerRole)} y acelera`,
-        passAlert: ["RECORTE EN LA FRONTAL", `🔥 ¡${fmtShort(shooter)} deja sentado a ${fmtShort(defender)} tras la devolución de ${fmtShort(passer)}!`],
-        passNote: `🔥 Hueco abierto en la frontal tras la pared con ${fmtShort(passer)} y recorte de ${fmtShort(shooter)}`,
-        shotNote: `⚽ ¡${fmtP(shooter, shooterRole)} busca la escuadra con un golpeo con rosca!`
-      },
-      LONG_RANGE_BOMB: {
-        buildNote: `🔄 Circulación paciente de ${fmtP(pivot, pivotRole)} y ${fmtShort(supportAttacker)} frente al bloque bajo`,
-        progAlert: ["BÚSQUEDA DE HUECO", `🧠 ${fmtP(passer, passerRole)} pisa el balón en tres cuartos y hunde a la defensa`],
-        progNote: `🧠 La zaga se cierra en su área; ${fmtShort(passer)} prepara la dejada de cara`,
-        passAlert: ["DEJADA EN LA FRONTAL", `🎯 ¡${fmtShort(passer)} toca de cara para la llegada libre de ${fmtP(shooter, shooterRole)}!`],
-        passNote: `🎯 ${fmtShort(shooter)} acomoda el balón a 22 metros con ángulo de disparo`,
-        shotNote: `🚀 ¡${fmtP(shooter, shooterRole)} suelta un latigazo descomunal desde fuera del área!`
-      },
-      FALSE_NINE_DROP_AND_SPLIT: {
-        buildNote: `🧠 ${fmtP(pivot, pivotRole)} conecta entre líneas con ${fmtP(passer, passerRole)}, que baja desde la punta`,
-        progAlert: ["MOVIMIENTO DE FALSO 9", `✨ ¡${fmtP(passer, passerRole)} baja a recibir a tres cuartos arrastrando al central!`],
-        progNote: `✨ ${fmtShort(passer)} gira con clase mientras ${fmtP(shooter, shooterRole)} ataca en diagonal el hueco libre`,
-        passAlert: ["PASE EN DIAGONAL", `🎯 ¡Asistencia magistral de ${fmtShort(passer)} al espacio que dejó en el área!`],
-        passNote: `🎯 ¡${fmtP(shooter, shooterRole)} rompe en diagonal y recibe solo frente al portero!`,
-        shotNote: `⚽ ¡${fmtShort(shooter)} define con frialdad al palo largo!`
-      },
-      OVERLAPPING_FULLBACK_CROSS: {
-        buildNote: `⚡ ${fmtP(pivot, pivotRole)} recibe en banda, fija a su marcador y espera el desdoblamiento`,
-        progAlert: ["DOBLADA DEL CARRILERO", `🚀 ¡${fmtP(passer, passerRole)} dobla como un avión por el carril exterior!`],
-        progNote: `🚀 ${fmtShort(pivot)} filtra al espacio para la internada hasta el fondo de ${fmtShort(passer)}`,
-        passAlert: ["CENTRO RASO TENSO", `🎯 ¡Centro látigo de ${fmtP(passer, passerRole)} al primer palo!`],
-        passNote: `🎯 ${fmtP(shooter, shooterRole)} se anticipa a ${fmtShort(defender)} en el primer palo`,
-        shotNote: `⚽ ¡${fmtShort(shooter)} desvía de primeras buscando sorprender a ${goalkeeper.name} (#${goalkeeper.number})!`
-      },
-      CHIPPED_PASS_OVER_DEFENSE: {
-        buildNote: `🔄 ${fmtP(pivot, pivotRole)} y ${fmtShort(supportAttacker)} mueven el esférico ante la defensa cerrada`,
-        progAlert: ["VISIÓN DE JUEGO", `✨ ${fmtP(passer, passerRole)} levanta la cabeza en la frontal buscando el desmarque`],
-        progNote: `✨ ${fmtP(shooter, shooterRole)} amaga y arranca al límite del fuera de juego`,
-        passAlert: ["PASE PICADO DE CUCHARA", `🪄 ¡Globo milimétrico de cuchara de ${fmtShort(passer)} por encima de la zaga!`],
-        passNote: `🪄 El balón bombeado supera a ${fmtShort(defender)} y cae perfecto para ${fmtShort(shooter)}`,
-        shotNote: `⚽ ¡${fmtP(shooter, shooterRole)} engancha una volea espectacular sin dejarla caer!`
-      },
-      THIRD_MAN_TRIANGLE: {
-        buildNote: `🧠 ${fmtP(pivot, pivotRole)} inicia la triangulación filtrando un pase vertical al borde del área`,
-        progAlert: ["JUGADA AL TERCER HOMBRE", `⚡ ¡${fmtP(passer, passerRole)} aguanta de espaldas fijando a los centrales!`],
-        progNote: `⚡ ${fmtShort(passer)} protege el balón de espaldas mientras ${fmtP(shooter, shooterRole)} irrumpe desde segunda línea`,
-        passAlert: ["DESCARGA DE CARA", `🎯 ¡Dejada al primer toque de ${fmtShort(passer)} para la entrada del tercer hombre!`],
-        passNote: `🎯 ¡${fmtP(shooter, shooterRole)} rompe en carrera por el pasillo central con todo a favor!`,
-        shotNote: `⚽ ¡${fmtShort(shooter)} fusila a portería con un derechazo potente!`
-      },
-      HIGH_PRESS_TURNOVER: {
-        buildNote: `🔥 ¡Presión alta asfixiante! ${fmtP(pivot, pivotRole)} y ${fmtP(passer, passerRole)} acorralan la salida rival`,
-        progAlert: ["ROBO EN PRESIÓN ALTA", `💪 ¡${fmtP(passer, passerRole)} anticipa y roba la cartera en zona crítica!`],
-        progNote: `💪 Recuperación letal de ${fmtShort(passer)} con la defensa rival totalmente abierta`,
-        passAlert: ["PASE DE CASTIGO", `🎯 ¡Asistencia rápida de ${fmtShort(passer)} dejando solo a ${fmtP(shooter, shooterRole)}!`],
-        passNote: `🎯 ${fmtShort(shooter)} controla libre de marca en el corazón del área tras el robo`,
-        shotNote: `⚽ ¡${fmtP(shooter, shooterRole)} no perdona y ejecuta un remate fulminante!`
-      },
-      INSIDE_FORWARD_CURLED_SHOT: {
-        buildNote: `⚡ ${fmtP(pivot, pivotRole)} abre hacia la izquierda, donde ${fmtShort(passer)} entrega en ventaja a ${fmtShort(shooter)}`,
-        progAlert: ["DIAGONAL DEL EXTREMO", `🔥 ¡${fmtP(shooter, shooterRole)} encara en banda y traza la diagonal hacia adentro!`],
-        progNote: `🔥 ${fmtShort(passer)} dobla por fuera arrastrando marca y abre el pasillo central para ${fmtShort(shooter)}`,
-        passAlert: ["PERFILADO A LA ESCUADRA", `🎯 ¡${fmtP(shooter, shooterRole)} se perfila en la frontal buscando el palo largo!`],
-        passNote: `🎯 ${fmtShort(shooter)} supera la oposición de ${fmtShort(defender)} y arma la pierna`,
-        shotNote: `🚀 ¡Disparo con rosca de ${fmtP(shooter, shooterRole)} directo al ángulo lejano!`
-      }
+    // 6. GENERAR COMENTARIOS DINÁMICOS Y CONECTADOS AL CONTEXTO VIVO DEL PARTIDO
+    const isWet = this.weather?.id === "rain";
+    const isCrowdRoaring = Boolean(this.activeCrowdRoar);
+    const isLateEqualizerSearch = isHome && this.minute >= 75 && this.homeScore <= this.awayScore;
+
+    let buildHeadline = "INICIO DE JUGADA";
+    let buildText = "";
+    if (manMarkingHero) {
+      buildHeadline = "MARCAJE AL HOMBRE IMPECABLE";
+      buildText = `🎯 ¡Anticipación colosal! ${fmtP(manMarkingHero.marker, pivotRole)} seca a ${fmtShort(manMarkingHero.target)} en su propia salida y recupera el esférico.`;
+    } else if (situationalContext === "COUNTER") {
+      buildHeadline = "TRANSICIÓN RELÁMPAGO";
+      buildText = `🏹 Recuperación en campo propio: ${fmtP(pivot, pivotRole)} corta la ofensiva rival y lanza una contra directa a máxima velocidad.`;
+    } else if (situationalContext === "HIGH_PRESS") {
+      buildHeadline = "PRESIÓN ALTA ASFIXIANTE";
+      buildText = `🔥 ¡Presión en bloque alto! ${fmtP(pivot, pivotRole)} muerde la salida de ${defTeam.shortName} forzando el robo en tres cuartos.`;
+    } else if (situationalContext === "WING_LEFT") {
+      buildHeadline = "DESBORDE POR COSTADO IZQUIERDO";
+      buildText = `⚡ Circulación orientada al flanco izquierdo: ${fmtP(pivot, pivotRole)} abre el juego hacia la subida de ${fmtShort(passer)}.`;
+    } else if (situationalContext === "WING_RIGHT") {
+      buildHeadline = "APERTURA A BANDA DERECHA";
+      buildText = `⚡ Cambio de orientación preciso: ${fmtP(pivot, pivotRole)} cambia el frente hacia el carril diestro para ${fmtShort(passer)}.`;
+    } else {
+      buildHeadline = "ELABORACIÓN EN LA FRONTAL";
+      buildText = `🧠 Paciencia y toque: ${fmtP(pivot, pivotRole)} asocia en la medular buscando grietas entre las líneas de ${defTeam.shortName}.`;
+    }
+
+    if (isCrowdRoaring || isLateEqualizerSearch) {
+      buildText += ` 🏟️ ¡La grada ruge empujando con toda el alma hacia la portería rival!`;
+    }
+
+    let progHeadline = "PROGRESIÓN";
+    let progText = "";
+    if (situationalContext === "COUNTER") {
+      progHeadline = "CARRERA AL ESPACIO";
+      progText = `⚡ ${fmtP(passer, passerRole)} acelera a campo abierto con la defensa rival retrocediendo en desorden.`;
+    } else if (isFlankLeft || isFlankRight) {
+      progHeadline = "LÍNEA DE FONDO";
+      progText = `🚀 ${fmtP(passer, passerRole)} encara en el 1 vs 1 a su par y gana la línea de fondo con potencia.`;
+    } else {
+      progHeadline = "PARED EN LA MEDIALUNA";
+      progText = `✨ Combinación al primer toque de ${fmtShort(passer)} en tres cuartos desordenando la zaga.`;
+    }
+
+    if (isWet) {
+      progText += ` (El césped mojado da una velocidad vertiginosa a la acción).`;
+    }
+
+    let passHeadline = "ÚLTIMO PASE";
+    let passText = "";
+    if (situationalContext === "COUNTER") {
+      passHeadline = "PASE AL HUECO";
+      passText = `🎯 Balón medido al espacio de ${fmtShort(passer)}. ¡${fmtP(shooter, shooterRole)} gana la espalda del central y se planta solo!`;
+    } else if (isFlankLeft || isFlankRight) {
+      passHeadline = "CENTRO AL ÁREA";
+      passText = `🎯 Centro tenso y medido de ${fmtShort(passer)} hacia el corazón del área chica buscando el remate de ${fmtShort(shooter)}.`;
+    } else {
+      passHeadline = "ASISTENCIA FILTRADA";
+      passText = `🎯 Pase quirúrgico entre líneas de ${fmtShort(passer)} dejando a ${fmtP(shooter, shooterRole)} en posición inmejorable.`;
+    }
+
+    let shotText = "";
+    if (outcome === "GOAL") {
+      shotText = `⚽ ¡${fmtP(shooter, shooterRole)} impacta con determinación y manda el balón al fondo de las mallas inapelable!`;
+    } else if (outcome === "SAVE") {
+      shotText = `🧤 ¡${fmtShort(shooter)} conecta a puerta, pero ${goalkeeper.name} (#${goalkeeper.number}) se estira de manera heroica!`;
+    } else if (outcome === "BLOCK") {
+      shotText = `🛡️ ¡${fmtShort(shooter)} gatilla a romper, pero ${defender.name} (#${defender.number}) se tira con el alma y tapona!`;
+    } else if (outcome === "POST") {
+      shotText = `🥅 ¡${fmtShort(shooter)} supera al portero con una vaselina que se estrella con violencia en el poste!`;
+    } else {
+      shotText = `💨 ¡${fmtShort(shooter)} busca ajustar al palo y su disparo sale lamiendo la madera!`;
+    }
+
+    const pDesc = {
+      buildNote: buildText,
+      progAlert: [progHeadline, progText],
+      progNote: progText,
+      passAlert: [passHeadline, passText],
+      passNote: passText,
+      shotNote: shotText
     };
-    const pDesc = patternDescriptions[playPattern] || patternDescriptions.TIKI_TAKA_CENTRAL;
+
+    let chanceComment = `⚡ ¡Ocasión construida por ${atkTeam.shortName} (${situationalContext})!`;
+    if (isCrowdRoaring) chanceComment = `🔥 ¡Aliento en la grada! ${chanceComment}`;
 
     const baseHighlightData = {
       type: "KEY_CHANCE",
@@ -4018,23 +3944,31 @@ class MatchSimulator {
       totalDuration: 15000
     };
 
-    // FASE 1: Construcción y circulación en la medular (0.0s - 4.5s)
-    this.ball.targetX = midX;
-    this.ball.targetY = midY;
+    // FASE 1: ARRANQUE ORGÁNICO DESDE LA POSICIÓN REAL DEL BALÓN EN VIVO
+    this.ball.x = liveBallX;
+    this.ball.y = liveBallY;
+    this.ball.targetX = liveBallX;
+    this.ball.targetY = liveBallY;
     this.ball.targetZ = 0;
     this.ball.possession = attackingSide;
 
+    // El iniciador real (pivot) recibe la posesión sin teletransportarse
+    if (pivotItem) {
+      pivotItem.targetX = liveBallX;
+      pivotItem.targetY = liveBallY;
+    }
+    // El pasador y el rematador se mueven fluidamente hacia sus zonas de apoyo
     if (passerItem) {
-      passerItem.targetX = midX;
+      passerItem.targetX = isHome ? Math.min(midX, (passerItem.curX || 50) + 12) : Math.max(midX, (passerItem.curX || 50) - 12);
       passerItem.targetY = midY;
     }
     if (defItem) {
-      defItem.targetX = midX + (isHome ? 7 : -7);
-      defItem.targetY = midY + (Math.random() * 4 - 2);
+      defItem.targetX = liveBallX + (isHome ? 6 : -6);
+      defItem.targetY = liveBallY + (Math.random() * 4 - 2);
     }
     if (shooterItem) {
-      shooterItem.targetX = isHome ? midX + 13 : midX - 13;
-      shooterItem.targetY = midY + (Math.random() < 0.5 ? -10 : 10);
+      shooterItem.targetX = isHome ? Math.min(boxX - 8, (shooterItem.curX || 50) + 14) : Math.max(boxX + 8, (shooterItem.curX || 50) - 14);
+      shooterItem.targetY = boxY + (Math.random() < 0.5 ? -6 : 6);
     }
     this.update2DPositions();
 
@@ -4042,7 +3976,7 @@ class MatchSimulator {
       this.onHighlightStart({
         ...baseHighlightData,
         phase: "BUILDUP",
-        phaseLabel: "Inicio de la jugada",
+        phaseLabel: buildHeadline,
         phaseDuration: 4500,
         tacticalNote: pDesc.buildNote
       });
@@ -4051,7 +3985,7 @@ class MatchSimulator {
       this.onHighlightPhase({
         ...baseHighlightData,
         phase: "BUILDUP",
-        phaseLabel: "Inicio de la jugada",
+        phaseLabel: buildHeadline,
         phaseDuration: 4500,
         tacticalNote: pDesc.buildNote
       });
@@ -4281,9 +4215,32 @@ class MatchSimulator {
       return;
     }
 
-    // FASE 2: Progresión (4.5s - 8.5s)
+    // FASE 2: Progresión y conducción al sector de ataque (4.5s - 8.5s)
     setHlTimeout(() => {
       if (!this.isRunning && !this.isHighlightRunning) return;
+
+      // El balón y el pasador progresan fluidamente hacia tres cuartos (midX, midY)
+      this.ball.targetX = midX;
+      this.ball.targetY = midY;
+      this.ball.targetZ = 0;
+
+      if (passerItem) {
+        passerItem.targetX = midX;
+        passerItem.targetY = midY;
+      }
+      if (pivotItem && pivotItem.player?.id !== passer.id) {
+        pivotItem.targetX = isHome ? midX - 9 : midX + 9;
+        pivotItem.targetY = midY + (midY < 50 ? 6 : -6);
+      }
+      if (defItem) {
+        defItem.targetX = midX + (isHome ? 5 : -5);
+        defItem.targetY = midY + (Math.random() * 4 - 2);
+      }
+      if (shooterItem) {
+        shooterItem.targetX = isHome ? Math.min(boxX - 4, midX + 10) : Math.max(boxX + 4, midX - 10);
+        shooterItem.targetY = boxY;
+      }
+      this.update2DPositions();
 
       this.triggerAlert(pDesc.progAlert[0], pDesc.progAlert[1], attackingSide, 3200);
 
@@ -4291,7 +4248,7 @@ class MatchSimulator {
         this.onHighlightPhase({
           ...baseHighlightData,
           phase: "PROGRESSION",
-          phaseLabel: "Progresión ofensiva",
+          phaseLabel: progHeadline,
           phaseDuration: 4000,
           tacticalNote: pDesc.progNote
         });
@@ -5444,6 +5401,10 @@ class MatchSimulator {
       awayPlayers: this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench]
     };
   }
+}
+
+if (typeof window !== "undefined") {
+  window.MatchSimulator = MatchSimulator;
 }
 
 // =========================================================
