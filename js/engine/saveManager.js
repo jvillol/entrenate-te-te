@@ -73,7 +73,7 @@ export class SaveManager {
     try {
       if (!gameState || !gameState.userTeamId) return false;
       this.checkMigration();
-      const targetSlot = slot !== null ? Math.max(1, Math.min(MAX_SLOTS_LIMIT, parseInt(slot, 10) || 1)) : this.getActiveSlot();
+      const targetSlot = slot !== null ? Math.max(1, Math.min(MAX_SAVE_SLOTS, parseInt(slot, 10) || 1)) : this.getActiveSlot();
       
       const data = {
         schemaVersion: CURRENT_SCHEMA,
@@ -84,6 +84,7 @@ export class SaveManager {
         standings: gameState.standings || [],
         teams: gameState.teams || [],
         userTactics: gameState.userTactics || null,
+        weeklyTraining: gameState.weeklyTraining || "recovery",
         topScorers: gameState.topScorers || {},
         isSeasonOver: gameState.isSeasonOver || false,
         timestamp: Date.now()
@@ -117,6 +118,9 @@ export class SaveManager {
 
       const parsed = JSON.parse(raw);
       if (parsed && parsed.schemaVersion === CURRENT_SCHEMA && parsed.userTeamId) {
+        if (!parsed.weeklyTraining) {
+          parsed.weeklyTraining = "recovery";
+        }
         this.setActiveSlot(targetSlot);
         return parsed;
       }

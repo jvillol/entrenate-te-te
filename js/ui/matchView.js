@@ -130,6 +130,18 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   if (!gameState.userTactics.instructions) {
     gameState.userTactics.instructions = getDefaultTacticalInstructions();
   }
+  if (!gameState.userTactics.manMarking) {
+    gameState.userTactics.manMarking = {};
+  } else {
+    // Limpiar marcajes individuales huérfanos que apunten a jugadores que no pertenecen al rival actual
+    const currentOppIds = new Set(opponentTeam.players.map(p => p.id));
+    Object.keys(gameState.userTactics.manMarking).forEach(markerId => {
+      const task = gameState.userTactics.manMarking[markerId];
+      if (task && task.targetId && !currentOppIds.has(task.targetId)) {
+        delete gameState.userTactics.manMarking[markerId];
+      }
+    });
+  }
 
   let preMatchTab = "USER"; // "USER" o "OPPONENT"
   let preMatchSubTab = "PITCH"; // "PITCH" o "STYLE"

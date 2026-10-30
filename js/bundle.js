@@ -1798,7 +1798,7 @@ class SaveManager {
     try {
       if (!gameState || !gameState.userTeamId) return false;
       this.checkMigration();
-      const targetSlot = slot !== null ? Math.max(1, Math.min(MAX_SLOTS_LIMIT, parseInt(slot, 10) || 1)) : this.getActiveSlot();
+      const targetSlot = slot !== null ? Math.max(1, Math.min(MAX_SAVE_SLOTS, parseInt(slot, 10) || 1)) : this.getActiveSlot();
       
       const data = {
         schemaVersion: CURRENT_SCHEMA,
@@ -1809,6 +1809,7 @@ class SaveManager {
         standings: gameState.standings || [],
         teams: gameState.teams || [],
         userTactics: gameState.userTactics || null,
+        weeklyTraining: gameState.weeklyTraining || "recovery",
         topScorers: gameState.topScorers || {},
         isSeasonOver: gameState.isSeasonOver || false,
         timestamp: Date.now()
@@ -1842,6 +1843,9 @@ class SaveManager {
 
       const parsed = JSON.parse(raw);
       if (parsed && parsed.schemaVersion === CURRENT_SCHEMA && parsed.userTeamId) {
+        if (!parsed.weeklyTraining) {
+          parsed.weeklyTraining = "recovery";
+        }
         this.setActiveSlot(targetSlot);
         return parsed;
       }
@@ -1968,8 +1972,19 @@ const MAX_SLOTS_LIMIT = MAX_SAVE_SLOTS;
 // Motor de simulación de partido 2D interactivo con cambios en vivo (sin comentarios de texto)
 class MatchSimulator {
   constructor(homeTeam, awayTeam, options = {}) {
-    this.homeTeam = JSON.parse(JSON.stringify(homeTeam));
-    this.awayTeam = JSON.parse(JSON.stringify(awayTeam));
+    let realHome = homeTeam;
+    let realAway = awayTeam;
+    let realOpts = options;
+
+    if (homeTeam && typeof homeTeam === "object" && !awayTeam && (homeTeam.homeTeam || homeTeam.awayTeam)) {
+      realOpts = homeTeam;
+      realHome = homeTeam.homeTeam;
+      realAway = homeTeam.awayTeam;
+    }
+
+    this.homeTeam = realHome ? JSON.parse(JSON.stringify(realHome)) : { id: "home", name: "Local", players: [] };
+    this.awayTeam = realAway ? JSON.parse(JSON.stringify(realAway)) : { id: "away", name: "Visitante", players: [] };
+    options = realOpts || {};
 
     this.minute = 0;
     this.firstHalfExtra = Math.floor(Math.random() * 5) + 1; // Descuento aleatorio 1 a 5 min en 1ª parte
@@ -2191,6 +2206,8 @@ class MatchSimulator {
       this.setPieceTimeouts.forEach(clearTimeout);
       this.setPieceTimeouts = [];
     }
+    this.isHighlightRunning = false;
+    this.isSetPieceRunning = false;
   }
 
   start() {
@@ -3139,7 +3156,12 @@ class MatchSimulator {
 
   // Simulación paso a paso de cada minuto de partido
   stepMinute() {
-    if (this.isSetPieceRunning) return false;
+    if (this.isSkippingToEnd) {
+      this.isSetPieceRunning = false;
+      this.isHighlightRunning = false;
+    } else if (this.isSetPieceRunning) {
+      return false;
+    }
 
     this.minute++;
 
@@ -4405,7 +4427,7 @@ class MatchSimulator {
 
   // Activar jugada a balón parado (Córner o Falta peligrosa)
   triggerSetPiece(attackingSide, type = "CORNER", customSpotData = null, postSetPieceCallback = null) {
-    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return false;
+    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning || this.isSkippingToEnd) return false;
 
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
@@ -4785,6 +4807,13 @@ class MatchSimulator {
     const defSide = isHome ? "away" : "home";
     const defTeam = isHome ? this.awayTeam : this.homeTeam;
 
+    if (this.isSkippingToEnd || this.isFinished) {
+      this.isSetPieceRunning = false;
+      this.speed = this.userSpeed;
+      if (onDone) onDone();
+      return;
+    }
+
     const setSpTimeout = (fn, ms) => {
       const t = setTimeout(fn, ms);
       if (!this.setPieceTimeouts) this.setPieceTimeouts = [];
@@ -4793,7 +4822,10 @@ class MatchSimulator {
     };
 
     setSpTimeout(() => {
-      if (this.isFinished || this.isSkippingToEnd) return;
+      if (this.isFinished || this.isSkippingToEnd) {
+        this.isSetPieceRunning = false;
+        return;
+      }
       // 1. Ejecutar saque de puerta reglamentario o posesión del equipo defensor
       if (outcome === "GOAL_KICK") {
         this.triggerAlert("SAQUE DE PUERTA", `🧤 Saque de puerta para ${defTeam.shortName}`, defSide, 2200);
@@ -4821,7 +4853,10 @@ class MatchSimulator {
 
         // El portero efectúa el saque de puerta por alto hacia el centro del campo
         setSpTimeout(() => {
-          if (this.isFinished || this.isSkippingToEnd) return;
+          if (this.isFinished || this.isSkippingToEnd) {
+            this.isSetPieceRunning = false;
+            return;
+          }
           this.ball.targetX = isHome ? 54 - Math.random() * 12 : 46 + Math.random() * 12;
           this.ball.targetY = 32 + Math.random() * 36;
           this.ball.targetZ = 7 + Math.random() * 4;
@@ -4838,7 +4873,10 @@ class MatchSimulator {
 
       // 2. Transición y reanudación automática de la simulación
       setSpTimeout(() => {
-        if (this.isFinished || this.isSkippingToEnd) return;
+        if (this.isFinished || this.isSkippingToEnd) {
+          this.isSetPieceRunning = false;
+          return;
+        }
         this.isSetPieceRunning = false;
         this.speed = this.userSpeed;
 
@@ -7606,6 +7644,18 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   }
   if (!gameState.userTactics.instructions) {
     gameState.userTactics.instructions = getDefaultTacticalInstructions();
+  }
+  if (!gameState.userTactics.manMarking) {
+    gameState.userTactics.manMarking = {};
+  } else {
+    // Limpiar marcajes individuales huérfanos que apunten a jugadores que no pertenecen al rival actual
+    const currentOppIds = new Set(opponentTeam.players.map(p => p.id));
+    Object.keys(gameState.userTactics.manMarking).forEach(markerId => {
+      const task = gameState.userTactics.manMarking[markerId];
+      if (task && task.targetId && !currentOppIds.has(task.targetId)) {
+        delete gameState.userTactics.manMarking[markerId];
+      }
+    });
   }
 
   let preMatchTab = "USER"; // "USER" o "OPPONENT"
