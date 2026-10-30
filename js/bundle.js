@@ -3372,10 +3372,13 @@ class MatchSimulator {
       this.ball.targetY = ballYTarget;
 
       // Ocasión de ataque local (con arreón final de la afición local si empata o pierde en el tramo final)
-      const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.035 : 0;
-      let homeChanceMult = 0.285 + lateHomeSurge;
+      const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.025 : 0;
+      let homeChanceMult = 0.145 + lateHomeSurge;
+      if (this.minute <= 25) homeChanceMult *= 0.85; // Orden táctico, rigor defensivo y máxima energía inicial
+      if (this.homeScore - this.awayScore >= 2) homeChanceMult *= 0.78; // Gestión de ventaja y contemporización de ritmo
+
       if (this.activeShout) {
-        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.16;
+        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.15;
         else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.72;
         else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.75;
       }
@@ -3400,8 +3403,8 @@ class MatchSimulator {
           }
         });
         return !this.isSkippingToEnd;
-      } else if (chanceRoll < attackScore + 0.055) {
-        // Balón parado (Córner o Falta peligrosa)
+      } else if (chanceRoll < attackScore + 0.025) {
+        // Balón parado (Córner o Falta peligrosa calibrado a ritmo real de partido)
         const isCorner = Math.random() < 0.65;
         if (this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK")) {
           return true;
@@ -3423,9 +3426,12 @@ class MatchSimulator {
       this.ball.targetX = 35 - Math.random() * 28;
       this.ball.targetY = ballYTargetAway;
 
-      let awayChanceMult = 0.26;
+      let awayChanceMult = 0.135;
+      if (this.minute <= 25) awayChanceMult *= 0.85; // Orden táctico, rigor defensivo y máxima energía inicial
+      if (this.awayScore - this.homeScore >= 2) awayChanceMult *= 0.78; // Gestión de ventaja y contemporización de ritmo
+
       if (this.activeShout) {
-        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.16;
+        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.15;
         else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.72;
         else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.75;
       }
@@ -3450,8 +3456,8 @@ class MatchSimulator {
           }
         });
         return !this.isSkippingToEnd;
-      } else if (chanceRoll < attackScore + 0.055) {
-        // Balón parado (Córner o Falta peligrosa)
+      } else if (chanceRoll < attackScore + 0.025) {
+        // Balón parado (Córner o Falta peligrosa calibrado a ritmo real de partido)
         const isCorner = Math.random() < 0.65;
         if (this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK")) {
           return true;
@@ -3800,9 +3806,14 @@ class MatchSimulator {
     const homeGkSaveBonus = (!isHome) ? 1.8 : 0;
     const gkSavePower = (gkSkill * gkFitness) + userDefBonus + homeGkSaveBonus + (Math.random() * 24 - 12);
 
-    const onTargetProb = 0.72 + (isHome ? 0.035 : 0) + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.05 : 0);
-    const onTarget = Math.random() < onTargetProb;
-    const isDefenderBlock = !onTarget && Math.random() < 0.22;
+    // Presión y taponamiento defensivo en el área (bloqueo por el central)
+    const defBlockSkill = defender.def !== undefined ? defender.def : 75;
+    const blockProb = Math.min(0.24, Math.max(0.08, (defBlockSkill - 55) * 0.0055));
+    const isDefenderBlock = Math.random() < blockProb;
+
+    // Precisión del remate: en el fútbol profesional ~62% de tiros limpios van a portería
+    const onTargetProb = 0.62 + (isHome ? 0.02 : 0) + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.04 : 0);
+    const onTarget = !isDefenderBlock && (Math.random() < onTargetProb);
 
     let outcome = "GOAL";
     const cornersPool = ["TOP_RIGHT", "TOP_LEFT", "BOTTOM_RIGHT", "BOTTOM_LEFT"];
@@ -3817,9 +3828,10 @@ class MatchSimulator {
     if (isDefenderBlock) {
       outcome = "BLOCK";
     } else if (!onTarget) {
-      outcome = Math.random() < 0.35 ? "POST" : "WIDE";
+      outcome = Math.random() < 0.18 ? "POST" : "WIDE";
     } else {
-      if (shotQuality > gkSavePower + 3.2) {
+      // Duelo directo entre rematador y guardameta: si la definición es precisa y potente, bate la estirada
+      if (shotQuality > gkSavePower - 1.5) {
         outcome = "GOAL";
       } else {
         outcome = "SAVE";
@@ -4077,17 +4089,26 @@ class MatchSimulator {
         this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
         this.ball.targetZ = 5;
 
-        this.triggerAlert("PARADÓN", `🧤 ¡Paradón providencial de ${goalkeeper.name} ante ${shooter.name}! ¡Córner!`, isHome ? "away" : "home", isSkip ? 2200 : 3200);
+        const saveBecomesCorner = Math.random() < 0.28;
+        const alertText = saveBecomesCorner
+          ? `🧤 ¡Paradón providencial de ${goalkeeper.name} ante ${shooter.name}! ¡Córner!`
+          : `🧤 ¡Intervención segura de ${goalkeeper.name}! Atrapa el disparo con firmeza.`;
+        this.triggerAlert("PARADÓN", alertText, isHome ? "away" : "home", isSkip ? 2200 : 3200);
+
         const analysis = attackingSide === this.userSide
-          ? `🧤 ¡Paradón de ${goalkeeper.name}! Estirada espectacular desviando el tiro a saque de esquina.`
-          : `🧤 ¡Intervención salvadora de ${goalkeeper.name}! Tu portero voló para desviar el balón a córner.`;
+          ? (saveBecomesCorner
+              ? `🧤 ¡Paradón de ${goalkeeper.name}! Estirada espectacular desviando el tiro a saque de esquina.`
+              : `🧤 ¡Buen remate de ${shooter.name}, pero ${goalkeeper.name} estuvo bien colocado y atrapó sin conceder rechace.`)
+          : (saveBecomesCorner
+              ? `🧤 ¡Intervención salvadora de ${goalkeeper.name}! Tu portero voló para desviar el balón a córner.`
+              : `🧤 ¡Seguridad bajo palos! ${goalkeeper.name} bloca el esférico con autoridad.`);
 
         const saveCompletion = () => {
           this.concludeHighlight({
             outcome: "SAVE",
             tacticalAnalysis: analysis,
             onComplete: () => {
-              if (!this.isFinished && !this.isHalfTime && this.showKeyHighlights && !isSkip && !this.isSkippingToEnd) {
+              if (saveBecomesCorner && !this.isFinished && !this.isHalfTime && this.showKeyHighlights && !isSkip && !this.isSkippingToEnd) {
                 const startedSP = this.triggerSetPiece(attackingSide, "CORNER", null, onComplete);
                 if (!startedSP && onComplete) onComplete();
               } else if (onComplete) {
@@ -4384,7 +4405,7 @@ class MatchSimulator {
 
   // Activar jugada a balón parado (Córner o Falta peligrosa)
   triggerSetPiece(attackingSide, type = "CORNER", customSpotData = null, postSetPieceCallback = null) {
-    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning || this.isSkippingToEnd) return false;
+    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return false;
 
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
@@ -4425,9 +4446,9 @@ class MatchSimulator {
         this.stats.corners[attackingSide]++;
       }
       this.stats.shots[attackingSide]++;
-      if (Math.random() < 0.35) {
+      if (Math.random() < 0.28) {
         this.stats.shotsOnTarget[attackingSide]++;
-        if (Math.random() < 0.25) {
+        if (Math.random() < 0.14) { // ~3.9% de conversión realista en córners y faltas colgadas
           const outfield = atkPlayers.filter(p => p.pos !== "POR");
           const scorer = outfield[Math.floor(Math.random() * outfield.length)] || atkPlayers[0];
           if (isHome) this.homeScore++;
@@ -4641,9 +4662,9 @@ class MatchSimulator {
         this.stats.shots[attackingSide]++;
 
         if (targetStrategy === "DIRECT_SHOT") {
-          const isSave = kickQuality < 80;
-          const isGoal = kickQuality >= 80 && Math.random() < 0.65;
-          const isPost = !isGoal && kickQuality >= 72 && Math.random() < 0.5;
+          const isGoal = kickQuality >= 82 && Math.random() < 0.28;
+          const isPost = !isGoal && kickQuality >= 74 && Math.random() < 0.25;
+          const isSave = !isGoal && !isPost && kickQuality >= 60;
 
           if (isGoal) {
             this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO", onDone);
@@ -4666,31 +4687,47 @@ class MatchSimulator {
             return;
           }
 
-          const remateStat = (targetPlayer.sho || 75) * spTrainingMult;
-          const azarRemate = (Math.random() * 38 - 19);
+          // Duelo aéreo en el área: el atacante frente a los centrales rivales
+          const defMarkers = defPlayers.filter(p => ["DFC", "MCD", "LD", "LI"].includes(p.pos));
+          const primaryMarker = defMarkers.sort((a, b) => ((b.def || 70) + (b.fis || 70)) - ((a.def || 70) + (a.fis || 70)))[0] || defPlayers.find(p => p.pos !== "POR") || defPlayers[0];
+          const markerDefStat = (primaryMarker.def || 75) * 0.65 + (primaryMarker.fis || primaryMarker.phy || primaryMarker.ovr || 75) * 0.35;
+          const defAerialScore = markerDefStat + (Math.random() * 26 - 11);
+
+          const remateStat = ((targetPlayer.sho || 75) * 0.65 + (targetPlayer.fis || targetPlayer.phy || targetPlayer.ovr || 75) * 0.35) * spTrainingMult;
+          const azarRemate = (Math.random() * 26 - 13);
           const remateScore = remateStat + azarRemate;
 
           const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
           const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
-          const azarGK = (Math.random() * 28 - 14);
+          const azarGK = (Math.random() * 24 - 12);
           const gkScore = (gkSkill * gkFitness) + azarGK;
 
-          if (kickQuality < 56) {
-            this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
+          if (kickQuality < 60) {
+            // El centro va defectuoso o sale pasado/corto
+            this.triggerAlert("DESPEJE", `🛡️ Centro defectuoso que despeja la zaga de ${defTeam.shortName}`, isHome ? "away" : "home", 2500);
             this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
-          } else if (remateScore > gkScore + 5) {
-            this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "JUGADA ENSAYADA", onDone);
-          } else if (remateScore > gkScore - 4) {
-            if (Math.random() < 0.3) {
-              this.triggerAlert("AL PALO", `🥅 ¡Al palo el cabezazo de ${targetPlayer.name}!`, attackingSide, 3000);
+          } else if (defAerialScore >= remateScore - 3) {
+            // El central rival impone su físico en el área y despeja por alto
+            this.triggerAlert("DESPEJE", `🛡️ ¡Despeje aéreo de ${primaryMarker.name} imponiéndose por alto ante ${targetPlayer.name}!`, isHome ? "away" : "home", 2600);
+            this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
+          } else {
+            // El delantero gana el salto por encima del central y cabecea
+            const headerQuality = remateScore - defAerialScore;
+            const isHeaderOnTarget = Math.random() < 0.52;
+
+            if (!isHeaderOnTarget) {
+              this.triggerAlert("FUERA", `⚠️ ¡Cabezazo forzado de ${targetPlayer.name} que se marcha alto!`, attackingSide, 2500);
+              this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
+            } else if (remateScore > gkScore + 10 && headerQuality > 5) {
+              // Cabezazo impecable e imparable que bate al portero
+              this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "CABEZAZO IMPERIAL", onDone);
+            } else if (Math.random() < 0.20 && headerQuality > 3) {
+              this.triggerAlert("AL PALO", `🥅 ¡Al larguero el testarazo de ${targetPlayer.name}!`, attackingSide, 3000);
               this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
             } else {
-              this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name}!`, isHome ? "away" : "home", 3000);
+              this.triggerAlert("PARADÓN", `🧤 ¡Paradón de reflejos de ${goalkeeper.name} atajando el cabezazo de ${targetPlayer.name}!`, isHome ? "away" : "home", 3000);
               this.finishSetPiecePlay("SAVE", attackingSide, onDone);
             }
-          } else {
-            this.triggerAlert("FUERA", `⚠️ ¡Remate desviado de ${targetPlayer.name}!`, attackingSide, 2500);
-            this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
           }
         }
       }, 1400);
