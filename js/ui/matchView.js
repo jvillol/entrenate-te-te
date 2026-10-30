@@ -7895,6 +7895,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900 border border-rose-500 text-[9px] font-bold text-rose-200">🚑 ${p.injury.roundsLeft}j</span>` : ''}
             </div>
             <div class="flex items-center gap-2">
+              <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-emerald-400">⭐ ${(p.matchRating || 6.5).toFixed(1)}</span>
               <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy)}%</span>
               <span class="font-bold text-amber-400">${p.ovr}</span>
             </div>
@@ -7912,6 +7913,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900/90 border border-rose-500/60 text-[9px] font-bold text-rose-300">🚑 ${p.injury.roundsLeft}j</span>` : ''}
             </div>
             <div class="flex items-center gap-2">
+              <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-emerald-400">⭐ ${(p.matchRating || 6.5).toFixed(1)}</span>
               <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy)}%</span>
               <span class="font-bold text-amber-400">${p.ovr}</span>
             </div>
@@ -8104,7 +8106,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         if (result.scorers.length > 0) {
           itemsHtml += result.scorers.map(s => `
             <div class="flex items-center justify-between text-slate-300 py-0.5">
-              <span>⚽ <b>${s.playerName}</b> (${s.teamName})</span>
+              <span>⚽ <b>${s.playerName}</b> ${s.assisterName ? `<span class="text-[10px] text-sky-400">(👟 ${s.assisterName})</span>` : ''} (${s.teamName})</span>
               <span class="font-mono text-slate-500 font-bold">${s.minute}'</span>
             </div>
           `).join('');

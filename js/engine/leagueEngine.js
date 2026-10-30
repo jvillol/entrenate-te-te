@@ -233,15 +233,35 @@ export function simulateAIParties(match, teamsMap) {
   const homeScore = samplePoisson(lambdaHome);
   const awayScore = samplePoisson(lambdaAway);
 
-  // Asignar goleadores realistas entre los delanteros y medios del equipo
+  // Asignar goleadores y asistentes realistas entre los delanteros y medios del equipo
   const scorers = [];
+  const pickAssister = (team, scorerId) => {
+    const candidates = (team.players || []).slice(0, 14).filter(p => p.id !== scorerId && p.pos !== "POR");
+    if (candidates.length === 0 || Math.random() > 0.72) return null;
+    const weights = candidates.map(p => (p.pas || 65) * (["MCO", "MC", "EI", "ED", "MD", "MI", "LD", "LI"].includes(p.pos) ? 1.8 : 1.0));
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < candidates.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return candidates[i];
+    }
+    return candidates[0];
+  };
+
   for (let i = 0; i < homeScore; i++) {
     const scorer = pickScorer(homeTeam);
     scorer.goals = (scorer.goals || 0) + 1;
+    scorer._aiMatchGoals = (scorer._aiMatchGoals || 0) + 1;
+    const assister = pickAssister(homeTeam, scorer.id);
+    if (assister) {
+      assister.assists = (assister.assists || 0) + 1;
+      assister._aiMatchAssists = (assister._aiMatchAssists || 0) + 1;
+    }
     scorers.push({
       teamId: homeTeam.id,
       teamName: homeTeam.shortName,
       playerName: scorer.name,
+      assisterName: assister ? assister.name : null,
       player: scorer,
       minute: Math.floor(Math.random() * 88) + 2
     });
@@ -249,17 +269,30 @@ export function simulateAIParties(match, teamsMap) {
   for (let i = 0; i < awayScore; i++) {
     const scorer = pickScorer(awayTeam);
     scorer.goals = (scorer.goals || 0) + 1;
+    scorer._aiMatchGoals = (scorer._aiMatchGoals || 0) + 1;
+    const assister = pickAssister(awayTeam, scorer.id);
+    if (assister) {
+      assister.assists = (assister.assists || 0) + 1;
+      assister._aiMatchAssists = (assister._aiMatchAssists || 0) + 1;
+    }
     scorers.push({
       teamId: awayTeam.id,
       teamName: awayTeam.shortName,
       playerName: scorer.name,
+      assisterName: assister ? assister.name : null,
       player: scorer,
       minute: Math.floor(Math.random() * 88) + 2
     });
   }
 
-  // Desgaste físico del partido para los futbolistas titulares de ambos equipos de la IA
-  [homeTeam, awayTeam].forEach(team => {
+  // Desgaste físico y notas de partido (Mejora 5) para los futbolistas de ambos equipos de la IA
+  let bestAiPlayer = null;
+  let bestAiRating = -1;
+
+  [
+    { team: homeTeam, gf: homeScore, ga: awayScore },
+    { team: awayTeam, gf: awayScore, ga: homeScore }
+  ].forEach(({ team, gf, ga }) => {
     (team.players || []).forEach((p, idx) => {
       if (idx < 11) {
         p.matchMinutes = 90;
@@ -276,6 +309,27 @@ export function simulateAIParties(match, teamsMap) {
           p.matchMinutes = 0;
         }
       }
+
+      if (p.matchMinutes > 0) {
+        const mGoals = p._aiMatchGoals || 0;
+        const mAssists = p._aiMatchAssists || 0;
+        let r = 6.5 + ((Math.random() - 0.48) * 0.8);
+        r += mGoals * 1.1 + mAssists * 0.65;
+        if (gf > ga) r += 0.25;
+        else if (gf < ga) r -= 0.2;
+        if (ga === 0 && ["POR", "DFC", "LD", "LI", "MCD"].includes(p.pos)) r += 0.4;
+        const finalRating = Math.round(Math.max(4.5, Math.min(10.0, r)) * 10) / 10;
+        p.lastMatchRating = finalRating;
+        p.ratingSum = (p.ratingSum || 0) + finalRating;
+        p.matchesRated = (p.matchesRated || 0) + 1;
+        p.avgRating = Number((p.ratingSum / p.matchesRated).toFixed(2));
+        if (finalRating > bestAiRating) {
+          bestAiRating = finalRating;
+          bestAiPlayer = p;
+        }
+      }
+      delete p._aiMatchGoals;
+      delete p._aiMatchAssists;
     });
 
     // Lesiones ocasionales por acumulación de minutos o lances en los partidos de la IA
@@ -312,6 +366,10 @@ export function simulateAIParties(match, teamsMap) {
       }
     }
   });
+
+  if (bestAiPlayer) {
+    bestAiPlayer.mvpCount = (bestAiPlayer.mvpCount || 0) + 1;
+  }
 
   // Mutar y devolver el objeto match para asegurar persistencia y evitar null-null
   match.played = true;

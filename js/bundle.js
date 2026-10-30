@@ -1523,15 +1523,35 @@ function simulateAIParties(match, teamsMap) {
   const homeScore = samplePoisson(lambdaHome);
   const awayScore = samplePoisson(lambdaAway);
 
-  // Asignar goleadores realistas entre los delanteros y medios del equipo
+  // Asignar goleadores y asistentes realistas entre los delanteros y medios del equipo
   const scorers = [];
+  const pickAssister = (team, scorerId) => {
+    const candidates = (team.players || []).slice(0, 14).filter(p => p.id !== scorerId && p.pos !== "POR");
+    if (candidates.length === 0 || Math.random() > 0.72) return null;
+    const weights = candidates.map(p => (p.pas || 65) * (["MCO", "MC", "EI", "ED", "MD", "MI", "LD", "LI"].includes(p.pos) ? 1.8 : 1.0));
+    const total = weights.reduce((a, b) => a + b, 0);
+    let r = Math.random() * total;
+    for (let i = 0; i < candidates.length; i++) {
+      r -= weights[i];
+      if (r <= 0) return candidates[i];
+    }
+    return candidates[0];
+  };
+
   for (let i = 0; i < homeScore; i++) {
     const scorer = pickScorer(homeTeam);
     scorer.goals = (scorer.goals || 0) + 1;
+    scorer._aiMatchGoals = (scorer._aiMatchGoals || 0) + 1;
+    const assister = pickAssister(homeTeam, scorer.id);
+    if (assister) {
+      assister.assists = (assister.assists || 0) + 1;
+      assister._aiMatchAssists = (assister._aiMatchAssists || 0) + 1;
+    }
     scorers.push({
       teamId: homeTeam.id,
       teamName: homeTeam.shortName,
       playerName: scorer.name,
+      assisterName: assister ? assister.name : null,
       player: scorer,
       minute: Math.floor(Math.random() * 88) + 2
     });
@@ -1539,17 +1559,30 @@ function simulateAIParties(match, teamsMap) {
   for (let i = 0; i < awayScore; i++) {
     const scorer = pickScorer(awayTeam);
     scorer.goals = (scorer.goals || 0) + 1;
+    scorer._aiMatchGoals = (scorer._aiMatchGoals || 0) + 1;
+    const assister = pickAssister(awayTeam, scorer.id);
+    if (assister) {
+      assister.assists = (assister.assists || 0) + 1;
+      assister._aiMatchAssists = (assister._aiMatchAssists || 0) + 1;
+    }
     scorers.push({
       teamId: awayTeam.id,
       teamName: awayTeam.shortName,
       playerName: scorer.name,
+      assisterName: assister ? assister.name : null,
       player: scorer,
       minute: Math.floor(Math.random() * 88) + 2
     });
   }
 
-  // Desgaste físico del partido para los futbolistas titulares de ambos equipos de la IA
-  [homeTeam, awayTeam].forEach(team => {
+  // Desgaste físico y notas de partido (Mejora 5) para los futbolistas de ambos equipos de la IA
+  let bestAiPlayer = null;
+  let bestAiRating = -1;
+
+  [
+    { team: homeTeam, gf: homeScore, ga: awayScore },
+    { team: awayTeam, gf: awayScore, ga: homeScore }
+  ].forEach(({ team, gf, ga }) => {
     (team.players || []).forEach((p, idx) => {
       if (idx < 11) {
         p.matchMinutes = 90;
@@ -1566,6 +1599,27 @@ function simulateAIParties(match, teamsMap) {
           p.matchMinutes = 0;
         }
       }
+
+      if (p.matchMinutes > 0) {
+        const mGoals = p._aiMatchGoals || 0;
+        const mAssists = p._aiMatchAssists || 0;
+        let r = 6.5 + ((Math.random() - 0.48) * 0.8);
+        r += mGoals * 1.1 + mAssists * 0.65;
+        if (gf > ga) r += 0.25;
+        else if (gf < ga) r -= 0.2;
+        if (ga === 0 && ["POR", "DFC", "LD", "LI", "MCD"].includes(p.pos)) r += 0.4;
+        const finalRating = Math.round(Math.max(4.5, Math.min(10.0, r)) * 10) / 10;
+        p.lastMatchRating = finalRating;
+        p.ratingSum = (p.ratingSum || 0) + finalRating;
+        p.matchesRated = (p.matchesRated || 0) + 1;
+        p.avgRating = Number((p.ratingSum / p.matchesRated).toFixed(2));
+        if (finalRating > bestAiRating) {
+          bestAiRating = finalRating;
+          bestAiPlayer = p;
+        }
+      }
+      delete p._aiMatchGoals;
+      delete p._aiMatchAssists;
     });
 
     // Lesiones ocasionales por acumulación de minutos o lances en los partidos de la IA
@@ -1602,6 +1656,10 @@ function simulateAIParties(match, teamsMap) {
       }
     }
   });
+
+  if (bestAiPlayer) {
+    bestAiPlayer.mvpCount = (bestAiPlayer.mvpCount || 0) + 1;
+  }
 
   // Mutar y devolver el objeto match para asegurar persistencia y evitar null-null
   match.played = true;
@@ -6759,46 +6817,65 @@ function renderSquadView(container, gameState, onBackToHub) {
 // ARCHIVO: js\ui\standingsView.js
 // =========================================================
 
-// Vista de la Clasificación Completa de LaLiga y Tabla del Pichichi
+// Vista de la Clasificación Completa de LaLiga, Pichichi y Ranking MVP / Valoraciones
 function renderStandingsView(container, gameState, onBackToHub) {
-  let activeTab = "TABLE"; // "TABLE" o "PICHICHI"
+  let activeTab = "TABLE"; // "TABLE", "PICHICHI" o "MVP"
 
   function render() {
     const standings = gameState.standings;
-    const topScorers = Object.entries(gameState.topScorers || {})
-      .map(([name, goals]) => ({ name, goals }))
-      .sort((a, b) => b.goals - a.goals)
+    const allPlayers = [];
+    (gameState.teams || []).forEach(t => {
+      (t.players || []).forEach(p => {
+        allPlayers.push({
+          ...p,
+          teamShort: t.shortName,
+          teamName: t.name
+        });
+      });
+    });
+
+    const topScorers = allPlayers
+      .filter(p => (p.goals || 0) > 0)
+      .sort((a, b) => (b.goals || 0) - (a.goals || 0) || (b.assists || 0) - (a.assists || 0))
+      .slice(0, 15);
+
+    const topRated = allPlayers
+      .filter(p => (p.matchesRated || 0) > 0 && p.avgRating)
+      .sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0) || (b.mvpCount || 0) - (a.mvpCount || 0) || (b.goals || 0) - (a.goals || 0))
       .slice(0, 15);
 
     container.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-white flex flex-col pb-20 select-none">
         <!-- Header -->
-        <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between">
-          <div class="flex items-center gap-2">
+        <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0">
             ${onBackToHub ? `
-              <button id="btn-standings-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm" title="Volver al Menú Principal">
+              <button id="btn-standings-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm flex-shrink-0" title="Volver al Menú Principal">
                 <span>❮</span> Inicio
               </button>
             ` : ''}
-            <div>
-              <h2 class="text-sm font-bold">LaLiga EA Sports</h2>
+            <div class="truncate">
+              <h2 class="text-sm font-bold truncate">LaLiga EA Sports</h2>
               <p class="text-[10px] text-slate-400">Jornada ${gameState.currentRound} de 38</p>
             </div>
           </div>
           <!-- Selector de Pestañas -->
-          <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
-            <button id="tab-table" class="px-3 py-1 rounded-lg transition ${activeTab === 'TABLE' ? 'bg-sky-500 text-white shadow' : 'text-slate-400'}">
+          <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px] font-bold flex-shrink-0">
+            <button id="tab-table" class="px-2.5 py-1 rounded-lg transition ${activeTab === 'TABLE' ? 'bg-sky-500 text-white shadow' : 'text-slate-400'}">
               Tabla
             </button>
-            <button id="tab-pichichi" class="px-3 py-1 rounded-lg transition ${activeTab === 'PICHICHI' ? 'bg-sky-500 text-white shadow' : 'text-slate-400'}">
+            <button id="tab-pichichi" class="px-2.5 py-1 rounded-lg transition ${activeTab === 'PICHICHI' ? 'bg-sky-500 text-white shadow' : 'text-slate-400'}">
               Pichichi
+            </button>
+            <button id="tab-mvp" class="px-2.5 py-1 rounded-lg transition ${activeTab === 'MVP' ? 'bg-amber-500 text-slate-950 font-black shadow' : 'text-amber-400/80'}">
+              ⭐ MVP
             </button>
           </div>
         </header>
 
         <!-- Contenido -->
         <div class="p-2 flex-1 overflow-y-auto">
-          ${activeTab === "TABLE" ? renderTable(standings) : renderPichichi(topScorers)}
+          ${activeTab === "TABLE" ? renderTable(standings) : activeTab === "PICHICHI" ? renderPichichi(topScorers) : renderMvpRanking(topRated)}
         </div>
       </div>
     `;
@@ -6815,6 +6892,11 @@ function renderStandingsView(container, gameState, onBackToHub) {
 
     container.querySelector("#tab-pichichi").onclick = () => {
       activeTab = "PICHICHI";
+      render();
+    };
+
+    container.querySelector("#tab-mvp").onclick = () => {
+      activeTab = "MVP";
       render();
     };
   }
@@ -6914,15 +6996,60 @@ function renderStandingsView(container, gameState, onBackToHub) {
         <div class="space-y-1.5">
           ${topScorers.map((s, idx) => `
             <div class="flex items-center justify-between p-2 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
-              <div class="flex items-center gap-2.5">
+              <div class="flex items-center gap-2.5 min-w-0">
                 <span class="w-6 font-mono font-bold text-center ${idx === 0 ? 'text-amber-400 text-sm' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-slate-500'}">
                   ${idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
                 </span>
-                <span class="font-bold text-white">${s.name}</span>
+                <div class="truncate">
+                  <span class="font-bold text-white">${s.name}</span>
+                  ${s.teamShort ? `<span class="text-[10px] text-slate-400 ml-1">(${s.teamShort})</span>` : ''}
+                </div>
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-2 flex-shrink-0">
+                ${(s.assists || 0) > 0 ? `<span class="text-[10px] text-sky-400 font-bold">👟 ${s.assists}</span>` : ''}
                 <span class="font-mono font-black text-amber-400 text-sm">${s.goals}</span>
                 <span class="text-[10px] text-slate-400">goles</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderMvpRanking(topRated) {
+    if (topRated.length === 0) {
+      return `
+        <div class="text-center py-12 text-slate-500 text-xs">
+          <div class="text-3xl mb-2">⭐</div>
+          Disputa al menos una jornada para ver el ranking de valoraciones y premios MVP de LaLiga.
+        </div>
+      `;
+    }
+
+    return `
+      <div class="bg-slate-900/90 rounded-2xl border border-slate-800 overflow-hidden shadow-xl p-3">
+        <div class="text-xs uppercase font-extrabold text-amber-400 tracking-wider mb-3 flex items-center gap-1.5">
+          <span>⭐</span> Mejores Valoraciones y Trofeos MVP de LaLiga
+        </div>
+        <div class="space-y-1.5">
+          ${topRated.map((p, idx) => `
+            <div class="flex items-center justify-between p-2 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-6 font-mono font-bold text-center ${idx === 0 ? 'text-amber-400 text-sm' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-slate-500'}">
+                  ${idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                </span>
+                <div class="truncate">
+                  <div class="font-bold text-white truncate">${p.name} <span class="text-[10px] font-semibold text-slate-400">(${p.teamShort} · ${p.pos})</span></div>
+                  <div class="text-[10px] text-slate-400 flex items-center gap-2">
+                    <span>⚽ ${p.goals || 0}</span>
+                    <span>👟 ${p.assists || 0}</span>
+                    ${(p.mvpCount || 0) > 0 ? `<span class="text-yellow-400 font-bold">🏆 ${p.mvpCount} MVP</span>` : ''}
+                  </div>
+                </div>
+              </div>
+              <div class="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/40 font-mono font-black text-emerald-400 text-xs flex-shrink-0">
+                ⭐ ${p.avgRating.toFixed(2)}
               </div>
             </div>
           `).join('')}
@@ -6950,6 +7077,18 @@ function renderSeasonEndView(container, gameState, onRestartSeason, onNewGame) {
     .map(([name, goals]) => ({ name, goals }))
     .sort((a, b) => b.goals - a.goals);
   const pichichi = topScorers[0] || { name: "N/A", goals: 0 };
+
+  // Calcular el MVP de la Temporada de LaLiga (Mejora 5)
+  const allLeaguePlayers = [];
+  (gameState.teams || []).forEach(t => {
+    (t.players || []).forEach(p => {
+      if ((p.matchesRated || 0) >= 5 && p.avgRating) {
+        allLeaguePlayers.push({ ...p, teamShort: t.shortName });
+      }
+    });
+  });
+  allLeaguePlayers.sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0) || (b.mvpCount || 0) - (a.mvpCount || 0));
+  const seasonMvp = allLeaguePlayers[0] || null;
 
   container.innerHTML = `
     <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 max-w-md mx-auto select-none">
@@ -6987,6 +7126,20 @@ function renderSeasonEndView(container, gameState, onRestartSeason, onNewGame) {
           </div>
           <div class="text-sm font-black text-amber-400 font-mono">${pichichi.goals} goles</div>
         </div>
+
+        ${seasonMvp ? `
+          <!-- Trofeo MVP de la Temporada (Mejora 5) -->
+          <div class="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/40 text-left flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="text-2xl">🏆</span>
+              <div>
+                <div class="text-[10px] text-amber-300 uppercase font-bold">MVP de LaLiga (Mejor Nota Media)</div>
+                <div class="text-xs font-bold text-white">${seasonMvp.name} <span class="text-[10px] text-slate-400">(${seasonMvp.teamShort})</span></div>
+              </div>
+            </div>
+            <div class="text-sm font-black text-emerald-400 font-mono">⭐ ${seasonMvp.avgRating.toFixed(2)}</div>
+          </div>
+        ` : ''}
 
         <!-- Cuadro de Honor -->
         <div class="text-left text-xs space-y-1.5 p-3 rounded-2xl bg-slate-950/60 border border-slate-800">
@@ -14924,6 +15077,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900 border border-rose-500 text-[9px] font-bold text-rose-200">🚑 ${p.injury.roundsLeft}j</span>` : ''}
             </div>
             <div class="flex items-center gap-2">
+              <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-emerald-400">⭐ ${(p.matchRating || 6.5).toFixed(1)}</span>
               <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy)}%</span>
               <span class="font-bold text-amber-400">${p.ovr}</span>
             </div>
@@ -14941,6 +15095,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               ${isInjured ? `<span class="px-1.5 py-0.5 rounded bg-rose-900/90 border border-rose-500/60 text-[9px] font-bold text-rose-300">🚑 ${p.injury.roundsLeft}j</span>` : ''}
             </div>
             <div class="flex items-center gap-2">
+              <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-emerald-400">⭐ ${(p.matchRating || 6.5).toFixed(1)}</span>
               <span class="text-[10px] text-slate-400">⚡ ${Math.round(p.energy)}%</span>
               <span class="font-bold text-amber-400">${p.ovr}</span>
             </div>
@@ -15133,7 +15288,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         if (result.scorers.length > 0) {
           itemsHtml += result.scorers.map(s => `
             <div class="flex items-center justify-between text-slate-300 py-0.5">
-              <span>⚽ <b>${s.playerName}</b> (${s.teamName})</span>
+              <span>⚽ <b>${s.playerName}</b> ${s.assisterName ? `<span class="text-[10px] text-sky-400">(👟 ${s.assisterName})</span>` : ''} (${s.teamName})</span>
               <span class="font-mono text-slate-500 font-bold">${s.minute}'</span>
             </div>
           `).join('');
@@ -15255,9 +15410,17 @@ function renderHubView(container, gameState, callbacks) {
     };
   });
 
-  // Goleador del equipo, enfermería y sanciones
+  // Goleador del equipo, mejor valorado (MVP), enfermería y sanciones
   const teamScorers = [...(userTeam.players || [])].sort((a, b) => (b.goals || 0) - (a.goals || 0));
   const topTeamScorer = teamScorers[0] || { name: "Sin datos", goals: 0 };
+  const ratedPlayers = [...(userTeam.players || [])].sort((a, b) => {
+    const rDiff = (b.avgRating || 0) - (a.avgRating || 0);
+    if (Math.abs(rDiff) > 0.01) return rDiff;
+    const mvpDiff = (b.mvpCount || 0) - (a.mvpCount || 0);
+    if (mvpDiff !== 0) return mvpDiff;
+    return (b.ovr || 70) - (a.ovr || 70);
+  });
+  const topRatedPlayer = ratedPlayers[0] || { name: "Sin datos", avgRating: 0, mvpCount: 0 };
   const injuredPlayers = (userTeam.players || []).filter(p => p.injury && p.injury.roundsLeft > 0);
   const suspendedPlayers = (userTeam.players || []).filter(p => p.suspension && p.suspension.roundsLeft > 0);
 
@@ -15397,19 +15560,19 @@ function renderHubView(container, gameState, callbacks) {
               <span class="text-xl">⚽</span>
               <div class="truncate">
                 <div class="text-xs font-bold text-white truncate">${topTeamScorer?.name || '-'}</div>
-                <div class="text-[11px] font-black text-amber-400">${topTeamScorer?.goals || 0} goles</div>
+                <div class="text-[11px] font-black text-amber-400">${topTeamScorer?.goals || 0} goles ${(topTeamScorer?.assists || 0) > 0 ? `<span class="text-sky-400 font-bold">· 👟 ${topTeamScorer.assists}</span>` : ''}</div>
               </div>
             </div>
           </div>
 
-          <!-- Presupuesto / Finanzas -->
+          <!-- Mejor Valorado / MVP del Club (Mejora 5) -->
           <div class="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl">
-            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">Presupuesto</span>
+            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">Líder Valoración / MVP</span>
             <div class="flex items-center gap-2">
-              <span class="text-xl">💰</span>
-              <div>
-                <div class="text-xs font-bold text-white">Fondos del Club</div>
-                <div class="text-[11px] font-black text-emerald-400">${(userTeam.budget / 1000000).toFixed(0)}M€</div>
+              <span class="text-xl">⭐</span>
+              <div class="truncate">
+                <div class="text-xs font-bold text-white truncate">${topRatedPlayer?.name || '-'}</div>
+                <div class="text-[11px] font-black text-emerald-400">${topRatedPlayer?.avgRating ? `Media ${topRatedPlayer.avgRating.toFixed(2)}` : `OVR ${topRatedPlayer?.ovr || 80}`} ${(topRatedPlayer?.mvpCount || 0) > 0 ? `<span class="text-yellow-400 font-bold">· 🏆 ${topRatedPlayer.mvpCount}</span>` : ''}</div>
               </div>
             </div>
           </div>

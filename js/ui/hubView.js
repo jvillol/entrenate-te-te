@@ -39,9 +39,17 @@ export function renderHubView(container, gameState, callbacks) {
     };
   });
 
-  // Goleador del equipo, enfermería y sanciones
+  // Goleador del equipo, mejor valorado (MVP), enfermería y sanciones
   const teamScorers = [...(userTeam.players || [])].sort((a, b) => (b.goals || 0) - (a.goals || 0));
   const topTeamScorer = teamScorers[0] || { name: "Sin datos", goals: 0 };
+  const ratedPlayers = [...(userTeam.players || [])].sort((a, b) => {
+    const rDiff = (b.avgRating || 0) - (a.avgRating || 0);
+    if (Math.abs(rDiff) > 0.01) return rDiff;
+    const mvpDiff = (b.mvpCount || 0) - (a.mvpCount || 0);
+    if (mvpDiff !== 0) return mvpDiff;
+    return (b.ovr || 70) - (a.ovr || 70);
+  });
+  const topRatedPlayer = ratedPlayers[0] || { name: "Sin datos", avgRating: 0, mvpCount: 0 };
   const injuredPlayers = (userTeam.players || []).filter(p => p.injury && p.injury.roundsLeft > 0);
   const suspendedPlayers = (userTeam.players || []).filter(p => p.suspension && p.suspension.roundsLeft > 0);
 
@@ -181,19 +189,19 @@ export function renderHubView(container, gameState, callbacks) {
               <span class="text-xl">⚽</span>
               <div class="truncate">
                 <div class="text-xs font-bold text-white truncate">${topTeamScorer?.name || '-'}</div>
-                <div class="text-[11px] font-black text-amber-400">${topTeamScorer?.goals || 0} goles</div>
+                <div class="text-[11px] font-black text-amber-400">${topTeamScorer?.goals || 0} goles ${(topTeamScorer?.assists || 0) > 0 ? `<span class="text-sky-400 font-bold">· 👟 ${topTeamScorer.assists}</span>` : ''}</div>
               </div>
             </div>
           </div>
 
-          <!-- Presupuesto / Finanzas -->
+          <!-- Mejor Valorado / MVP del Club (Mejora 5) -->
           <div class="bg-slate-900/80 border border-slate-800 p-3.5 rounded-2xl">
-            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">Presupuesto</span>
+            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-1">Líder Valoración / MVP</span>
             <div class="flex items-center gap-2">
-              <span class="text-xl">💰</span>
-              <div>
-                <div class="text-xs font-bold text-white">Fondos del Club</div>
-                <div class="text-[11px] font-black text-emerald-400">${(userTeam.budget / 1000000).toFixed(0)}M€</div>
+              <span class="text-xl">⭐</span>
+              <div class="truncate">
+                <div class="text-xs font-bold text-white truncate">${topRatedPlayer?.name || '-'}</div>
+                <div class="text-[11px] font-black text-emerald-400">${topRatedPlayer?.avgRating ? `Media ${topRatedPlayer.avgRating.toFixed(2)}` : `OVR ${topRatedPlayer?.ovr || 80}`} ${(topRatedPlayer?.mvpCount || 0) > 0 ? `<span class="text-yellow-400 font-bold">· 🏆 ${topRatedPlayer.mvpCount}</span>` : ''}</div>
               </div>
             </div>
           </div>

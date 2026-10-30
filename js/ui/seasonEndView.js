@@ -12,6 +12,18 @@ export function renderSeasonEndView(container, gameState, onRestartSeason, onNew
     .sort((a, b) => b.goals - a.goals);
   const pichichi = topScorers[0] || { name: "N/A", goals: 0 };
 
+  // Calcular el MVP de la Temporada de LaLiga (Mejora 5)
+  const allLeaguePlayers = [];
+  (gameState.teams || []).forEach(t => {
+    (t.players || []).forEach(p => {
+      if ((p.matchesRated || 0) >= 5 && p.avgRating) {
+        allLeaguePlayers.push({ ...p, teamShort: t.shortName });
+      }
+    });
+  });
+  allLeaguePlayers.sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0) || (b.mvpCount || 0) - (a.mvpCount || 0));
+  const seasonMvp = allLeaguePlayers[0] || null;
+
   container.innerHTML = `
     <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between p-4 max-w-md mx-auto select-none">
       <header class="text-center pt-4">
@@ -48,6 +60,20 @@ export function renderSeasonEndView(container, gameState, onRestartSeason, onNew
           </div>
           <div class="text-sm font-black text-amber-400 font-mono">${pichichi.goals} goles</div>
         </div>
+
+        ${seasonMvp ? `
+          <!-- Trofeo MVP de la Temporada (Mejora 5) -->
+          <div class="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/40 text-left flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="text-2xl">🏆</span>
+              <div>
+                <div class="text-[10px] text-amber-300 uppercase font-bold">MVP de LaLiga (Mejor Nota Media)</div>
+                <div class="text-xs font-bold text-white">${seasonMvp.name} <span class="text-[10px] text-slate-400">(${seasonMvp.teamShort})</span></div>
+              </div>
+            </div>
+            <div class="text-sm font-black text-emerald-400 font-mono">⭐ ${seasonMvp.avgRating.toFixed(2)}</div>
+          </div>
+        ` : ''}
 
         <!-- Cuadro de Honor -->
         <div class="text-left text-xs space-y-1.5 p-3 rounded-2xl bg-slate-950/60 border border-slate-800">

@@ -1,44 +1,63 @@
-// Vista de la Clasificación Completa de LaLiga y Tabla del Pichichi
+// Vista de la Clasificación Completa de LaLiga, Pichichi y Ranking MVP / Valoraciones
 
 export function renderStandingsView(container, gameState, onBackToHub) {
-  let activeTab = "TABLE"; // "TABLE" o "PICHICHI"
+  let activeTab = "TABLE"; // "TABLE", "PICHICHI" o "MVP"
 
   function render() {
     const standings = gameState.standings;
-    const topScorers = Object.entries(gameState.topScorers || {})
-      .map(([name, goals]) => ({ name, goals }))
-      .sort((a, b) => b.goals - a.goals)
+    const allPlayers = [];
+    (gameState.teams || []).forEach(t => {
+      (t.players || []).forEach(p => {
+        allPlayers.push({
+          ...p,
+          teamShort: t.shortName,
+          teamName: t.name
+        });
+      });
+    });
+
+    const topScorers = allPlayers
+      .filter(p => (p.goals || 0) > 0)
+      .sort((a, b) => (b.goals || 0) - (a.goals || 0) || (b.assists || 0) - (a.assists || 0))
+      .slice(0, 15);
+
+    const topRated = allPlayers
+      .filter(p => (p.matchesRated || 0) > 0 && p.avgRating)
+      .sort((a, b) => (b.avgRating || 0) - (a.avgRating || 0) || (b.mvpCount || 0) - (a.mvpCount || 0) || (b.goals || 0) - (a.goals || 0))
       .slice(0, 15);
 
     container.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-white flex flex-col pb-20 select-none">
         <!-- Header -->
-        <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between">
-          <div class="flex items-center gap-2">
+        <header class="bg-slate-900 border-b border-slate-800 px-4 py-3 sticky top-0 z-20 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0">
             ${onBackToHub ? `
-              <button id="btn-standings-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm" title="Volver al Menú Principal">
+              <button id="btn-standings-back" class="text-xs bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-white px-2.5 py-1.5 rounded-lg border border-slate-700 font-bold active:scale-95 transition flex items-center gap-1 shadow-sm flex-shrink-0" title="Volver al Menú Principal">
                 <span>❮</span> Inicio
               </button>
             ` : ''}
-            <div>
-              <h2 class="text-sm font-bold">LaLiga EA Sports</h2>
+            <div class="truncate">
+              <h2 class="text-sm font-bold truncate">LaLiga EA Sports</h2>
               <p class="text-[10px] text-slate-400">Jornada ${gameState.currentRound} de 38</p>
             </div>
           </div>
           <!-- Selector de Pestañas -->
-          <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs font-bold">
-            <button id="tab-table" class="px-3 py-1 rounded-lg transition ${activeTab === 'TABLE' ? 'bg-sky-500 text-white shadow' : 'text-slate-400'}">
+          <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-[11px] font-bold flex-shrink-0">
+            <button id="tab-table" class="px-2.5 py-1 rounded-lg transition ${activeTab === 'TABLE' ? 'bg-sky-500 text-white shadow' : 'text-slate-400'}">
               Tabla
             </button>
-            <button id="tab-pichichi" class="px-3 py-1 rounded-lg transition ${activeTab === 'PICHICHI' ? 'bg-sky-500 text-white shadow' : 'text-slate-400'}">
+            <button id="tab-pichichi" class="px-2.5 py-1 rounded-lg transition ${activeTab === 'PICHICHI' ? 'bg-sky-500 text-white shadow' : 'text-slate-400'}">
               Pichichi
+            </button>
+            <button id="tab-mvp" class="px-2.5 py-1 rounded-lg transition ${activeTab === 'MVP' ? 'bg-amber-500 text-slate-950 font-black shadow' : 'text-amber-400/80'}">
+              ⭐ MVP
             </button>
           </div>
         </header>
 
         <!-- Contenido -->
         <div class="p-2 flex-1 overflow-y-auto">
-          ${activeTab === "TABLE" ? renderTable(standings) : renderPichichi(topScorers)}
+          ${activeTab === "TABLE" ? renderTable(standings) : activeTab === "PICHICHI" ? renderPichichi(topScorers) : renderMvpRanking(topRated)}
         </div>
       </div>
     `;
@@ -55,6 +74,11 @@ export function renderStandingsView(container, gameState, onBackToHub) {
 
     container.querySelector("#tab-pichichi").onclick = () => {
       activeTab = "PICHICHI";
+      render();
+    };
+
+    container.querySelector("#tab-mvp").onclick = () => {
+      activeTab = "MVP";
       render();
     };
   }
@@ -154,15 +178,60 @@ export function renderStandingsView(container, gameState, onBackToHub) {
         <div class="space-y-1.5">
           ${topScorers.map((s, idx) => `
             <div class="flex items-center justify-between p-2 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
-              <div class="flex items-center gap-2.5">
+              <div class="flex items-center gap-2.5 min-w-0">
                 <span class="w-6 font-mono font-bold text-center ${idx === 0 ? 'text-amber-400 text-sm' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-slate-500'}">
                   ${idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
                 </span>
-                <span class="font-bold text-white">${s.name}</span>
+                <div class="truncate">
+                  <span class="font-bold text-white">${s.name}</span>
+                  ${s.teamShort ? `<span class="text-[10px] text-slate-400 ml-1">(${s.teamShort})</span>` : ''}
+                </div>
               </div>
-              <div class="flex items-center gap-1.5">
+              <div class="flex items-center gap-2 flex-shrink-0">
+                ${(s.assists || 0) > 0 ? `<span class="text-[10px] text-sky-400 font-bold">👟 ${s.assists}</span>` : ''}
                 <span class="font-mono font-black text-amber-400 text-sm">${s.goals}</span>
                 <span class="text-[10px] text-slate-400">goles</span>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderMvpRanking(topRated) {
+    if (topRated.length === 0) {
+      return `
+        <div class="text-center py-12 text-slate-500 text-xs">
+          <div class="text-3xl mb-2">⭐</div>
+          Disputa al menos una jornada para ver el ranking de valoraciones y premios MVP de LaLiga.
+        </div>
+      `;
+    }
+
+    return `
+      <div class="bg-slate-900/90 rounded-2xl border border-slate-800 overflow-hidden shadow-xl p-3">
+        <div class="text-xs uppercase font-extrabold text-amber-400 tracking-wider mb-3 flex items-center gap-1.5">
+          <span>⭐</span> Mejores Valoraciones y Trofeos MVP de LaLiga
+        </div>
+        <div class="space-y-1.5">
+          ${topRated.map((p, idx) => `
+            <div class="flex items-center justify-between p-2 rounded-xl bg-slate-950/70 border border-slate-800 text-xs">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-6 font-mono font-bold text-center ${idx === 0 ? 'text-amber-400 text-sm' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-amber-600' : 'text-slate-500'}">
+                  ${idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : idx + 1}
+                </span>
+                <div class="truncate">
+                  <div class="font-bold text-white truncate">${p.name} <span class="text-[10px] font-semibold text-slate-400">(${p.teamShort} · ${p.pos})</span></div>
+                  <div class="text-[10px] text-slate-400 flex items-center gap-2">
+                    <span>⚽ ${p.goals || 0}</span>
+                    <span>👟 ${p.assists || 0}</span>
+                    ${(p.mvpCount || 0) > 0 ? `<span class="text-yellow-400 font-bold">🏆 ${p.mvpCount} MVP</span>` : ''}
+                  </div>
+                </div>
+              </div>
+              <div class="px-2.5 py-1 rounded-xl bg-emerald-500/15 border border-emerald-500/40 font-mono font-black text-emerald-400 text-xs flex-shrink-0">
+                ⭐ ${p.avgRating.toFixed(2)}
               </div>
             </div>
           `).join('')}
