@@ -853,6 +853,18 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                         ${role.icon} ${role.tag}
                       </div>
                     `}
+                    ${(() => {
+                      const mk = tactics.manMarking && tactics.manMarking[player.id];
+                      if (!mk || !mk.targetId) return "";
+                      const targetP = oppData.lineup.find(p => p.id === mk.targetId);
+                      const tName = targetP ? targetP.name.split(' ').slice(-1)[0] : 'Rival';
+                      const iIcon = mk.intensity === 'aggressive' ? '⚔️' : mk.intensity === 'tight' ? '🔒' : '👁️';
+                      return `
+                        <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-950/90 border border-rose-500/70 text-[6.5px] font-black text-rose-300 truncate max-w-[70px] text-center shadow-sm" title="Marcaje individual a ${tName}">
+                          ${iIcon} ${tName}
+                        </div>
+                      `;
+                    })()}
                   </div>
                 `;
               }).join('')}
@@ -873,6 +885,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const curRole = getRoleDetails(effSlot.pos, curRoleId);
             const availRoles = getAvailableRolesForPosition(effSlot.pos);
             const posLabel = getPositionAdjustmentLabel(selSlot, effSlot);
+
+            const oppOutfield = oppData.lineup.filter(p => p.pos !== "POR");
+            const oppStarOvr = Math.max(...oppOutfield.map(p => p.ovr || 70), 70);
+            const curMarking = (tactics.manMarking && tactics.manMarking[selPlayer.id]) || null;
+            const curTargetId = curMarking?.targetId || "";
+            const curIntensity = curMarking?.intensity || "tight";
 
             return `
               <div class="mx-3 my-2 space-y-2 animate-fadeIn">
@@ -950,6 +968,70 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                     `).join('')}
                   </div>
                 </div>
+
+                <!-- Instrucción Individual: Marcaje al Hombre Rival -->
+                ${selSlot.pos !== "POR" ? `
+                  <div class="p-3 bg-slate-900 border border-rose-500/50 rounded-2xl shadow-xl space-y-2">
+                    <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                      <div class="flex items-center gap-2">
+                        <span class="text-lg">🎯</span>
+                        <div>
+                          <span class="text-[9px] uppercase font-bold text-rose-400">Instrucción de Marcaje</span>
+                          <h4 class="text-xs font-black text-white">Marcaje al Hombre Rival</h4>
+                        </div>
+                      </div>
+                      ${curTargetId ? `
+                        <button id="btn-pre-clear-mark" class="text-[9.5px] font-bold text-rose-400 hover:text-white px-2 py-0.5 rounded bg-rose-950/80 border border-rose-800/80 active:scale-95 transition">
+                          Desactivar
+                        </button>
+                      ` : ''}
+                    </div>
+
+                    <div class="text-[9.5px] text-slate-400">
+                      Asigna a ${selPlayer.name.split(' ').slice(-1)[0]} la tarea de neutralizar a un jugador rival específico.
+                    </div>
+
+                    <!-- Selector de Rival -->
+                    <div>
+                      <label class="block text-[9px] uppercase font-bold text-slate-400 mb-1">Jugador Rival a Marcar:</label>
+                      <select id="select-pre-mark-target" class="w-full bg-slate-950 border border-slate-700 text-white font-bold text-xs rounded-xl px-2.5 py-1.5 outline-none focus:border-rose-400" data-marker-id="${selPlayer.id}">
+                        <option value="">-- Sin marcaje individual asignado --</option>
+                        ${oppOutfield.map(op => `
+                          <option value="${op.id}" ${op.id === curTargetId ? 'selected' : ''}>
+                            ${op.pos} · ${op.name} (${op.ovr} OVR)${op.ovr === oppStarOvr ? ' ⭐ Peligro principal' : ''}
+                          </option>
+                        `).join('')}
+                      </select>
+                    </div>
+
+                    <!-- Intensidad de Marcaje -->
+                    ${curTargetId ? `
+                      <div class="pt-1">
+                        <span class="block text-[9px] uppercase font-bold text-slate-400 mb-1.5">Intensidad del Marcaje:</span>
+                        <div class="grid grid-cols-3 gap-1.5 text-center">
+                          <button class="btn-pre-mark-intensity p-1.5 rounded-xl border text-left transition flex flex-col gap-0.5 ${curIntensity === 'light' ? 'bg-amber-500/25 border-amber-400 text-white ring-1 ring-amber-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'} active:scale-95" data-intensity="light" data-marker-id="${selPlayer.id}">
+                            <div class="flex items-center gap-1 font-bold text-[10px] ${curIntensity === 'light' ? 'text-amber-300' : 'text-slate-200'}">
+                              <span>👁️</span> Suave
+                            </div>
+                            <div class="text-[8px] text-slate-400 leading-tight">Vigilancia cercana (-12% rival, +4% fatiga)</div>
+                          </button>
+                          <button class="btn-pre-mark-intensity p-1.5 rounded-xl border text-left transition flex flex-col gap-0.5 ${curIntensity === 'tight' ? 'bg-sky-500/25 border-sky-400 text-white ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'} active:scale-95" data-intensity="tight" data-marker-id="${selPlayer.id}">
+                            <div class="flex items-center gap-1 font-bold text-[10px] ${curIntensity === 'tight' ? 'text-sky-300' : 'text-slate-200'}">
+                              <span>🔒</span> Férreo
+                            </div>
+                            <div class="text-[8px] text-slate-400 leading-tight">Pegajoso (-24% rival, +10% fatiga, +12% faltas)</div>
+                          </button>
+                          <button class="btn-pre-mark-intensity p-1.5 rounded-xl border text-left transition flex flex-col gap-0.5 ${curIntensity === 'aggressive' ? 'bg-rose-500/25 border-rose-400 text-white ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'} active:scale-95" data-intensity="aggressive" data-marker-id="${selPlayer.id}">
+                            <div class="flex items-center gap-1 font-bold text-[10px] ${curIntensity === 'aggressive' ? 'text-rose-300' : 'text-slate-200'}">
+                              <span>⚔️</span> Secante
+                            </div>
+                            <div class="text-[8px] text-slate-400 leading-tight">Asfixiante (-36% rival, +18% fatiga, +28% faltas)</div>
+                          </button>
+                        </div>
+                      </div>
+                    ` : ''}
+                  </div>
+                ` : ''}
               </div>
             `;
           })()}
@@ -1542,6 +1624,65 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     }
 
+    // Handlers de Marcaje al Hombre Pre-Partido
+    const selectPreMark = container.querySelector("#select-pre-mark-target");
+    if (selectPreMark) {
+      selectPreMark.onchange = (e) => {
+        const markerId = selectPreMark.dataset.markerId;
+        const targetId = e.target.value;
+        if (!tactics.manMarking) tactics.manMarking = {};
+        if (!targetId) {
+          delete tactics.manMarking[markerId];
+        } else {
+          tactics.manMarking[markerId] = {
+            targetId,
+            intensity: tactics.manMarking[markerId]?.intensity || "tight"
+          };
+        }
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    }
+
+    container.querySelectorAll(".btn-pre-mark-intensity").forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        const markerId = btn.dataset.markerId;
+        const intensity = btn.dataset.intensity;
+        if (!tactics.manMarking) tactics.manMarking = {};
+        if (tactics.manMarking[markerId]) {
+          tactics.manMarking[markerId].intensity = intensity;
+        } else {
+          // Si no había rival seleccionado todavía, buscar la estrella del rival
+          const oppOutfield = oppData.lineup.filter(p => p.pos !== "POR");
+          const oppStar = oppOutfield.slice().sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0];
+          if (oppStar) {
+            tactics.manMarking[markerId] = {
+              targetId: oppStar.id,
+              intensity
+            };
+          }
+        }
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
+    const btnClearMark = container.querySelector("#btn-pre-clear-mark");
+    if (btnClearMark) {
+      btnClearMark.onclick = (e) => {
+        e.stopPropagation();
+        if (selectedPreMatchPlayerId && tactics.manMarking) {
+          delete tactics.manMarking[selectedPreMatchPlayerId];
+          masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+          SaveManager.saveGame(gameState);
+          renderPreMatch();
+        }
+      };
+    }
+
     const btnPreToggleAll = container.querySelector("#btn-pre-toggle-all-roles");
     if (btnPreToggleAll) {
       btnPreToggleAll.onclick = () => {
@@ -1788,6 +1929,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       awayCustomPositions: !isUserHome ? (gameState.userTactics.customPositions || {}) : {},
       homeInstructions: isUserHome ? gameState.userTactics.instructions : oppInstructions,
       awayInstructions: !isUserHome ? gameState.userTactics.instructions : oppInstructions,
+      homeManMarking: isUserHome ? (gameState.userTactics.manMarking || {}) : {},
+      awayManMarking: !isUserHome ? (gameState.userTactics.manMarking || {}) : {},
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
       onGoal: (goalData) => handleGoalSequence(goalData),
@@ -2034,6 +2177,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <span class="leading-tight truncate w-full text-center">Dormid el balón</span>
               </button>
             </div>
+            ${isUserHome ? `
+              <div class="mt-1 pt-1.5 border-t border-slate-800/80 flex items-center gap-1.5">
+                <button id="btn-rally-crowd" class="flex-1 py-1.5 px-2 rounded-xl bg-slate-900 border border-slate-700/80 text-[9.5px] font-extrabold text-slate-300 flex items-center justify-between gap-1.5 active:scale-95 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm" title="Pide al estadio que empuje al equipo para remontar (Disponible si empatas o pierdes de local tras jugada clave o cada 15 min)">
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <span class="text-sm">🏟️</span>
+                    <span id="btn-rally-crowd-text" class="truncate font-bold">¡Pedir aliento a la afición!</span>
+                  </div>
+                  <span id="btn-rally-crowd-badge" class="px-1.5 py-0.5 rounded-full bg-slate-800 text-[8px] font-black uppercase text-slate-400 flex-shrink-0">
+                    +4% Empuje
+                  </span>
+                </button>
+              </div>
+            ` : ''}
           </div>
 
           <div class="flex items-center justify-between gap-2">
@@ -6436,6 +6592,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           const left = Math.max(1, (state.activeTeamTalk.expiresAtMinute || state.minute) - state.minute);
           boostBadge.textContent = `${state.activeTeamTalk.icon} Charla: ${state.activeTeamTalk.label} (${left}')`;
           boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 truncate max-w-[195px]";
+        } else if (state.activeCrowdRoar) {
+          const left = Math.max(1, (state.activeCrowdRoar.expiresAtMinute || state.minute) - state.minute);
+          boostBadge.textContent = `🏟️ Rugido Grada (+4% empuje) (${left}')`;
+          boostBadge.className = "text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400 text-amber-300 animate-pulse truncate max-w-[195px]";
         } else if (state.shoutCooldownUntil > state.minute) {
           const cd = state.shoutCooldownUntil - state.minute;
           boostBadge.textContent = `⏳ Voz en descanso (${cd} min)`;
@@ -6458,6 +6618,53 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           btn.className = "btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition";
         }
       });
+
+      // Actualizar botón de Aliento a la Grada (si el usuario juega de local)
+      const btnRally = container.querySelector("#btn-rally-crowd");
+      const btnRallyText = container.querySelector("#btn-rally-crowd-text");
+      const btnRallyBadge = container.querySelector("#btn-rally-crowd-badge");
+      if (btnRally) {
+        const isLosingOrDrawing = state.homeScore <= state.awayScore;
+        const isCooldown = (state.crowdRoarCooldownUntil || 0) > state.minute;
+        const isUnlocked = Boolean(state.crowdRoarUnlockedByHighlight);
+        const canTrigger = isLosingOrDrawing && (!isCooldown || isUnlocked);
+
+        if (state.activeCrowdRoar) {
+          const left = Math.max(1, (state.activeCrowdRoar.expiresAtMinute || state.minute) - state.minute);
+          btnRally.disabled = true;
+          btnRally.className = "flex-1 py-1.5 px-2 rounded-xl bg-emerald-500/25 border-2 border-emerald-400 text-[9.5px] font-black text-emerald-300 flex items-center justify-between gap-1.5 shadow-lg shadow-emerald-500/20 animate-pulse";
+          if (btnRallyText) btnRallyText.textContent = `¡Estadio enardecido! (${left}')`;
+          if (btnRallyBadge) {
+            btnRallyBadge.textContent = "+4% EMPUJE";
+            btnRallyBadge.className = "px-1.5 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[8px] font-black uppercase";
+          }
+        } else if (!isLosingOrDrawing) {
+          btnRally.disabled = true;
+          btnRally.className = "flex-1 py-1.5 px-2 rounded-xl bg-slate-950/60 border border-slate-800 text-[9.5px] font-bold text-slate-500 opacity-60 flex items-center justify-between gap-1.5 cursor-not-allowed";
+          if (btnRallyText) btnRallyText.textContent = "Grada tranquila (vas ganando)";
+          if (btnRallyBadge) {
+            btnRallyBadge.textContent = "Calma";
+            btnRallyBadge.className = "px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-500 text-[8px] font-bold uppercase";
+          }
+        } else if (canTrigger) {
+          btnRally.disabled = false;
+          btnRally.className = "flex-1 py-1.5 px-2 rounded-xl bg-gradient-to-r from-amber-500/30 to-rose-500/30 hover:from-amber-500/40 hover:to-rose-500/40 border-2 border-amber-400 text-[9.5px] font-black text-amber-200 flex items-center justify-between gap-1.5 shadow-md active:scale-95 transition cursor-pointer";
+          if (btnRallyText) btnRallyText.textContent = isUnlocked ? "¡Pedir rugido a la grada! (Jugada clave)" : "¡Pedir aliento a la afición!";
+          if (btnRallyBadge) {
+            btnRallyBadge.textContent = "LISTO ⚡";
+            btnRallyBadge.className = "px-1.5 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[8px] font-black uppercase animate-bounce";
+          }
+        } else {
+          const cd = (state.crowdRoarCooldownUntil || 0) - state.minute;
+          btnRally.disabled = true;
+          btnRally.className = "flex-1 py-1.5 px-2 rounded-xl bg-slate-950/60 border border-slate-800 text-[9.5px] font-bold text-slate-500 opacity-60 flex items-center justify-between gap-1.5 cursor-not-allowed";
+          if (btnRallyText) btnRallyText.textContent = `Grada recuperando el aliento (${cd} min)`;
+          if (btnRallyBadge) {
+            btnRallyBadge.textContent = "Espera jugada";
+            btnRallyBadge.className = "px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-500 text-[8px] font-bold uppercase";
+          }
+        }
+      }
 
       // Sincronización continua del botón de pausa / reanudar
       const elIconPP = container.querySelector("#play-pause-icon");
@@ -6643,6 +6850,21 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         updateMatchUI(simulator.getState());
       };
     });
+
+    // Botón de Aliento a la Grada (Remontada en casa)
+    const btnRallyClick = container.querySelector("#btn-rally-crowd");
+    if (btnRallyClick) {
+      btnRallyClick.onclick = () => {
+        const res = simulator.triggerCrowdRoar();
+        if (!res.success) {
+          showMatchAlert({ text: `⏳ ${res.reason}` });
+          return;
+        }
+        showMatchAlert({ text: `🏟️ ¡El estadio ruge y empuja al equipo! (+4% espíritu de remontada)` });
+        updateFMCommentary(`🏟️ Pides el aliento de la grada: todo el estadio se levanta y ruge al unísono para guiar la remontada del equipo.`, "tactical");
+        updateMatchUI(simulator.getState());
+      };
+    }
 
     container.querySelector("#btn-skip-end").onclick = () => {
       clearAllMatchUiTimeouts();
@@ -6834,6 +7056,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         gameState.userTactics.instructions ||
         getDefaultTacticalInstructions()
       ));
+      let htManMarking = JSON.parse(JSON.stringify(
+        (teamSide === "home" ? simulator.homeManMarking : simulator.awayManMarking) ||
+        gameState.userTactics.manMarking ||
+        {}
+      ));
       let showHTAllRoles = false;
       let htJustDragged = false;
 
@@ -7000,6 +7227,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <div class="mt-0.5 px-1 py-0.2 rounded bg-sky-950/80 border border-sky-500/30 text-[7px] font-bold text-sky-300 truncate max-w-[70px] text-center">
                   ${r.icon} ${r.tag}
                 </div>
+                ${(() => {
+                  const mk = htManMarking && htManMarking[player.id];
+                  if (!mk || !mk.targetId) return "";
+                  const oppPitch = isUserHome ? simulator.awayPlayersOnPitch : simulator.homePlayersOnPitch;
+                  const targetP = oppPitch.find(p => p.id === mk.targetId) || opponentTeam.players.find(p => p.id === mk.targetId);
+                  const tName = targetP ? targetP.name.split(' ').slice(-1)[0] : 'Rival';
+                  const iIcon = mk.intensity === 'aggressive' ? '⚔️' : mk.intensity === 'tight' ? '🔒' : '👁️';
+                  return `
+                    <div class="mt-0.5 px-1 py-0.2 rounded bg-rose-950/90 border border-rose-500/70 text-[6.5px] font-black text-rose-300 truncate max-w-[70px] text-center shadow-sm" title="Marcaje en vivo a ${tName}">
+                      ${iIcon} ${tName}
+                    </div>
+                  `;
+                })()}
                 ${isSelected ? `
                   <div class="mt-0.5 px-1.5 py-0.2 rounded-full bg-amber-400 text-slate-950 font-black text-[7px] shadow-md animate-pulse uppercase tracking-tight">
                     ✋ Mover
@@ -7102,6 +7342,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               const availRoles = getAvailableRolesForPosition(effSlot.pos);
               const posLabel = getPositionAdjustmentLabel(selSlot, effSlot);
 
+              const oppPitch = isUserHome ? simulator.awayPlayersOnPitch : simulator.homePlayersOnPitch;
+              const oppOutfieldPitch = oppPitch.filter(p => !p.isKeeper && p.pos !== "POR");
+              const oppPitchStarOvr = Math.max(...oppOutfieldPitch.map(p => p.ovr || 70), 70);
+              const curMarking = (htManMarking && htManMarking[selPlayer.id]) || null;
+              const curTargetId = curMarking?.targetId || "";
+              const curIntensity = curMarking?.intensity || "tight";
+
               rolePanel.innerHTML = `
                 <div class="my-2 space-y-2 animate-fadeIn">
                   <!-- Ajuste de posición manual en descanso/directo -->
@@ -7192,6 +7439,68 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                       `).join('')}
                     </div>
                   </div>
+
+                  <!-- Marcaje al Hombre Rival en Vivo -->
+                  ${selSlot.pos !== "POR" ? `
+                    <div class="p-3 bg-slate-900 border border-rose-500/50 rounded-2xl shadow-xl space-y-2">
+                      <div class="flex items-center justify-between pb-1.5 border-b border-slate-800">
+                        <div class="flex items-center gap-2">
+                          <span class="text-lg">🎯</span>
+                          <div>
+                            <span class="text-[9px] uppercase font-bold text-rose-400">Instrucción en Vivo</span>
+                            <h4 class="text-xs font-black text-white">Marcaje al Hombre Rival</h4>
+                          </div>
+                        </div>
+                        ${curTargetId ? `
+                          <button id="btn-ht-clear-mark" class="text-[9.5px] font-bold text-rose-400 hover:text-white px-2 py-0.5 rounded bg-rose-950/80 border border-rose-800/80 active:scale-95 transition">
+                            Desactivar
+                          </button>
+                        ` : ''}
+                      </div>
+
+                      <div class="text-[9.5px] text-slate-400">
+                        Ordena a ${selPlayer.name.split(' ').slice(-1)[0]} perseguir y anular a un rival que esté en el campo.
+                      </div>
+
+                      <div>
+                        <label class="block text-[9px] uppercase font-bold text-slate-400 mb-1">Jugador Rival en Terreno de Juego:</label>
+                        <select id="select-ht-mark-target" class="w-full bg-slate-950 border border-slate-700 text-white font-bold text-xs rounded-xl px-2.5 py-1.5 outline-none focus:border-rose-400" data-marker-id="${selPlayer.id}">
+                          <option value="">-- Sin marcaje individual asignado --</option>
+                          ${oppOutfieldPitch.map(op => `
+                            <option value="${op.id}" ${op.id === curTargetId ? 'selected' : ''}>
+                              ${op.pos} · ${op.name} (${op.ovr || 70} OVR)${(op.ovr || 70) === oppPitchStarOvr ? ' ⭐ Peligro principal' : ''}
+                            </option>
+                          `).join('')}
+                        </select>
+                      </div>
+
+                      ${curTargetId ? `
+                        <div class="pt-1">
+                          <span class="block text-[9px] uppercase font-bold text-slate-400 mb-1.5">Intensidad del Marcaje:</span>
+                          <div class="grid grid-cols-3 gap-1.5 text-center">
+                            <button class="btn-ht-mark-intensity p-1.5 rounded-xl border text-left transition flex flex-col gap-0.5 ${curIntensity === 'light' ? 'bg-amber-500/25 border-amber-400 text-white ring-1 ring-amber-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'} active:scale-95" data-intensity="light" data-marker-id="${selPlayer.id}">
+                              <div class="flex items-center gap-1 font-bold text-[10px] ${curIntensity === 'light' ? 'text-amber-300' : 'text-slate-200'}">
+                                <span>👁️</span> Suave
+                              </div>
+                              <div class="text-[8px] text-slate-400 leading-tight">Vigilancia (-12% rival, +4% fatiga)</div>
+                            </button>
+                            <button class="btn-ht-mark-intensity p-1.5 rounded-xl border text-left transition flex flex-col gap-0.5 ${curIntensity === 'tight' ? 'bg-sky-500/25 border-sky-400 text-white ring-1 ring-sky-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'} active:scale-95" data-intensity="tight" data-marker-id="${selPlayer.id}">
+                              <div class="flex items-center gap-1 font-bold text-[10px] ${curIntensity === 'tight' ? 'text-sky-300' : 'text-slate-200'}">
+                                <span>🔒</span> Férreo
+                              </div>
+                              <div class="text-[8px] text-slate-400 leading-tight">Pegajoso (-24% rival, +10% fatiga, +12% faltas)</div>
+                            </button>
+                            <button class="btn-ht-mark-intensity p-1.5 rounded-xl border text-left transition flex flex-col gap-0.5 ${curIntensity === 'aggressive' ? 'bg-rose-500/25 border-rose-400 text-white ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700'} active:scale-95" data-intensity="aggressive" data-marker-id="${selPlayer.id}">
+                              <div class="flex items-center gap-1 font-bold text-[10px] ${curIntensity === 'aggressive' ? 'text-rose-300' : 'text-slate-200'}">
+                                <span>⚔️</span> Secante
+                              </div>
+                              <div class="text-[8px] text-slate-400 leading-tight">Asfixiante (-36% rival, +18% fatiga, +28% faltas)</div>
+                            </button>
+                          </div>
+                        </div>
+                      ` : ''}
+                    </div>
+                  ` : ''}
                 </div>
               `;
 
@@ -7266,6 +7575,57 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                   renderHTTactics();
                 };
               });
+
+              // Handlers de Marcaje al Hombre en Vivo
+              const selectHtMark = rolePanel.querySelector("#select-ht-mark-target");
+              if (selectHtMark) {
+                selectHtMark.onchange = (e) => {
+                  const markerId = selectHtMark.dataset.markerId;
+                  const targetId = e.target.value;
+                  if (!htManMarking) htManMarking = {};
+                  if (!targetId) {
+                    delete htManMarking[markerId];
+                  } else {
+                    htManMarking[markerId] = {
+                      targetId,
+                      intensity: htManMarking[markerId]?.intensity || "tight"
+                    };
+                  }
+                  renderHTTactics();
+                };
+              }
+
+              rolePanel.querySelectorAll(".btn-ht-mark-intensity").forEach(btn => {
+                btn.onclick = (e) => {
+                  e.stopPropagation();
+                  const markerId = btn.dataset.markerId;
+                  const intensity = btn.dataset.intensity;
+                  if (!htManMarking) htManMarking = {};
+                  if (htManMarking[markerId]) {
+                    htManMarking[markerId].intensity = intensity;
+                  } else {
+                    const oppStar = oppOutfieldPitch.slice().sort((a, b) => (b.ovr || 70) - (a.ovr || 70))[0];
+                    if (oppStar) {
+                      htManMarking[markerId] = {
+                        targetId: oppStar.id,
+                        intensity
+                      };
+                    }
+                  }
+                  renderHTTactics();
+                };
+              });
+
+              const btnHtClearMark = rolePanel.querySelector("#btn-ht-clear-mark");
+              if (btnHtClearMark) {
+                btnHtClearMark.onclick = (e) => {
+                  e.stopPropagation();
+                  if (htSelectedPlayerId && htManMarking) {
+                    delete htManMarking[htSelectedPlayerId];
+                    renderHTTactics();
+                  }
+                };
+              }
             } else {
               rolePanel.innerHTML = "";
             }
@@ -7516,7 +7876,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           htBenchIds,
           !isLive,
           htPlayerRoles,
-          htCustomPositions
+          htCustomPositions,
+          htManMarking
         );
 
         if (!res.success) {
@@ -7532,6 +7893,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
         gameState.userTactics.playerRoles = { ...htPlayerRoles };
         gameState.userTactics.customPositions = { ...htCustomPositions };
+        gameState.userTactics.manMarking = { ...htManMarking };
         gameState.userTactics.instructions = JSON.parse(JSON.stringify(htInstructions));
 
         simulator.setTacticalInstructions(teamSide, htInstructions);
@@ -7549,6 +7911,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           masterTacticsForNextMatches.mentality = htMentality;
           masterTacticsForNextMatches.playerRoles = { ...htPlayerRoles };
           masterTacticsForNextMatches.customPositions = { ...htCustomPositions };
+          masterTacticsForNextMatches.manMarking = { ...htManMarking };
           masterTacticsForNextMatches.instructions = JSON.parse(JSON.stringify(htInstructions));
         }
         SaveManager.saveGame(gameState);

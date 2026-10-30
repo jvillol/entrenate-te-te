@@ -155,6 +155,15 @@ export class MatchSimulator {
     this.isHalfTime = false;
     this.halfTimeTriggered = false;
     this.isSecondHalf = false;
+
+    // Instrucciones individuales: Marcaje al Hombre (Feature A)
+    this.homeManMarking = options.homeManMarking ? JSON.parse(JSON.stringify(options.homeManMarking)) : {};
+    this.awayManMarking = options.awayManMarking ? JSON.parse(JSON.stringify(options.awayManMarking)) : {};
+
+    // Aliento de la Grada (Feature B)
+    this.activeCrowdRoar = null;
+    this.crowdRoarCooldownUntil = 0;
+    this.crowdRoarUnlockedByHighlight = false;
   }
 
   getFormationCoords(formationKey, isHome, customPositions = null) {
@@ -635,6 +644,115 @@ export class MatchSimulator {
     return { success: true, shout: this.activeShout };
   }
 
+  // FEATURE B: Pedir el Aliento de la Grada (Factor Campo Local para Remontar)
+  triggerCrowdRoar() {
+    if (this.isFinished || this.isHalfTime) {
+      return { success: false, reason: "El partido está detenido." };
+    }
+    if (this.userSide !== "home") {
+      return { success: false, reason: "Solo puedes pedir el aliento del estadio cuando juegas en casa como local." };
+    }
+    if (this.homeScore > this.awayScore) {
+      return { success: false, reason: "Tu equipo va ganando el partido; la afición ya está satisfecha y en fiesta." };
+    }
+    if (this.activeCrowdRoar) {
+      const left = Math.max(1, this.activeCrowdRoar.expiresAtMinute - this.minute);
+      return { success: false, reason: `¡La grada ya está ruge al máximo animando al equipo (${left} min restantes)!` };
+    }
+    const isCooldown = this.minute < this.crowdRoarCooldownUntil;
+    if (isCooldown && !this.crowdRoarUnlockedByHighlight) {
+      const wait = this.crowdRoarCooldownUntil - this.minute;
+      return { success: false, reason: `La grada recupera el aliento. Podrás activarla en ${wait} min o tras una jugada clave.` };
+    }
+
+    // Activar aliento durante 10 minutos
+    this.activeCrowdRoar = {
+      startedAtMinute: this.minute,
+      expiresAtMinute: Math.min(this.maxMinutes, this.minute + 10),
+      boostPct: 0.04
+    };
+    this.crowdRoarCooldownUntil = this.minute + 15;
+    this.crowdRoarUnlockedByHighlight = false;
+
+    // Pequeño plus instantáneo de moral y energía a los futbolistas locales
+    this.homePlayersOnPitch.forEach(p => {
+      p.energy = Math.min(100, (p.energy || 75) + 1.5);
+    });
+
+    this.triggerAlert("GRADA", "🏟️ ¡El estadio ruge y se vuelca con el equipo para empujar la remontada! (+4% empuje)", "home", 3800);
+    if (this.onTick) this.onTick(this.getState());
+    return { success: true, activeCrowdRoar: this.activeCrowdRoar };
+  }
+
+  // FEATURE A: Asignar o modificar marcaje al hombre individual
+  setManMarking(side, markerId, targetId, intensity = "tight") {
+    const isHome = side === "home";
+    const markingMap = isHome ? this.homeManMarking : this.awayManMarking;
+    if (!markingMap) return false;
+
+    if (!targetId || intensity === "none") {
+      delete markingMap[markerId];
+    } else {
+      markingMap[markerId] = {
+        targetId,
+        intensity: ["light", "tight", "aggressive"].includes(intensity) ? intensity : "tight"
+      };
+    }
+    return true;
+  }
+
+  // Obtener marcaje activo de un marcador si ambos jugadores están en el campo
+  getActiveMarkingForMarker(side, markerId) {
+    const isHome = side === "home";
+    const markingMap = isHome ? this.homeManMarking : this.awayManMarking;
+    const task = markingMap ? markingMap[markerId] : null;
+    if (!task || !task.targetId) return null;
+
+    const myPitch = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const oppPitch = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
+
+    const markerOnPitch = myPitch.some(p => p.id === markerId);
+    const targetOnPitch = oppPitch.some(p => p.id === task.targetId);
+
+    if (markerOnPitch && targetOnPitch) {
+      return {
+        markerId,
+        targetId: task.targetId,
+        intensity: task.intensity || "tight"
+      };
+    }
+    return null;
+  }
+
+  // Obtener todos los marcadores rivales que están vigilando a un jugador objetivo
+  getActiveMarkersOnTarget(targetSide, targetId) {
+    const targetIsHome = targetSide === "home";
+    const oppSide = targetIsHome ? "away" : "home";
+    const oppMarkingMap = targetIsHome ? this.awayManMarking : this.homeManMarking;
+    if (!oppMarkingMap) return [];
+
+    const oppPitch = targetIsHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
+    const myPitch = targetIsHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+
+    const targetOnPitch = myPitch.some(p => p.id === targetId);
+    if (!targetOnPitch) return [];
+
+    const activeMarkers = [];
+    for (const markerId in oppMarkingMap) {
+      const task = oppMarkingMap[markerId];
+      if (task && task.targetId === targetId) {
+        if (oppPitch.some(p => p.id === markerId)) {
+          activeMarkers.push({
+            markerId,
+            targetId,
+            intensity: task.intensity || "tight"
+          });
+        }
+      }
+    }
+    return activeMarkers;
+  }
+
   // Realizar sustitución en vivo
   makeSubstitution(teamSide, pitchPlayerId, benchPlayerId, isHalfTime = false) {
     const isHome = teamSide === "home";
@@ -697,7 +815,7 @@ export class MatchSimulator {
   }
 
   // Aplicar ajustes tácticos completos (formación, mentalidad, cambios de puesto y sustituciones)
-  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false, newPlayerRoles = null, newCustomPositions = null) {
+  applyTacticalChanges(teamSide, newFormationKey, newMentality, newLineupPlayerIds, newBenchPlayerIds, isHalfTime = false, newPlayerRoles = null, newCustomPositions = null, newManMarking = null) {
     const isHome = teamSide === "home";
     const currentPitch = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const currentPitchIds = currentPitch.map(p => p.id);
@@ -707,6 +825,11 @@ export class MatchSimulator {
     if (newCustomPositions) {
       if (isHome) this.homeCustomPositions = newCustomPositions;
       else this.awayCustomPositions = newCustomPositions;
+    }
+
+    if (newManMarking !== null && typeof newManMarking === "object") {
+      if (isHome) this.homeManMarking = JSON.parse(JSON.stringify(newManMarking));
+      else this.awayManMarking = JSON.parse(JSON.stringify(newManMarking));
     }
 
     // Detectar qué futbolistas entran desde el banquillo
@@ -801,6 +924,16 @@ export class MatchSimulator {
       this.awayBench = newBench;
       if (newFormationKey) this.awayFormation = newFormationKey;
       if (newMentality) this.awayMentality = newMentality;
+    }
+
+    // Limpiar marcajes de futbolistas que salen sustituidos
+    if (subsOutIds.length > 0) {
+      const activeMarking = isHome ? this.homeManMarking : this.awayManMarking;
+      if (activeMarking) {
+        subsOutIds.forEach(outId => {
+          delete activeMarking[outId];
+        });
+      }
     }
 
     // Reposicionar jugadores en 2D según el nuevo esquema táctico
@@ -2231,6 +2364,7 @@ export class MatchSimulator {
     this.isHighlightRunning = false;
     this.speed = this.userSpeed;
     this.skipCurrentHighlight = null;
+    this.crowdRoarUnlockedByHighlight = true; // Desbloqueo inmediato del aliento de la grada tras jugada clave
     if (this.highlightTimeouts && this.highlightTimeouts.length > 0) {
       this.highlightTimeouts.forEach(clearTimeout);
       this.highlightTimeouts = [];
@@ -2983,6 +3117,28 @@ export class MatchSimulator {
           if (advX < 45) power *= 1.10;
         }
       }
+
+      // Feature A: Impacto del Marcaje al Hombre en atributos de cada futbolista
+      if (side) {
+        // Reducción si este jugador está marcado al hombre
+        const markers = this.getActiveMarkersOnTarget(side, p.id);
+        if (markers.length > 0) {
+          const isAggressive = markers.some(m => m.intensity === "aggressive");
+          const isTight = markers.some(m => m.intensity === "tight");
+          const redFactor = isAggressive ? 0.64 : (isTight ? 0.76 : 0.88);
+          if (type === "atk" || type === "mid") {
+            power *= redFactor;
+          }
+        }
+
+        // Bonus a defensa si este futbolista es un marcador asignado
+        const markingTask = this.getActiveMarkingForMarker(side, p.id);
+        if (markingTask && type === "def") {
+          const defBoost = markingTask.intensity === "aggressive" ? 1.14 : (markingTask.intensity === "tight" ? 1.10 : 1.06);
+          power *= defBoost;
+        }
+      }
+
       sum += power;
     });
 
@@ -3007,6 +3163,14 @@ export class MatchSimulator {
         else if (type === "def") avgPower *= (this.activeShout.defMod || 1.0);
       }
     }
+
+    // Feature B: Aliento de la Grada (Factor campo de remontada local)
+    if (this.activeCrowdRoar && side === "home" && this.minute <= this.activeCrowdRoar.expiresAtMinute) {
+      if (type === "atk") avgPower *= 1.045;
+      else if (type === "mid") avgPower *= 1.035;
+      else if (type === "def") avgPower *= 1.030;
+    }
+
     return avgPower;
   }
 
@@ -3234,6 +3398,11 @@ export class MatchSimulator {
       halftimeTalkUsed: this.halftimeTalkUsed,
       activeShout: this.activeShout,
       shoutCooldownUntil: this.shoutCooldownUntil,
+      activeCrowdRoar: this.activeCrowdRoar,
+      crowdRoarCooldownUntil: this.crowdRoarCooldownUntil,
+      crowdRoarUnlockedByHighlight: this.crowdRoarUnlockedByHighlight,
+      homeManMarking: this.homeManMarking,
+      awayManMarking: this.awayManMarking,
       weeklyTraining: this.weeklyTraining,
       weather: this.weather,
       currentMvp: this.computeMVP(),

@@ -49,6 +49,7 @@ class GameManager {
             bench: optimal.benchIds,
             playerRoles: {},
             customPositions: {},
+            manMarking: {},
             instructions: getDefaultTacticalInstructions()
           };
         } else {
@@ -57,6 +58,9 @@ class GameManager {
           }
           if (!this.state.userTactics.customPositions) {
             this.state.userTactics.customPositions = {};
+          }
+          if (!this.state.userTactics.manMarking) {
+            this.state.userTactics.manMarking = {};
           }
         }
 
@@ -147,6 +151,7 @@ class GameManager {
         bench: optimal.benchIds,
         playerRoles: {},
         customPositions: {},
+        manMarking: {},
         instructions: getDefaultTacticalInstructions()
       },
       weeklyTraining: "recovery",
@@ -174,8 +179,13 @@ class GameManager {
           bench: optimal.benchIds,
           playerRoles: {},
           customPositions: {},
+          manMarking: {},
           instructions: getDefaultTacticalInstructions()
         };
+      } else {
+        if (!this.state.userTactics.manMarking) {
+          this.state.userTactics.manMarking = {};
+        }
       }
       if (!this.state.weeklyTraining) {
         this.state.weeklyTraining = "recovery";
