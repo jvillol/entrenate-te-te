@@ -53,6 +53,42 @@ export function renderHubView(container, gameState, callbacks) {
   const injuredPlayers = (userTeam.players || []).filter(p => p.injury && p.injury.roundsLeft > 0);
   const suspendedPlayers = (userTeam.players || []).filter(p => p.suspension && p.suspension.roundsLeft > 0);
 
+  if (!gameState.weeklyTraining) {
+    gameState.weeklyTraining = "recovery";
+  }
+
+  const WEEKLY_TRAININGS = [
+    {
+      id: "recovery",
+      icon: "🧘",
+      label: "Recuperación y Fisio",
+      badge: "+10% Energía · -35% Lesión",
+      desc: "Baños de hielo y descarga muscular: +4% frescura inmediata, -35% riesgo de lesión muscular y +10% recuperación post-partido."
+    },
+    {
+      id: "set_pieces",
+      icon: "🚩",
+      label: "Balón Parado",
+      badge: "+15% Córners y Faltas",
+      desc: "Pizarra de estrategia: +15% de precisión y remate en todos tus córners y faltas directas en esta jornada."
+    },
+    {
+      id: "finishing",
+      icon: "🎯",
+      label: "Definición y Puntería",
+      badge: "+4 Tiro · +7% Ataque",
+      desc: "Sesión intensiva de remate: +4 en Tiro (SHO) para tus atacantes y +7% de efectividad goleadora en esta jornada."
+    },
+    {
+      id: "defensive",
+      icon: "🧱",
+      label: "Muro y Basculación",
+      badge: "+4 Defensa · +7% Solidez",
+      desc: "Trabajo táctico de bloque: +4 en Defensa/Parada para zagueros y portero, y +7% de solidez defensiva en esta jornada."
+    }
+  ];
+  const activeTrainingObj = WEEKLY_TRAININGS.find(t => t.id === gameState.weeklyTraining) || WEEKLY_TRAININGS[0];
+
   container.innerHTML = `
     <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-20 select-none max-w-md mx-auto">
       <!-- Barra Superior del Club -->
@@ -180,6 +216,35 @@ export function renderHubView(container, gameState, callbacks) {
           </div>
         ` : ''}
 
+        <!-- MEJORA 3: Plan de Entrenamiento Semanal -->
+        <div class="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-3.5 shadow-lg">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <span>🏋️</span> Plan de Entrenamiento Semanal
+            </span>
+            <span class="text-[9.5px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              ${activeTrainingObj.badge}
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            ${WEEKLY_TRAININGS.map(wt => {
+              const isSel = gameState.weeklyTraining === wt.id;
+              return `
+                <button type="button" class="btn-weekly-training p-2 rounded-xl border text-left transition flex items-center gap-2 ${isSel ? 'bg-emerald-500/20 border-emerald-400 text-white shadow-md ring-1 ring-emerald-400/60' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-95'}" data-training="${wt.id}">
+                  <span class="text-lg flex-shrink-0">${wt.icon}</span>
+                  <div class="min-w-0">
+                    <div class="text-[11px] font-extrabold ${isSel ? 'text-emerald-300' : 'text-white'} truncate leading-tight">${wt.label}</div>
+                    <div class="text-[9px] ${isSel ? 'text-emerald-200' : 'text-slate-400'} truncate leading-tight mt-0.5">${wt.badge}</div>
+                  </div>
+                </button>
+              `;
+            }).join('')}
+          </div>
+          <div class="text-[10px] text-slate-300 bg-slate-950/70 border border-slate-800/80 rounded-xl px-2.5 py-1.5 leading-snug">
+            <span class="font-bold text-emerald-400">${activeTrainingObj.icon} Enfoque activo:</span> ${activeTrainingObj.desc}
+          </div>
+        </div>
+
         <!-- Fila de Resumen de Plantilla y Rendimiento -->
         <div class="grid grid-cols-2 gap-3">
           <!-- Goleador del Club -->
@@ -278,6 +343,18 @@ export function renderHubView(container, gameState, callbacks) {
   container.querySelector("#btn-play-match").onclick = () => {
     callbacks.onStartMatch();
   };
+
+  // MEJORA 3: Selección del Plan de Entrenamiento Semanal
+  container.querySelectorAll(".btn-weekly-training").forEach(btn => {
+    btn.onclick = () => {
+      const trId = btn.dataset.training;
+      if (trId && gameState.weeklyTraining !== trId) {
+        gameState.weeklyTraining = trId;
+        SaveManager.saveGame(gameState);
+        renderHubView(container, gameState, callbacks);
+      }
+    };
+  });
 
   // Botón Ranuras en la Cabecera
   const btnHeaderSlots = container.querySelector("#btn-header-slots");

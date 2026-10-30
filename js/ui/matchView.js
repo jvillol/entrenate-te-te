@@ -146,6 +146,162 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     { id: "calm", icon: "🧊", label: "Cabeza Fría", desc: "-35% riesgo tarjetas y ahorro físico" }
   ];
 
+  // MEJORA 3: Metadatos del Plan de Entrenamiento Semanal activo
+  const WEEKLY_TRAINING_META = {
+    recovery: { id: "recovery", icon: "🧘", label: "Recuperación y Fisio", shortEffect: "+4% Frescura y -35% riesgo lesión" },
+    set_pieces: { id: "set_pieces", icon: "🚩", label: "Laboratorio Balón Parado", shortEffect: "+15% Córners y Faltas" },
+    finishing: { id: "finishing", icon: "🎯", label: "Definición y Puntería", shortEffect: "+4 Tiro (SHO) y +7% Ataque" },
+    defensive: { id: "defensive", icon: "🧱", label: "Muro y Basculación", shortEffect: "+4 Defensa/Parada y +7% Solidez" }
+  };
+  const activeWeeklyTraining = WEEKLY_TRAINING_META[gameState.weeklyTraining || "recovery"] || WEEKLY_TRAINING_META.recovery;
+
+  // MEJORA 6: Clima dinámico del partido con impacto en el césped y tácticas
+  const WEATHER_CATALOG = {
+    sunny: {
+      id: "sunny",
+      icon: "☀️",
+      label: "Soleado · 22°C",
+      shortBadge: "☀️ Soleado 22°C",
+      pitchEffect: "Césped seco (+4% Pase corto · Calor en 2ª parte)"
+    },
+    rain: {
+      id: "rain",
+      icon: "🌧️",
+      label: "Lluvia · 13°C",
+      shortBadge: "🌧️ Lluvia · Césped rápido",
+      pitchEffect: "Césped húmedo y rápido (+Peligro tiros lejanos · +12% fatiga presión alta)"
+    },
+    night: {
+      id: "night",
+      icon: "🌙",
+      label: "Noche cerrada · 16°C",
+      shortBadge: "🌙 Noche · Focos",
+      pitchEffect: "Fresco nocturno bajo focos (-6% fatiga física · +4% velocidad transición)"
+    }
+  };
+  const weatherKeys = ["sunny", "night", "rain"];
+  const weatherSeed = ((gameState.currentRound || 1) * 7 + (homeTeam.id || "").length * 3 + (awayTeam.id || "").length * 5) % 10;
+  const initialWeatherKey = weatherSeed < 4 ? "sunny" : (weatherSeed < 7 ? "night" : "rain");
+  let matchWeather = WEATHER_CATALOG[initialWeatherKey] || WEATHER_CATALOG.sunny;
+
+  // MEJORA 4: Generador del Informe del Analista Rival (Scouting Táctico)
+  function buildOpponentAnalystReport(oppTeam, oppData, oppAvg, userAvg) {
+    const lineup = oppData.lineup || [];
+    const sortedByOvr = [...lineup].sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+    const starPlayer = sortedByOvr[0] || { name: "Estrella Rival", pos: "DC", ovr: 80, sho: 80, pas: 78, pac: 80 };
+
+    // Estilo táctico del rival según club y formación
+    const isTopPossession = oppTeam.id === "real_madrid" || oppTeam.id === "barcelona" || oppAvg.overall >= 83;
+    const isCounterTeam = oppTeam.id === "atletico" || oppData.formationKey === "5-3-2" || oppData.formationKey === "4-4-2";
+    const isDirectPhysical = oppTeam.id === "athletic" || oppTeam.id === "osasuna" || oppTeam.id === "getafe" || oppTeam.id === "mallorca";
+
+    let styleTitle = `Juego por bandas (${oppData.formationKey})`;
+    let styleDesc = "Busca amplitud con extremos y centros laterales al área.";
+    if (isTopPossession) {
+      styleTitle = `Dominio y Posesión Alta (${oppData.formationKey})`;
+      styleDesc = "Línea adelantada, presión tras pérdida y mucha circulación interior.";
+    } else if (isCounterTeam) {
+      styleTitle = `Bloque Compacto y Transición (${oppData.formationKey})`;
+      styleDesc = "Se repliega con orden y lanza contraataques verticales al recuperar.";
+    } else if (isDirectPhysical) {
+      styleTitle = `Fútbol Directo y Centros (${oppData.formationKey})`;
+      styleDesc = "Intenso en duelos divididos, juego aéreo y segundas jugadas.";
+    }
+
+    // Detectar eslabón débil en la defensa o portería rival
+    const backline = lineup.filter(p => ["LD", "LI", "DFC", "POR", "MCD"].includes(p.pos));
+    const fullbacks = lineup.filter(p => ["LD", "LI"].includes(p.pos));
+    const centerbacks = lineup.filter(p => p.pos === "DFC");
+
+    const slowestFB = [...fullbacks].sort((a, b) => (a.pac || 75) - (b.pac || 75))[0];
+    const weakestCB = [...centerbacks].sort((a, b) => ((a.def || 75) + (a.pac || 70)) - ((b.def || 75) + (b.pac || 70)))[0];
+    const tiredStarter = [...lineup].sort((a, b) => (a.energy !== undefined ? a.energy : 100) - (b.energy !== undefined ? b.energy : 100))[0];
+    const lowestStarter = [... backline.length ? backline : lineup].sort((a, b) => (a.ovr || 75) - (b.ovr || 75))[0];
+
+    let weaknessText = "";
+    let recPlan = {
+      label: "Ataque por Bandas y Ritmo Alto",
+      mentality: (userAvg.overall >= oppAvg.overall) ? "offensive" : "balanced",
+      passingStyle: "mixed",
+      tempo: "fast",
+      width: "wide",
+      transitionLoss: "counterpress",
+      transitionWin: "counter",
+      defensiveLine: "mid",
+      pressing: "high"
+    };
+
+    if (tiredStarter && (tiredStarter.energy !== undefined ? tiredStarter.energy : 100) < 82) {
+      weaknessText = `${tiredStarter.name} (${tiredStarter.pos}) llega justo de físico (${Math.round(tiredStarter.energy)}% energía). Un ritmo alto y presión constante le pasará factura.`;
+      recPlan = {
+        label: "Ritmo Alto y Presión Asfixiante",
+        mentality: userAvg.overall >= oppAvg.overall - 2 ? "offensive" : "balanced",
+        passingStyle: "direct",
+        tempo: "fast",
+        width: "wide",
+        transitionLoss: "counterpress",
+        transitionWin: "counter",
+        defensiveLine: "high",
+        pressing: "high"
+      };
+    } else if (slowestFB && (slowestFB.pac || 75) <= 76) {
+      weaknessText = `Su lateral ${slowestFB.name} (${slowestFB.pos}) sufre en velocidad (${slowestFB.pac || 72} PAC). Abrir el campo y encarar por bandas generará peligro claro.`;
+      recPlan = {
+        label: "Explotar las Bandas y Centros",
+        mentality: userAvg.overall >= oppAvg.overall - 1 ? "offensive" : "balanced",
+        passingStyle: "mixed",
+        tempo: "fast",
+        width: "wide",
+        transitionLoss: "counterpress",
+        transitionWin: "counter",
+        defensiveLine: "mid",
+        pressing: "mid"
+      };
+    } else if (isTopPossession && oppAvg.overall > userAvg.overall + 3) {
+      const targetDef = weakestCB || lowestStarter;
+      weaknessText = `Adelantan mucho la zaga con ${targetDef ? targetDef.name : 'sus centrales'}. Si cerramos espacios atrás y salimos en pase directo al espacio les sorprenderemos.`;
+      recPlan = {
+        label: "Bloque Sólido y Contraataque Letal",
+        mentality: "defensive",
+        passingStyle: "direct",
+        tempo: "fast",
+        width: "balanced",
+        transitionLoss: "regroup",
+        transitionWin: "counter",
+        defensiveLine: "low",
+        pressing: "mid"
+      };
+    } else {
+      const targetDef = weakestCB || lowestStarter || sortedByOvr[sortedByOvr.length - 1];
+      weaknessText = `${targetDef.name} (${targetDef.pos} · ${targetDef.ovr} OVR) es su pieza más vulnerable atrás (${targetDef.def || 72} DEF). Dominar por dentro con pases cortos filtrados abrirá huecos.`;
+      recPlan = {
+        label: "Control Interior y Pase Filtrado",
+        mentality: userAvg.overall >= oppAvg.overall ? "offensive" : "balanced",
+        passingStyle: "short",
+        tempo: "fast",
+        width: "center",
+        transitionLoss: "counterpress",
+        transitionWin: "hold",
+        defensiveLine: "high",
+        pressing: "high"
+      };
+    }
+
+    if (matchWeather.id === "rain") {
+      recPlan.passingStyle = "direct";
+      recPlan.tempo = "fast";
+      recPlan.label += " (Césped Rápido 🌧️)";
+    }
+
+    return {
+      starPlayer,
+      styleTitle,
+      styleDesc,
+      weaknessText,
+      recPlan
+    };
+  }
+
   function getOpponentLineup(oppTeam) {
     const optimal = buildOptimalLineup(oppTeam);
     return {
@@ -438,6 +594,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     const oppData = getOpponentLineup(opponentTeam);
     const oppAverages = calculateTeamAverages(oppData.lineup, oppData.formationKey);
+    const analystReport = buildOpponentAnalystReport(opponentTeam, oppData, oppAverages, averages);
 
     container.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-6 select-none max-w-md mx-auto">
@@ -486,6 +643,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <div class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shadow" style="background: linear-gradient(135deg, ${opponentTeam.primaryColor}, ${opponentTeam.secondaryColor}); color: ${opponentTeam.textColor};">
               ${opponentTeam.shortName}
             </div>
+          </div>
+        </div>
+
+        <!-- MEJORA 3 y MEJORA 6: Barra de Clima del Partido y Entrenamiento Semanal Activo -->
+        <div class="px-3 py-1.5 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between gap-2 text-[10px]">
+          <div class="flex items-center gap-1.5 text-sky-300 font-bold truncate" title="${matchWeather.pitchEffect}">
+            <span>${matchWeather.icon}</span>
+            <span>${matchWeather.label}</span>
+            <span class="text-[9px] text-slate-400 font-normal hidden sm:inline">· ${matchWeather.pitchEffect}</span>
+          </div>
+          <div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold whitespace-nowrap" title="${activeWeeklyTraining.shortEffect}">
+            <span>${activeWeeklyTraining.icon}</span>
+            <span>${activeWeeklyTraining.label}</span>
           </div>
         </div>
 
@@ -867,6 +1037,42 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             ${renderTacticalInstructionsPanel(tactics.instructions, 'pre')}
           `}
 
+          <!-- MEJORA 4: Informe del Analista Rival (Scouting Táctico) -->
+          <div class="px-3 mb-2">
+            <div class="bg-slate-900/95 border border-sky-500/35 rounded-2xl p-3 shadow-md space-y-2">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <span class="text-[10px] uppercase font-extrabold text-sky-400 flex items-center gap-1.5">
+                  <span>🕵️</span> Informe del Analista · Scouting de ${opponentTeam.shortName}
+                </span>
+                <span class="text-[9px] px-2 py-0.5 rounded-full bg-slate-800 text-amber-300 font-bold border border-slate-700">
+                  ${analystReport.styleTitle}
+                </span>
+              </div>
+              <div class="grid grid-cols-1 gap-1.5 text-[10px]">
+                <div class="flex items-start gap-1.5 bg-slate-950/70 p-2 rounded-xl border border-slate-800/80">
+                  <span class="text-xs flex-shrink-0">⭐</span>
+                  <div class="leading-snug text-slate-300">
+                    <b class="text-amber-300">Amenaza Estrella:</b> <span class="text-white font-bold">${analystReport.starPlayer.name}</span> (${analystReport.starPlayer.pos} · Media ${analystReport.starPlayer.ovr}) — ${analystReport.styleDesc}
+                  </div>
+                </div>
+                <div class="flex items-start gap-1.5 bg-slate-950/70 p-2 rounded-xl border border-slate-800/80">
+                  <span class="text-xs flex-shrink-0">🎯</span>
+                  <div class="leading-snug text-slate-300">
+                    <b class="text-emerald-400">Punto Débil Detectado:</b> ${analystReport.weaknessText}
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center justify-between gap-2 pt-1">
+                <div class="text-[9.5px] text-slate-400 truncate">
+                  💡 Plan sugerido: <b class="text-sky-300">${analystReport.recPlan.label}</b>
+                </div>
+                <button type="button" id="btn-apply-analyst-plan" class="px-2.5 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/60 text-sky-300 font-extrabold text-[10px] active:scale-95 transition whitespace-nowrap flex items-center gap-1 shadow-sm">
+                  <span>⚡</span> Aplicar Plan del Analista
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- MEJORA 1: Charla de Vestuario Pre-Partido -->
           <div class="px-3 mb-2">
             <div class="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-2.5 shadow-md">
@@ -959,6 +1165,18 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <p class="text-[11px] text-amber-400 font-semibold">
               🔍 Esta es la alineación confirmada del rival para el encuentro.
             </p>
+          </div>
+
+          <!-- MEJORA 4: Informe del Analista en la Pestaña del Rival -->
+          <div class="px-3 mb-3">
+            <div class="bg-slate-900/95 border border-amber-500/40 rounded-2xl p-3 shadow-md space-y-1.5 text-[10px]">
+              <div class="font-extrabold text-amber-400 uppercase flex items-center justify-between">
+                <span>🕵️ Análisis Táctico del Rival</span>
+                <span class="text-sky-300">${analystReport.styleTitle}</span>
+              </div>
+              <p class="text-slate-300 leading-snug">⭐ <b class="text-white">Figura clave:</b> ${analystReport.starPlayer.name} (${analystReport.starPlayer.pos}, ${analystReport.starPlayer.ovr} OVR).</p>
+              <p class="text-slate-300 leading-snug">🎯 <b class="text-emerald-400">Cómo hacerles daño:</b> ${analystReport.weaknessText}</p>
+            </div>
           </div>
 
           <!-- Banquillo del Rival -->
@@ -1088,6 +1306,34 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         renderPreMatch();
       };
     });
+
+    // MEJORA 4: Botón para aplicar con 1 clic el Plan Táctico recomendado por el Analista
+    const btnApplyAnalyst = container.querySelector("#btn-apply-analyst-plan");
+    if (btnApplyAnalyst) {
+      btnApplyAnalyst.onclick = () => {
+        const plan = analystReport.recPlan;
+        tactics.mentality = plan.mentality;
+        if (!tactics.instructions) tactics.instructions = getDefaultTacticalInstructions();
+        tactics.instructions.inPossession = {
+          passingStyle: plan.passingStyle,
+          tempo: plan.tempo,
+          width: plan.width
+        };
+        tactics.instructions.inTransition = {
+          loss: plan.transitionLoss,
+          win: plan.transitionWin
+        };
+        tactics.instructions.outOfPossession = {
+          defensiveLine: plan.defensiveLine,
+          pressing: plan.pressing
+        };
+        tactics.instructions.preset = detectMatchingPreset(tactics.instructions);
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        preMatchSaveFeedback = `🕵️ Plan del Analista aplicado: «${plan.label}»`;
+        renderPreMatch();
+      };
+    }
 
     // Pestañas Mi 11 vs Estilos e Instrucciones
     const btnSubPitch = container.querySelector("#btn-pre-subtab-pitch");
@@ -1526,6 +1772,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       showKeyHighlights: userShowHighlights,
       userSide: isUserHome ? "home" : "away",
       preMatchTalk: selectedPreMatchTalk,
+      weeklyTraining: gameState.weeklyTraining || "recovery",
+      weather: matchWeather,
       homeFormation: isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       awayFormation: !isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       homeLineup: isUserHome ? gameState.userTactics.lineup : oppLineupIds,
@@ -1563,7 +1811,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         <!-- Marcador Superior -->
         <header class="bg-slate-900 border-b border-slate-800 p-3 sticky top-0 z-20 shadow-lg">
           <div class="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2">
-            <span>🏆 JORNADA ${gameState.currentRound} / 38</span>
+            <div class="flex items-center gap-2">
+              <span>🏆 JORNADA ${gameState.currentRound} / 38</span>
+              <span id="match-weather-badge" class="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-bold text-sky-300" title="${matchWeather.pitchEffect}">
+                ${matchWeather.shortBadge}
+              </span>
+            </div>
             <span id="match-timer" class="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-mono font-bold animate-pulse">0'</span>
           </div>
 
@@ -5986,6 +6239,60 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       ctx.fill();
     }
 
+    // MEJORA 6: Efectos visuales atmosféricos sobre el césped (Lluvia, Focos Nocturnos o Brillo Solar)
+    function drawWeatherOverlay(ctx, w, h, weatherId) {
+      if (!ctx) return;
+      ctx.save();
+      if (weatherId === "rain") {
+        // Brillo húmedo azulado sobre el césped
+        ctx.fillStyle = "rgba(14, 116, 144, 0.08)";
+        ctx.fillRect(0, 0, w, h);
+
+        // Gotas de lluvia diagonales animadas
+        const now = performance.now();
+        ctx.strokeStyle = "rgba(186, 230, 253, 0.36)";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        const dropCount = 42;
+        for (let i = 0; i < dropCount; i++) {
+          const seedX = ((i * 97) % 100) / 100;
+          const seedY = ((i * 53) % 100) / 100;
+          const speed = 0.00065 + (i % 4) * 0.00012;
+          const prog = (seedY + now * speed) % 1.0;
+          const x = ((seedX + prog * 0.12) % 1.0) * w;
+          const y = prog * h;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x - 4, y + 11);
+        }
+        ctx.stroke();
+      } else if (weatherId === "night") {
+        // Haces de luz de los focos del estadio desde las 4 esquinas
+        const corners = [
+          [0, 0],
+          [w, 0],
+          [0, h],
+          [w, h]
+        ];
+        corners.forEach(([cx, cy]) => {
+          const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, Math.max(w, h) * 0.48);
+          grad.addColorStop(0, "rgba(224, 242, 254, 0.14)");
+          grad.addColorStop(0.5, "rgba(186, 230, 253, 0.04)");
+          grad.addColorStop(1, "rgba(15, 23, 42, 0)");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, w, h);
+        });
+      } else if (weatherId === "sunny") {
+        // Cálido reflejo solar diagonal sobre el césped
+        const sunGrad = ctx.createLinearGradient(0, 0, w * 0.7, h * 0.7);
+        sunGrad.addColorStop(0, "rgba(253, 224, 71, 0.07)");
+        sunGrad.addColorStop(0.5, "rgba(253, 224, 71, 0.02)");
+        sunGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = sunGrad;
+        ctx.fillRect(0, 0, w, h);
+      }
+      ctx.restore();
+    }
+
     function drawPitch() {
       if (!ctx || !canvas) return;
       resizeCanvas();
@@ -5995,6 +6302,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       // Si hay una jugada clave activa, dibujamos la cámara frontal cinemática 3D (unos 15 segundos)
       if (currentHighlightData) {
         drawFrontalHighlightScene(ctx, w, h, currentHighlightData);
+        drawWeatherOverlay(ctx, w, h, matchWeather.id);
         if (!simulator.isFinished) {
           requestAnimationFrame(drawPitch);
         }
@@ -6049,6 +6357,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       // Balón 2D
       drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
+
+      // Efectos climáticos visuales sobre el terreno de juego (Mejora 6)
+      drawWeatherOverlay(ctx, w, h, matchWeather.id);
 
       if (!simulator.isFinished) {
         requestAnimationFrame(drawPitch);

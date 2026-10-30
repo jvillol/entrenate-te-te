@@ -60,7 +60,10 @@ class GameManager {
           }
         }
 
-        if (this.state.isSeasonOver) {
+        if (!this.state.weeklyTraining) {
+        this.state.weeklyTraining = "recovery";
+      }
+      if (this.state.isSeasonOver) {
           this.currentView = "season_end";
         } else {
           this.currentView = "hub";
@@ -146,6 +149,7 @@ class GameManager {
         customPositions: {},
         instructions: getDefaultTacticalInstructions()
       },
+      weeklyTraining: "recovery",
       topScorers: {},
       isSeasonOver: false
     };
@@ -172,6 +176,9 @@ class GameManager {
           customPositions: {},
           instructions: getDefaultTacticalInstructions()
         };
+      }
+      if (!this.state.weeklyTraining) {
+        this.state.weeklyTraining = "recovery";
       }
       if (this.state.isSeasonOver) {
         this.currentView = "season_end";
@@ -235,6 +242,7 @@ class GameManager {
     this.state.teams = teams;
     this.state.topScorers = {};
     this.state.isSeasonOver = false;
+    this.state.weeklyTraining = "recovery";
     this.state.userTactics = {
       formation: optimal.formationKey,
       mentality: "balanced",
@@ -274,7 +282,9 @@ class GameManager {
   // Recuperación física y evolución del desgaste acumulado por minutos (estilo FIFA / Football Manager)
   recoverPlayersEnergy() {
     if (!this.state || !this.state.teams) return;
+    const isRecoveryTraining = (this.state.weeklyTraining || "recovery") === "recovery";
     this.state.teams.forEach(team => {
+      const isUserTeam = team.id === this.state.userTeamId;
       (team.players || []).forEach(p => {
         // 1. Evolución de lesiones (reducir semanas de baja y alta médica)
         if (p.injury) {
@@ -328,6 +338,9 @@ class GameManager {
           // Un partido de descanso completo elimina drásticamente la sobrecarga acumulada
           fatigueLoad = Math.max(0, fatigueLoad - 45);
         }
+        if (isUserTeam && isRecoveryTraining) {
+          fatigueLoad = Math.max(0, fatigueLoad - 8);
+        }
         p.fatigueLoad = fatigueLoad;
 
         const curEnergy = p.energy !== undefined ? p.energy : 100;
@@ -341,7 +354,7 @@ class GameManager {
 
         // 4. Regeneración semanal teniendo en cuenta media (OVR), físico (PHY) y minutos acumulados
         // Base más generosa para una semana normal de descanso y entrenamiento
-        const baseRecovery = 38;
+        const baseRecovery = (isUserTeam && isRecoveryTraining) ? 42 : 38;
         // Bonificación por Físico (resistencia y capacidad aeróbica)
         const phyBonus = Math.max(0, (phy - 50) * 0.38);
         // Bonificación por Media: Cuanta más media tengan, se recuperan MUCHO mejor (nutrición y fisios de élite)
@@ -349,7 +362,8 @@ class GameManager {
         // Bonificación por rotación (quedarse en banquillo o jugar pocos minutos)
         const restBonus = matchMins === 0 ? 32 : (matchMins < 45 ? 18 : (matchMins < 75 ? 8 : 0));
 
-        const totalRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
+        const rawRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
+        const totalRecovery = (isUserTeam && isRecoveryTraining) ? Math.round(rawRecovery * 1.10) : rawRecovery;
         const recoveredEnergy = curEnergy + totalRecovery;
 
         // 5. Techo máximo de energía inicial según la acumulación de minutos seguidos

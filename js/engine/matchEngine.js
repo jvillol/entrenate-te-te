@@ -136,6 +136,13 @@ export class MatchSimulator {
     this.activeShout = null;
     this.shoutCooldownUntil = 0;
 
+    // Mejora 3: Plan de Entrenamiento Semanal del usuario
+    this.weeklyTraining = options.weeklyTraining || "recovery";
+    this.applyWeeklyTrainingBonuses();
+
+    // Mejora 6: Clima dinámico del partido con efecto real en el césped y tácticas
+    this.weather = this.resolveWeather(options.weather);
+
     this.hasCustomOnSetPiece = typeof options.onSetPiece === "function";
     this.onSetPiece = options.onSetPiece || (() => {});
     this.isSetPieceRunning = false;
@@ -258,6 +265,90 @@ export class MatchSimulator {
       this.awayInstructions = JSON.parse(JSON.stringify(instructions));
     }
     this.update2DPositions();
+  }
+
+  // MEJORA 3: Aplicar bonificaciones del Plan de Entrenamiento Semanal al equipo del usuario (sobre la copia del partido)
+  applyWeeklyTrainingBonuses() {
+    const userTeamObj = this.userSide === "home" ? this.homeTeam : this.awayTeam;
+    const userPitch = this.userSide === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const userBench = this.userSide === "home" ? this.homeBench : this.awayBench;
+    const allUserPlayers = Array.from(new Set([...(userTeamObj?.players || []), ...userPitch, ...userBench]));
+
+    if (this.weeklyTraining === "recovery") {
+      allUserPlayers.forEach(p => {
+        p.energy = Math.min(100, (p.energy !== undefined ? p.energy : 100) + 4);
+      });
+    } else if (this.weeklyTraining === "finishing") {
+      allUserPlayers.forEach(p => {
+        if (["DC", "EI", "ED", "MCO", "MD", "MI", "MC"].includes(p.pos)) {
+          p.sho = Math.min(99, (p.sho || 72) + 4);
+        }
+      });
+    } else if (this.weeklyTraining === "defensive") {
+      allUserPlayers.forEach(p => {
+        if (p.pos === "POR") {
+          p.par = Math.min(99, (p.par !== undefined ? p.par : (p.gks || p.ovr || 75)) + 4);
+        } else if (["DFC", "LD", "LI", "MCD", "MC"].includes(p.pos)) {
+          p.def = Math.min(99, (p.def || 72) + 4);
+        }
+      });
+    }
+  }
+
+  // MEJORA 6: Resolver clima del partido y sus modificadores sobre el césped
+  resolveWeather(weatherOption) {
+    const catalog = {
+      sunny: {
+        id: "sunny",
+        icon: "☀️",
+        label: "Soleado · 22°C",
+        pitchLabel: "Césped seco (Pase corto +4%, Calor 2ªP)",
+        shortPassBonus: 0.04,
+        longShotBonus: 0,
+        drainModFirstHalf: 1.0,
+        drainModSecondHalf: 1.05,
+        highPressExtraDrain: 1.0,
+        foulMod: 1.0,
+        atkSharpness: 1.0
+      },
+      rain: {
+        id: "rain",
+        icon: "🌧️",
+        label: "Lluvia · 13°C",
+        pitchLabel: "Césped rápido (+Peligro tiros lejanos, +Desgaste presión)",
+        shortPassBonus: -0.02,
+        longShotBonus: 5.5,
+        drainModFirstHalf: 1.04,
+        drainModSecondHalf: 1.06,
+        highPressExtraDrain: 1.12,
+        foulMod: 1.12,
+        atkSharpness: 1.02
+      },
+      night: {
+        id: "night",
+        icon: "🌙",
+        label: "Noche cerrada · 16°C",
+        pitchLabel: "Focos y fresco (-6% fatiga, +4% velocidad transición)",
+        shortPassBonus: 0.02,
+        longShotBonus: 1.5,
+        drainModFirstHalf: 0.94,
+        drainModSecondHalf: 0.94,
+        highPressExtraDrain: 0.97,
+        foulMod: 0.96,
+        atkSharpness: 1.04
+      }
+    };
+
+    if (weatherOption && typeof weatherOption === "object" && weatherOption.id && catalog[weatherOption.id]) {
+      return { ...catalog[weatherOption.id], ...weatherOption };
+    }
+    if (typeof weatherOption === "string" && catalog[weatherOption]) {
+      return catalog[weatherOption];
+    }
+    const keys = ["sunny", "night", "rain"];
+    const rand = Math.random();
+    const chosenKey = rand < 0.45 ? "sunny" : (rand < 0.78 ? "night" : "rain");
+    return catalog[chosenKey] || keys[0];
   }
 
   // Ajustar valoración en vivo (1.0 a 10.0) de un futbolista
@@ -989,10 +1080,12 @@ export class MatchSimulator {
     const homeMod = mentMods[this.homeMentality] || mentMods.balanced;
     const awayMod = mentMods[this.awayMentality] || mentMods.balanced;
 
-    // Modificadores de fatiga según ritmo y presión táctica
-    const homePressMod = this.homeInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.homeInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
+    // Modificadores de fatiga según ritmo, presión táctica y clima del partido (Mejora 6)
+    const w = this.weather || { drainModFirstHalf: 1.0, drainModSecondHalf: 1.0, highPressExtraDrain: 1.0 };
+    const weatherHalfDrain = this.isSecondHalf ? (w.drainModSecondHalf || 1.0) : (w.drainModFirstHalf || 1.0);
+    const homePressMod = this.homeInstructions?.outOfPossession?.pressing === "high" ? (1.18 * (w.highPressExtraDrain || 1.0)) : (this.homeInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
     const homeTempoMod = this.homeInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.homeInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
-    const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
+    const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? (1.18 * (w.highPressExtraDrain || 1.0)) : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
     const awayTempoMod = this.awayInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.awayInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
 
     // Expiración de charlas de vestuario y gritos de banda activos
@@ -1003,9 +1096,9 @@ export class MatchSimulator {
       this.activeShout = null;
     }
 
-    const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0);
-    const homeTalkDrain = this.userSide === "home" ? userDrainTalkMod : 1.0;
-    const awayTalkDrain = this.userSide === "away" ? userDrainTalkMod : 1.0;
+    const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0) * (this.weeklyTraining === "recovery" ? 0.93 : 1.0);
+    const homeTalkDrain = (this.userSide === "home" ? userDrainTalkMod : 1.0) * weatherHalfDrain;
+    const awayTalkDrain = (this.userSide === "away" ? userDrainTalkMod : 1.0) * weatherHalfDrain;
 
     // Desgaste físico gradual y acumulación de minutos según atributos físicos (PHY), media (OVR), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
@@ -1042,7 +1135,8 @@ export class MatchSimulator {
       if (energy < 58) {
         const fatigueRisk = (58 - energy) / 100;
         const phyFactor = Math.max(0.5, (player.phy || 70) / 100);
-        const chance = (fatigueRisk * 0.0032) / phyFactor;
+        const trainingMod = (teamSide === this.userSide && this.weeklyTraining === "recovery") ? 0.65 : 1.0;
+        const chance = ((fatigueRisk * 0.0032) / phyFactor) * trainingMod;
         if (Math.random() < chance) {
           if (this.triggerPlayerInjury(player, teamSide, "fatigue")) {
             injuryInterrupted = true;
@@ -1081,13 +1175,14 @@ export class MatchSimulator {
     const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home");
     const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid", "away");
 
+    const wShortBonus = this.weather?.shortPassBonus || 0;
     let possModHome = 0;
-    if (this.homeInstructions?.inPossession?.passingStyle === "short") possModHome += 0.06;
+    if (this.homeInstructions?.inPossession?.passingStyle === "short") possModHome += (0.06 + wShortBonus);
     else if (this.homeInstructions?.inPossession?.passingStyle === "direct") possModHome -= 0.05;
     if (this.homeInstructions?.outOfPossession?.pressing === "high") possModHome += 0.04;
 
     let possModAway = 0;
-    if (this.awayInstructions?.inPossession?.passingStyle === "short") possModAway += 0.06;
+    if (this.awayInstructions?.inPossession?.passingStyle === "short") possModAway += (0.06 + wShortBonus);
     else if (this.awayInstructions?.inPossession?.passingStyle === "direct") possModAway -= 0.05;
     if (this.awayInstructions?.outOfPossession?.pressing === "high") possModAway += 0.04;
 
@@ -1240,8 +1335,8 @@ export class MatchSimulator {
       }
     }
 
-    // Posibles faltas y tarjetas (afectadas por la intensidad de presión)
-    const baseFoulChance = 0.065;
+    // Posibles faltas y tarjetas (afectadas por la intensidad de presión y estado del césped por clima)
+    const baseFoulChance = 0.065 * (this.weather?.foulMod || 1.0);
     const pressingHome = this.homeInstructions?.outOfPossession?.pressing || "mid";
     const pressingAway = this.awayInstructions?.outOfPossession?.pressing || "mid";
     const pressFoulMod = (pressingHome === "high" || pressingAway === "high") ? 1.30 : ((pressingHome === "low" && pressingAway === "low") ? 0.65 : 1.0);
@@ -1624,15 +1719,20 @@ export class MatchSimulator {
     const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
     const boxY = 36 + Math.random() * 28;
 
-    // Determinar resultado y rincón de disparo de forma coherente
+    // Determinar resultado y rincón de disparo de forma coherente (con impacto de Entrenamiento Semanal y Clima)
     const shooterSho = shooter.sho !== undefined ? shooter.sho : 75;
-    const shotQuality = shooterSho + (Math.random() * 28 - 14);
+    const isLongShotPattern = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
+    const weatherShotBonus = isLongShotPattern ? (this.weather?.longShotBonus || 0) : ((this.weather?.longShotBonus || 0) * 0.45);
+    const userFinishingBonus = (attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 3.5 : 0;
+    const shotQuality = shooterSho + weatherShotBonus + userFinishingBonus + (Math.random() * 28 - 14);
 
-    // Habilidad específica de parada del portero ('par') modulada por su energía física
+    // Habilidad específica de parada del portero ('par') modulada por su energía física y entrenamiento defensivo
     const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
     const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
-    const gkSavePower = (gkSkill * gkFitness) + (Math.random() * 26 - 13);
-    const onTarget = Math.random() < 0.72;
+    const userDefBonus = (defSide === this.userSide && this.weeklyTraining === "defensive") ? 3.5 : 0;
+    const gkSavePower = (gkSkill * gkFitness) + userDefBonus + (Math.random() * 26 - 13);
+    const onTargetProb = 0.72 + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.05 : 0);
+    const onTarget = Math.random() < onTargetProb;
     const isDefenderBlock = !onTarget && Math.random() < 0.22;
 
     let outcome = "GOAL";
@@ -2421,12 +2521,14 @@ export class MatchSimulator {
       return t;
     };
 
-    // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos
+    // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos + Laboratorio de Balón Parado (Mejora 3) + Clima (Mejora 6)
     setSpTimeout(() => {
       if (this.isFinished || this.isSkippingToEnd) return;
       const baseStat = targetStrategy === "DIRECT_SHOT" ? (taker.sho || 75) : (taker.pas || 75);
       const azarLanzamiento = (Math.random() * 44 - 22);
-      const kickQuality = baseStat + azarLanzamiento;
+      const spTrainingMult = (attackingSide === this.userSide && this.weeklyTraining === "set_pieces") ? 1.15 : 1.0;
+      const wetTurfDirectBonus = (targetStrategy === "DIRECT_SHOT" && this.weather?.id === "rain") ? 4.5 : 0;
+      const kickQuality = (baseStat * spTrainingMult) + wetTurfDirectBonus + azarLanzamiento;
 
       let destX, destY, destZ;
       if (targetStrategy === "DIRECT_SHOT") {
@@ -2480,7 +2582,7 @@ export class MatchSimulator {
             return;
           }
 
-          const remateStat = (targetPlayer.sho || 75);
+          const remateStat = (targetPlayer.sho || 75) * spTrainingMult;
           const azarRemate = (Math.random() * 38 - 19);
           const remateScore = remateStat + azarRemate;
 
@@ -2885,7 +2987,15 @@ export class MatchSimulator {
     });
 
     let avgPower = sum / players.length;
+    if (type === "atk" && this.weather?.atkSharpness) {
+      avgPower *= this.weather.atkSharpness;
+    }
     if (side === this.userSide) {
+      if (this.weeklyTraining === "finishing" && type === "atk") {
+        avgPower *= 1.07;
+      } else if (this.weeklyTraining === "defensive" && type === "def") {
+        avgPower *= 1.07;
+      }
       if (this.activeTeamTalk && this.minute <= this.activeTeamTalk.expiresAtMinute) {
         if (type === "atk") avgPower *= (this.activeTeamTalk.atkMod || 1.0);
         else if (type === "mid") avgPower *= (this.activeTeamTalk.midMod || 1.0);
@@ -3124,6 +3234,8 @@ export class MatchSimulator {
       halftimeTalkUsed: this.halftimeTalkUsed,
       activeShout: this.activeShout,
       shoutCooldownUntil: this.shoutCooldownUntil,
+      weeklyTraining: this.weeklyTraining,
+      weather: this.weather,
       currentMvp: this.computeMVP(),
       isRunning: this.isRunning,
       isHalfTime: this.isHalfTime,
@@ -3143,6 +3255,8 @@ export class MatchSimulator {
       cards: this.matchCards,
       scorers: this.events.filter(e => e.type === "GOAL"),
       mvp: this.computeMVP(),
+      weather: this.weather,
+      weeklyTraining: this.weeklyTraining,
       homePlayers: this.homeTeam.players || [...this.homePlayersOnPitch, ...this.homeBench],
       awayPlayers: this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench]
     };

@@ -2100,6 +2100,13 @@ class MatchSimulator {
     this.activeShout = null;
     this.shoutCooldownUntil = 0;
 
+    // Mejora 3: Plan de Entrenamiento Semanal del usuario
+    this.weeklyTraining = options.weeklyTraining || "recovery";
+    this.applyWeeklyTrainingBonuses();
+
+    // Mejora 6: Clima dinámico del partido con efecto real en el césped y tácticas
+    this.weather = this.resolveWeather(options.weather);
+
     this.hasCustomOnSetPiece = typeof options.onSetPiece === "function";
     this.onSetPiece = options.onSetPiece || (() => {});
     this.isSetPieceRunning = false;
@@ -2222,6 +2229,90 @@ class MatchSimulator {
       this.awayInstructions = JSON.parse(JSON.stringify(instructions));
     }
     this.update2DPositions();
+  }
+
+  // MEJORA 3: Aplicar bonificaciones del Plan de Entrenamiento Semanal al equipo del usuario (sobre la copia del partido)
+  applyWeeklyTrainingBonuses() {
+    const userTeamObj = this.userSide === "home" ? this.homeTeam : this.awayTeam;
+    const userPitch = this.userSide === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const userBench = this.userSide === "home" ? this.homeBench : this.awayBench;
+    const allUserPlayers = Array.from(new Set([...(userTeamObj?.players || []), ...userPitch, ...userBench]));
+
+    if (this.weeklyTraining === "recovery") {
+      allUserPlayers.forEach(p => {
+        p.energy = Math.min(100, (p.energy !== undefined ? p.energy : 100) + 4);
+      });
+    } else if (this.weeklyTraining === "finishing") {
+      allUserPlayers.forEach(p => {
+        if (["DC", "EI", "ED", "MCO", "MD", "MI", "MC"].includes(p.pos)) {
+          p.sho = Math.min(99, (p.sho || 72) + 4);
+        }
+      });
+    } else if (this.weeklyTraining === "defensive") {
+      allUserPlayers.forEach(p => {
+        if (p.pos === "POR") {
+          p.par = Math.min(99, (p.par !== undefined ? p.par : (p.gks || p.ovr || 75)) + 4);
+        } else if (["DFC", "LD", "LI", "MCD", "MC"].includes(p.pos)) {
+          p.def = Math.min(99, (p.def || 72) + 4);
+        }
+      });
+    }
+  }
+
+  // MEJORA 6: Resolver clima del partido y sus modificadores sobre el césped
+  resolveWeather(weatherOption) {
+    const catalog = {
+      sunny: {
+        id: "sunny",
+        icon: "☀️",
+        label: "Soleado · 22°C",
+        pitchLabel: "Césped seco (Pase corto +4%, Calor 2ªP)",
+        shortPassBonus: 0.04,
+        longShotBonus: 0,
+        drainModFirstHalf: 1.0,
+        drainModSecondHalf: 1.05,
+        highPressExtraDrain: 1.0,
+        foulMod: 1.0,
+        atkSharpness: 1.0
+      },
+      rain: {
+        id: "rain",
+        icon: "🌧️",
+        label: "Lluvia · 13°C",
+        pitchLabel: "Césped rápido (+Peligro tiros lejanos, +Desgaste presión)",
+        shortPassBonus: -0.02,
+        longShotBonus: 5.5,
+        drainModFirstHalf: 1.04,
+        drainModSecondHalf: 1.06,
+        highPressExtraDrain: 1.12,
+        foulMod: 1.12,
+        atkSharpness: 1.02
+      },
+      night: {
+        id: "night",
+        icon: "🌙",
+        label: "Noche cerrada · 16°C",
+        pitchLabel: "Focos y fresco (-6% fatiga, +4% velocidad transición)",
+        shortPassBonus: 0.02,
+        longShotBonus: 1.5,
+        drainModFirstHalf: 0.94,
+        drainModSecondHalf: 0.94,
+        highPressExtraDrain: 0.97,
+        foulMod: 0.96,
+        atkSharpness: 1.04
+      }
+    };
+
+    if (weatherOption && typeof weatherOption === "object" && weatherOption.id && catalog[weatherOption.id]) {
+      return { ...catalog[weatherOption.id], ...weatherOption };
+    }
+    if (typeof weatherOption === "string" && catalog[weatherOption]) {
+      return catalog[weatherOption];
+    }
+    const keys = ["sunny", "night", "rain"];
+    const rand = Math.random();
+    const chosenKey = rand < 0.45 ? "sunny" : (rand < 0.78 ? "night" : "rain");
+    return catalog[chosenKey] || keys[0];
   }
 
   // Ajustar valoración en vivo (1.0 a 10.0) de un futbolista
@@ -2953,10 +3044,12 @@ class MatchSimulator {
     const homeMod = mentMods[this.homeMentality] || mentMods.balanced;
     const awayMod = mentMods[this.awayMentality] || mentMods.balanced;
 
-    // Modificadores de fatiga según ritmo y presión táctica
-    const homePressMod = this.homeInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.homeInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
+    // Modificadores de fatiga según ritmo, presión táctica y clima del partido (Mejora 6)
+    const w = this.weather || { drainModFirstHalf: 1.0, drainModSecondHalf: 1.0, highPressExtraDrain: 1.0 };
+    const weatherHalfDrain = this.isSecondHalf ? (w.drainModSecondHalf || 1.0) : (w.drainModFirstHalf || 1.0);
+    const homePressMod = this.homeInstructions?.outOfPossession?.pressing === "high" ? (1.18 * (w.highPressExtraDrain || 1.0)) : (this.homeInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
     const homeTempoMod = this.homeInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.homeInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
-    const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
+    const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? (1.18 * (w.highPressExtraDrain || 1.0)) : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
     const awayTempoMod = this.awayInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.awayInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
 
     // Expiración de charlas de vestuario y gritos de banda activos
@@ -2967,9 +3060,9 @@ class MatchSimulator {
       this.activeShout = null;
     }
 
-    const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0);
-    const homeTalkDrain = this.userSide === "home" ? userDrainTalkMod : 1.0;
-    const awayTalkDrain = this.userSide === "away" ? userDrainTalkMod : 1.0;
+    const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0) * (this.weeklyTraining === "recovery" ? 0.93 : 1.0);
+    const homeTalkDrain = (this.userSide === "home" ? userDrainTalkMod : 1.0) * weatherHalfDrain;
+    const awayTalkDrain = (this.userSide === "away" ? userDrainTalkMod : 1.0) * weatherHalfDrain;
 
     // Desgaste físico gradual y acumulación de minutos según atributos físicos (PHY), media (OVR), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
@@ -3006,7 +3099,8 @@ class MatchSimulator {
       if (energy < 58) {
         const fatigueRisk = (58 - energy) / 100;
         const phyFactor = Math.max(0.5, (player.phy || 70) / 100);
-        const chance = (fatigueRisk * 0.0032) / phyFactor;
+        const trainingMod = (teamSide === this.userSide && this.weeklyTraining === "recovery") ? 0.65 : 1.0;
+        const chance = ((fatigueRisk * 0.0032) / phyFactor) * trainingMod;
         if (Math.random() < chance) {
           if (this.triggerPlayerInjury(player, teamSide, "fatigue")) {
             injuryInterrupted = true;
@@ -3045,13 +3139,14 @@ class MatchSimulator {
     const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home");
     const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid", "away");
 
+    const wShortBonus = this.weather?.shortPassBonus || 0;
     let possModHome = 0;
-    if (this.homeInstructions?.inPossession?.passingStyle === "short") possModHome += 0.06;
+    if (this.homeInstructions?.inPossession?.passingStyle === "short") possModHome += (0.06 + wShortBonus);
     else if (this.homeInstructions?.inPossession?.passingStyle === "direct") possModHome -= 0.05;
     if (this.homeInstructions?.outOfPossession?.pressing === "high") possModHome += 0.04;
 
     let possModAway = 0;
-    if (this.awayInstructions?.inPossession?.passingStyle === "short") possModAway += 0.06;
+    if (this.awayInstructions?.inPossession?.passingStyle === "short") possModAway += (0.06 + wShortBonus);
     else if (this.awayInstructions?.inPossession?.passingStyle === "direct") possModAway -= 0.05;
     if (this.awayInstructions?.outOfPossession?.pressing === "high") possModAway += 0.04;
 
@@ -3204,8 +3299,8 @@ class MatchSimulator {
       }
     }
 
-    // Posibles faltas y tarjetas (afectadas por la intensidad de presión)
-    const baseFoulChance = 0.065;
+    // Posibles faltas y tarjetas (afectadas por la intensidad de presión y estado del césped por clima)
+    const baseFoulChance = 0.065 * (this.weather?.foulMod || 1.0);
     const pressingHome = this.homeInstructions?.outOfPossession?.pressing || "mid";
     const pressingAway = this.awayInstructions?.outOfPossession?.pressing || "mid";
     const pressFoulMod = (pressingHome === "high" || pressingAway === "high") ? 1.30 : ((pressingHome === "low" && pressingAway === "low") ? 0.65 : 1.0);
@@ -3588,15 +3683,20 @@ class MatchSimulator {
     const boxX = isHome ? (83 + Math.random() * 6) : (17 - Math.random() * 6);
     const boxY = 36 + Math.random() * 28;
 
-    // Determinar resultado y rincón de disparo de forma coherente
+    // Determinar resultado y rincón de disparo de forma coherente (con impacto de Entrenamiento Semanal y Clima)
     const shooterSho = shooter.sho !== undefined ? shooter.sho : 75;
-    const shotQuality = shooterSho + (Math.random() * 28 - 14);
+    const isLongShotPattern = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
+    const weatherShotBonus = isLongShotPattern ? (this.weather?.longShotBonus || 0) : ((this.weather?.longShotBonus || 0) * 0.45);
+    const userFinishingBonus = (attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 3.5 : 0;
+    const shotQuality = shooterSho + weatherShotBonus + userFinishingBonus + (Math.random() * 28 - 14);
 
-    // Habilidad específica de parada del portero ('par') modulada por su energía física
+    // Habilidad específica de parada del portero ('par') modulada por su energía física y entrenamiento defensivo
     const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
     const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
-    const gkSavePower = (gkSkill * gkFitness) + (Math.random() * 26 - 13);
-    const onTarget = Math.random() < 0.72;
+    const userDefBonus = (defSide === this.userSide && this.weeklyTraining === "defensive") ? 3.5 : 0;
+    const gkSavePower = (gkSkill * gkFitness) + userDefBonus + (Math.random() * 26 - 13);
+    const onTargetProb = 0.72 + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.05 : 0);
+    const onTarget = Math.random() < onTargetProb;
     const isDefenderBlock = !onTarget && Math.random() < 0.22;
 
     let outcome = "GOAL";
@@ -4385,12 +4485,14 @@ class MatchSimulator {
       return t;
     };
 
-    // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos
+    // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos + Laboratorio de Balón Parado (Mejora 3) + Clima (Mejora 6)
     setSpTimeout(() => {
       if (this.isFinished || this.isSkippingToEnd) return;
       const baseStat = targetStrategy === "DIRECT_SHOT" ? (taker.sho || 75) : (taker.pas || 75);
       const azarLanzamiento = (Math.random() * 44 - 22);
-      const kickQuality = baseStat + azarLanzamiento;
+      const spTrainingMult = (attackingSide === this.userSide && this.weeklyTraining === "set_pieces") ? 1.15 : 1.0;
+      const wetTurfDirectBonus = (targetStrategy === "DIRECT_SHOT" && this.weather?.id === "rain") ? 4.5 : 0;
+      const kickQuality = (baseStat * spTrainingMult) + wetTurfDirectBonus + azarLanzamiento;
 
       let destX, destY, destZ;
       if (targetStrategy === "DIRECT_SHOT") {
@@ -4444,7 +4546,7 @@ class MatchSimulator {
             return;
           }
 
-          const remateStat = (targetPlayer.sho || 75);
+          const remateStat = (targetPlayer.sho || 75) * spTrainingMult;
           const azarRemate = (Math.random() * 38 - 19);
           const remateScore = remateStat + azarRemate;
 
@@ -4849,7 +4951,15 @@ class MatchSimulator {
     });
 
     let avgPower = sum / players.length;
+    if (type === "atk" && this.weather?.atkSharpness) {
+      avgPower *= this.weather.atkSharpness;
+    }
     if (side === this.userSide) {
+      if (this.weeklyTraining === "finishing" && type === "atk") {
+        avgPower *= 1.07;
+      } else if (this.weeklyTraining === "defensive" && type === "def") {
+        avgPower *= 1.07;
+      }
       if (this.activeTeamTalk && this.minute <= this.activeTeamTalk.expiresAtMinute) {
         if (type === "atk") avgPower *= (this.activeTeamTalk.atkMod || 1.0);
         else if (type === "mid") avgPower *= (this.activeTeamTalk.midMod || 1.0);
@@ -5088,6 +5198,8 @@ class MatchSimulator {
       halftimeTalkUsed: this.halftimeTalkUsed,
       activeShout: this.activeShout,
       shoutCooldownUntil: this.shoutCooldownUntil,
+      weeklyTraining: this.weeklyTraining,
+      weather: this.weather,
       currentMvp: this.computeMVP(),
       isRunning: this.isRunning,
       isHalfTime: this.isHalfTime,
@@ -5107,6 +5219,8 @@ class MatchSimulator {
       cards: this.matchCards,
       scorers: this.events.filter(e => e.type === "GOAL"),
       mvp: this.computeMVP(),
+      weather: this.weather,
+      weeklyTraining: this.weeklyTraining,
       homePlayers: this.homeTeam.players || [...this.homePlayersOnPitch, ...this.homeBench],
       awayPlayers: this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench]
     };
@@ -7328,6 +7442,162 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     { id: "calm", icon: "🧊", label: "Cabeza Fría", desc: "-35% riesgo tarjetas y ahorro físico" }
   ];
 
+  // MEJORA 3: Metadatos del Plan de Entrenamiento Semanal activo
+  const WEEKLY_TRAINING_META = {
+    recovery: { id: "recovery", icon: "🧘", label: "Recuperación y Fisio", shortEffect: "+4% Frescura y -35% riesgo lesión" },
+    set_pieces: { id: "set_pieces", icon: "🚩", label: "Laboratorio Balón Parado", shortEffect: "+15% Córners y Faltas" },
+    finishing: { id: "finishing", icon: "🎯", label: "Definición y Puntería", shortEffect: "+4 Tiro (SHO) y +7% Ataque" },
+    defensive: { id: "defensive", icon: "🧱", label: "Muro y Basculación", shortEffect: "+4 Defensa/Parada y +7% Solidez" }
+  };
+  const activeWeeklyTraining = WEEKLY_TRAINING_META[gameState.weeklyTraining || "recovery"] || WEEKLY_TRAINING_META.recovery;
+
+  // MEJORA 6: Clima dinámico del partido con impacto en el césped y tácticas
+  const WEATHER_CATALOG = {
+    sunny: {
+      id: "sunny",
+      icon: "☀️",
+      label: "Soleado · 22°C",
+      shortBadge: "☀️ Soleado 22°C",
+      pitchEffect: "Césped seco (+4% Pase corto · Calor en 2ª parte)"
+    },
+    rain: {
+      id: "rain",
+      icon: "🌧️",
+      label: "Lluvia · 13°C",
+      shortBadge: "🌧️ Lluvia · Césped rápido",
+      pitchEffect: "Césped húmedo y rápido (+Peligro tiros lejanos · +12% fatiga presión alta)"
+    },
+    night: {
+      id: "night",
+      icon: "🌙",
+      label: "Noche cerrada · 16°C",
+      shortBadge: "🌙 Noche · Focos",
+      pitchEffect: "Fresco nocturno bajo focos (-6% fatiga física · +4% velocidad transición)"
+    }
+  };
+  const weatherKeys = ["sunny", "night", "rain"];
+  const weatherSeed = ((gameState.currentRound || 1) * 7 + (homeTeam.id || "").length * 3 + (awayTeam.id || "").length * 5) % 10;
+  const initialWeatherKey = weatherSeed < 4 ? "sunny" : (weatherSeed < 7 ? "night" : "rain");
+  let matchWeather = WEATHER_CATALOG[initialWeatherKey] || WEATHER_CATALOG.sunny;
+
+  // MEJORA 4: Generador del Informe del Analista Rival (Scouting Táctico)
+  function buildOpponentAnalystReport(oppTeam, oppData, oppAvg, userAvg) {
+    const lineup = oppData.lineup || [];
+    const sortedByOvr = [...lineup].sort((a, b) => (b.ovr || 70) - (a.ovr || 70));
+    const starPlayer = sortedByOvr[0] || { name: "Estrella Rival", pos: "DC", ovr: 80, sho: 80, pas: 78, pac: 80 };
+
+    // Estilo táctico del rival según club y formación
+    const isTopPossession = oppTeam.id === "real_madrid" || oppTeam.id === "barcelona" || oppAvg.overall >= 83;
+    const isCounterTeam = oppTeam.id === "atletico" || oppData.formationKey === "5-3-2" || oppData.formationKey === "4-4-2";
+    const isDirectPhysical = oppTeam.id === "athletic" || oppTeam.id === "osasuna" || oppTeam.id === "getafe" || oppTeam.id === "mallorca";
+
+    let styleTitle = `Juego por bandas (${oppData.formationKey})`;
+    let styleDesc = "Busca amplitud con extremos y centros laterales al área.";
+    if (isTopPossession) {
+      styleTitle = `Dominio y Posesión Alta (${oppData.formationKey})`;
+      styleDesc = "Línea adelantada, presión tras pérdida y mucha circulación interior.";
+    } else if (isCounterTeam) {
+      styleTitle = `Bloque Compacto y Transición (${oppData.formationKey})`;
+      styleDesc = "Se repliega con orden y lanza contraataques verticales al recuperar.";
+    } else if (isDirectPhysical) {
+      styleTitle = `Fútbol Directo y Centros (${oppData.formationKey})`;
+      styleDesc = "Intenso en duelos divididos, juego aéreo y segundas jugadas.";
+    }
+
+    // Detectar eslabón débil en la defensa o portería rival
+    const backline = lineup.filter(p => ["LD", "LI", "DFC", "POR", "MCD"].includes(p.pos));
+    const fullbacks = lineup.filter(p => ["LD", "LI"].includes(p.pos));
+    const centerbacks = lineup.filter(p => p.pos === "DFC");
+
+    const slowestFB = [...fullbacks].sort((a, b) => (a.pac || 75) - (b.pac || 75))[0];
+    const weakestCB = [...centerbacks].sort((a, b) => ((a.def || 75) + (a.pac || 70)) - ((b.def || 75) + (b.pac || 70)))[0];
+    const tiredStarter = [...lineup].sort((a, b) => (a.energy !== undefined ? a.energy : 100) - (b.energy !== undefined ? b.energy : 100))[0];
+    const lowestStarter = [... backline.length ? backline : lineup].sort((a, b) => (a.ovr || 75) - (b.ovr || 75))[0];
+
+    let weaknessText = "";
+    let recPlan = {
+      label: "Ataque por Bandas y Ritmo Alto",
+      mentality: (userAvg.overall >= oppAvg.overall) ? "offensive" : "balanced",
+      passingStyle: "mixed",
+      tempo: "fast",
+      width: "wide",
+      transitionLoss: "counterpress",
+      transitionWin: "counter",
+      defensiveLine: "mid",
+      pressing: "high"
+    };
+
+    if (tiredStarter && (tiredStarter.energy !== undefined ? tiredStarter.energy : 100) < 82) {
+      weaknessText = `${tiredStarter.name} (${tiredStarter.pos}) llega justo de físico (${Math.round(tiredStarter.energy)}% energía). Un ritmo alto y presión constante le pasará factura.`;
+      recPlan = {
+        label: "Ritmo Alto y Presión Asfixiante",
+        mentality: userAvg.overall >= oppAvg.overall - 2 ? "offensive" : "balanced",
+        passingStyle: "direct",
+        tempo: "fast",
+        width: "wide",
+        transitionLoss: "counterpress",
+        transitionWin: "counter",
+        defensiveLine: "high",
+        pressing: "high"
+      };
+    } else if (slowestFB && (slowestFB.pac || 75) <= 76) {
+      weaknessText = `Su lateral ${slowestFB.name} (${slowestFB.pos}) sufre en velocidad (${slowestFB.pac || 72} PAC). Abrir el campo y encarar por bandas generará peligro claro.`;
+      recPlan = {
+        label: "Explotar las Bandas y Centros",
+        mentality: userAvg.overall >= oppAvg.overall - 1 ? "offensive" : "balanced",
+        passingStyle: "mixed",
+        tempo: "fast",
+        width: "wide",
+        transitionLoss: "counterpress",
+        transitionWin: "counter",
+        defensiveLine: "mid",
+        pressing: "mid"
+      };
+    } else if (isTopPossession && oppAvg.overall > userAvg.overall + 3) {
+      const targetDef = weakestCB || lowestStarter;
+      weaknessText = `Adelantan mucho la zaga con ${targetDef ? targetDef.name : 'sus centrales'}. Si cerramos espacios atrás y salimos en pase directo al espacio les sorprenderemos.`;
+      recPlan = {
+        label: "Bloque Sólido y Contraataque Letal",
+        mentality: "defensive",
+        passingStyle: "direct",
+        tempo: "fast",
+        width: "balanced",
+        transitionLoss: "regroup",
+        transitionWin: "counter",
+        defensiveLine: "low",
+        pressing: "mid"
+      };
+    } else {
+      const targetDef = weakestCB || lowestStarter || sortedByOvr[sortedByOvr.length - 1];
+      weaknessText = `${targetDef.name} (${targetDef.pos} · ${targetDef.ovr} OVR) es su pieza más vulnerable atrás (${targetDef.def || 72} DEF). Dominar por dentro con pases cortos filtrados abrirá huecos.`;
+      recPlan = {
+        label: "Control Interior y Pase Filtrado",
+        mentality: userAvg.overall >= oppAvg.overall ? "offensive" : "balanced",
+        passingStyle: "short",
+        tempo: "fast",
+        width: "center",
+        transitionLoss: "counterpress",
+        transitionWin: "hold",
+        defensiveLine: "high",
+        pressing: "high"
+      };
+    }
+
+    if (matchWeather.id === "rain") {
+      recPlan.passingStyle = "direct";
+      recPlan.tempo = "fast";
+      recPlan.label += " (Césped Rápido 🌧️)";
+    }
+
+    return {
+      starPlayer,
+      styleTitle,
+      styleDesc,
+      weaknessText,
+      recPlan
+    };
+  }
+
   function getOpponentLineup(oppTeam) {
     const optimal = buildOptimalLineup(oppTeam);
     return {
@@ -7620,6 +7890,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
     const oppData = getOpponentLineup(opponentTeam);
     const oppAverages = calculateTeamAverages(oppData.lineup, oppData.formationKey);
+    const analystReport = buildOpponentAnalystReport(opponentTeam, oppData, oppAverages, averages);
 
     container.innerHTML = `
       <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-6 select-none max-w-md mx-auto">
@@ -7668,6 +7939,19 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             <div class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-xs shadow" style="background: linear-gradient(135deg, ${opponentTeam.primaryColor}, ${opponentTeam.secondaryColor}); color: ${opponentTeam.textColor};">
               ${opponentTeam.shortName}
             </div>
+          </div>
+        </div>
+
+        <!-- MEJORA 3 y MEJORA 6: Barra de Clima del Partido y Entrenamiento Semanal Activo -->
+        <div class="px-3 py-1.5 bg-slate-950/90 border-b border-slate-800/80 flex items-center justify-between gap-2 text-[10px]">
+          <div class="flex items-center gap-1.5 text-sky-300 font-bold truncate" title="${matchWeather.pitchEffect}">
+            <span>${matchWeather.icon}</span>
+            <span>${matchWeather.label}</span>
+            <span class="text-[9px] text-slate-400 font-normal hidden sm:inline">· ${matchWeather.pitchEffect}</span>
+          </div>
+          <div class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-bold whitespace-nowrap" title="${activeWeeklyTraining.shortEffect}">
+            <span>${activeWeeklyTraining.icon}</span>
+            <span>${activeWeeklyTraining.label}</span>
           </div>
         </div>
 
@@ -8049,6 +8333,42 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             ${renderTacticalInstructionsPanel(tactics.instructions, 'pre')}
           `}
 
+          <!-- MEJORA 4: Informe del Analista Rival (Scouting Táctico) -->
+          <div class="px-3 mb-2">
+            <div class="bg-slate-900/95 border border-sky-500/35 rounded-2xl p-3 shadow-md space-y-2">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <span class="text-[10px] uppercase font-extrabold text-sky-400 flex items-center gap-1.5">
+                  <span>🕵️</span> Informe del Analista · Scouting de ${opponentTeam.shortName}
+                </span>
+                <span class="text-[9px] px-2 py-0.5 rounded-full bg-slate-800 text-amber-300 font-bold border border-slate-700">
+                  ${analystReport.styleTitle}
+                </span>
+              </div>
+              <div class="grid grid-cols-1 gap-1.5 text-[10px]">
+                <div class="flex items-start gap-1.5 bg-slate-950/70 p-2 rounded-xl border border-slate-800/80">
+                  <span class="text-xs flex-shrink-0">⭐</span>
+                  <div class="leading-snug text-slate-300">
+                    <b class="text-amber-300">Amenaza Estrella:</b> <span class="text-white font-bold">${analystReport.starPlayer.name}</span> (${analystReport.starPlayer.pos} · Media ${analystReport.starPlayer.ovr}) — ${analystReport.styleDesc}
+                  </div>
+                </div>
+                <div class="flex items-start gap-1.5 bg-slate-950/70 p-2 rounded-xl border border-slate-800/80">
+                  <span class="text-xs flex-shrink-0">🎯</span>
+                  <div class="leading-snug text-slate-300">
+                    <b class="text-emerald-400">Punto Débil Detectado:</b> ${analystReport.weaknessText}
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center justify-between gap-2 pt-1">
+                <div class="text-[9.5px] text-slate-400 truncate">
+                  💡 Plan sugerido: <b class="text-sky-300">${analystReport.recPlan.label}</b>
+                </div>
+                <button type="button" id="btn-apply-analyst-plan" class="px-2.5 py-1.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/60 text-sky-300 font-extrabold text-[10px] active:scale-95 transition whitespace-nowrap flex items-center gap-1 shadow-sm">
+                  <span>⚡</span> Aplicar Plan del Analista
+                </button>
+              </div>
+            </div>
+          </div>
+
           <!-- MEJORA 1: Charla de Vestuario Pre-Partido -->
           <div class="px-3 mb-2">
             <div class="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-2.5 shadow-md">
@@ -8141,6 +8461,18 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             <p class="text-[11px] text-amber-400 font-semibold">
               🔍 Esta es la alineación confirmada del rival para el encuentro.
             </p>
+          </div>
+
+          <!-- MEJORA 4: Informe del Analista en la Pestaña del Rival -->
+          <div class="px-3 mb-3">
+            <div class="bg-slate-900/95 border border-amber-500/40 rounded-2xl p-3 shadow-md space-y-1.5 text-[10px]">
+              <div class="font-extrabold text-amber-400 uppercase flex items-center justify-between">
+                <span>🕵️ Análisis Táctico del Rival</span>
+                <span class="text-sky-300">${analystReport.styleTitle}</span>
+              </div>
+              <p class="text-slate-300 leading-snug">⭐ <b class="text-white">Figura clave:</b> ${analystReport.starPlayer.name} (${analystReport.starPlayer.pos}, ${analystReport.starPlayer.ovr} OVR).</p>
+              <p class="text-slate-300 leading-snug">🎯 <b class="text-emerald-400">Cómo hacerles daño:</b> ${analystReport.weaknessText}</p>
+            </div>
           </div>
 
           <!-- Banquillo del Rival -->
@@ -8270,6 +8602,34 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         renderPreMatch();
       };
     });
+
+    // MEJORA 4: Botón para aplicar con 1 clic el Plan Táctico recomendado por el Analista
+    const btnApplyAnalyst = container.querySelector("#btn-apply-analyst-plan");
+    if (btnApplyAnalyst) {
+      btnApplyAnalyst.onclick = () => {
+        const plan = analystReport.recPlan;
+        tactics.mentality = plan.mentality;
+        if (!tactics.instructions) tactics.instructions = getDefaultTacticalInstructions();
+        tactics.instructions.inPossession = {
+          passingStyle: plan.passingStyle,
+          tempo: plan.tempo,
+          width: plan.width
+        };
+        tactics.instructions.inTransition = {
+          loss: plan.transitionLoss,
+          win: plan.transitionWin
+        };
+        tactics.instructions.outOfPossession = {
+          defensiveLine: plan.defensiveLine,
+          pressing: plan.pressing
+        };
+        tactics.instructions.preset = detectMatchingPreset(tactics.instructions);
+        masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
+        SaveManager.saveGame(gameState);
+        preMatchSaveFeedback = `🕵️ Plan del Analista aplicado: «${plan.label}»`;
+        renderPreMatch();
+      };
+    }
 
     // Pestañas Mi 11 vs Estilos e Instrucciones
     const btnSubPitch = container.querySelector("#btn-pre-subtab-pitch");
@@ -8708,6 +9068,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       showKeyHighlights: userShowHighlights,
       userSide: isUserHome ? "home" : "away",
       preMatchTalk: selectedPreMatchTalk,
+      weeklyTraining: gameState.weeklyTraining || "recovery",
+      weather: matchWeather,
       homeFormation: isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       awayFormation: !isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       homeLineup: isUserHome ? gameState.userTactics.lineup : oppLineupIds,
@@ -8745,7 +9107,12 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         <!-- Marcador Superior -->
         <header class="bg-slate-900 border-b border-slate-800 p-3 sticky top-0 z-20 shadow-lg">
           <div class="flex items-center justify-between text-xs font-semibold text-slate-400 mb-2">
-            <span>🏆 JORNADA ${gameState.currentRound} / 38</span>
+            <div class="flex items-center gap-2">
+              <span>🏆 JORNADA ${gameState.currentRound} / 38</span>
+              <span id="match-weather-badge" class="px-2 py-0.5 rounded-full bg-slate-800 border border-slate-700 text-[10px] font-bold text-sky-300" title="${matchWeather.pitchEffect}">
+                ${matchWeather.shortBadge}
+              </span>
+            </div>
             <span id="match-timer" class="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 font-mono font-bold animate-pulse">0'</span>
           </div>
 
@@ -13168,6 +13535,60 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       ctx.fill();
     }
 
+    // MEJORA 6: Efectos visuales atmosféricos sobre el césped (Lluvia, Focos Nocturnos o Brillo Solar)
+    function drawWeatherOverlay(ctx, w, h, weatherId) {
+      if (!ctx) return;
+      ctx.save();
+      if (weatherId === "rain") {
+        // Brillo húmedo azulado sobre el césped
+        ctx.fillStyle = "rgba(14, 116, 144, 0.08)";
+        ctx.fillRect(0, 0, w, h);
+
+        // Gotas de lluvia diagonales animadas
+        const now = performance.now();
+        ctx.strokeStyle = "rgba(186, 230, 253, 0.36)";
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        const dropCount = 42;
+        for (let i = 0; i < dropCount; i++) {
+          const seedX = ((i * 97) % 100) / 100;
+          const seedY = ((i * 53) % 100) / 100;
+          const speed = 0.00065 + (i % 4) * 0.00012;
+          const prog = (seedY + now * speed) % 1.0;
+          const x = ((seedX + prog * 0.12) % 1.0) * w;
+          const y = prog * h;
+          ctx.moveTo(x, y);
+          ctx.lineTo(x - 4, y + 11);
+        }
+        ctx.stroke();
+      } else if (weatherId === "night") {
+        // Haces de luz de los focos del estadio desde las 4 esquinas
+        const corners = [
+          [0, 0],
+          [w, 0],
+          [0, h],
+          [w, h]
+        ];
+        corners.forEach(([cx, cy]) => {
+          const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, Math.max(w, h) * 0.48);
+          grad.addColorStop(0, "rgba(224, 242, 254, 0.14)");
+          grad.addColorStop(0.5, "rgba(186, 230, 253, 0.04)");
+          grad.addColorStop(1, "rgba(15, 23, 42, 0)");
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, w, h);
+        });
+      } else if (weatherId === "sunny") {
+        // Cálido reflejo solar diagonal sobre el césped
+        const sunGrad = ctx.createLinearGradient(0, 0, w * 0.7, h * 0.7);
+        sunGrad.addColorStop(0, "rgba(253, 224, 71, 0.07)");
+        sunGrad.addColorStop(0.5, "rgba(253, 224, 71, 0.02)");
+        sunGrad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = sunGrad;
+        ctx.fillRect(0, 0, w, h);
+      }
+      ctx.restore();
+    }
+
     function drawPitch() {
       if (!ctx || !canvas) return;
       resizeCanvas();
@@ -13177,6 +13598,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       // Si hay una jugada clave activa, dibujamos la cámara frontal cinemática 3D (unos 15 segundos)
       if (currentHighlightData) {
         drawFrontalHighlightScene(ctx, w, h, currentHighlightData);
+        drawWeatherOverlay(ctx, w, h, matchWeather.id);
         if (!simulator.isFinished) {
           requestAnimationFrame(drawPitch);
         }
@@ -13231,6 +13653,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       // Balón 2D
       drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
+
+      // Efectos climáticos visuales sobre el terreno de juego (Mejora 6)
+      drawWeatherOverlay(ctx, w, h, matchWeather.id);
 
       if (!simulator.isFinished) {
         requestAnimationFrame(drawPitch);
@@ -15424,6 +15849,42 @@ function renderHubView(container, gameState, callbacks) {
   const injuredPlayers = (userTeam.players || []).filter(p => p.injury && p.injury.roundsLeft > 0);
   const suspendedPlayers = (userTeam.players || []).filter(p => p.suspension && p.suspension.roundsLeft > 0);
 
+  if (!gameState.weeklyTraining) {
+    gameState.weeklyTraining = "recovery";
+  }
+
+  const WEEKLY_TRAININGS = [
+    {
+      id: "recovery",
+      icon: "🧘",
+      label: "Recuperación y Fisio",
+      badge: "+10% Energía · -35% Lesión",
+      desc: "Baños de hielo y descarga muscular: +4% frescura inmediata, -35% riesgo de lesión muscular y +10% recuperación post-partido."
+    },
+    {
+      id: "set_pieces",
+      icon: "🚩",
+      label: "Balón Parado",
+      badge: "+15% Córners y Faltas",
+      desc: "Pizarra de estrategia: +15% de precisión y remate en todos tus córners y faltas directas en esta jornada."
+    },
+    {
+      id: "finishing",
+      icon: "🎯",
+      label: "Definición y Puntería",
+      badge: "+4 Tiro · +7% Ataque",
+      desc: "Sesión intensiva de remate: +4 en Tiro (SHO) para tus atacantes y +7% de efectividad goleadora en esta jornada."
+    },
+    {
+      id: "defensive",
+      icon: "🧱",
+      label: "Muro y Basculación",
+      badge: "+4 Defensa · +7% Solidez",
+      desc: "Trabajo táctico de bloque: +4 en Defensa/Parada para zagueros y portero, y +7% de solidez defensiva en esta jornada."
+    }
+  ];
+  const activeTrainingObj = WEEKLY_TRAININGS.find(t => t.id === gameState.weeklyTraining) || WEEKLY_TRAININGS[0];
+
   container.innerHTML = `
     <div class="min-h-screen bg-slate-950 text-white flex flex-col justify-between pb-20 select-none max-w-md mx-auto">
       <!-- Barra Superior del Club -->
@@ -15551,6 +16012,35 @@ function renderHubView(container, gameState, callbacks) {
           </div>
         ` : ''}
 
+        <!-- MEJORA 3: Plan de Entrenamiento Semanal -->
+        <div class="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-3.5 shadow-lg">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <span>🏋️</span> Plan de Entrenamiento Semanal
+            </span>
+            <span class="text-[9.5px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+              ${activeTrainingObj.badge}
+            </span>
+          </div>
+          <div class="grid grid-cols-2 gap-2 mb-2">
+            ${WEEKLY_TRAININGS.map(wt => {
+              const isSel = gameState.weeklyTraining === wt.id;
+              return `
+                <button type="button" class="btn-weekly-training p-2 rounded-xl border text-left transition flex items-center gap-2 ${isSel ? 'bg-emerald-500/20 border-emerald-400 text-white shadow-md ring-1 ring-emerald-400/60' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-95'}" data-training="${wt.id}">
+                  <span class="text-lg flex-shrink-0">${wt.icon}</span>
+                  <div class="min-w-0">
+                    <div class="text-[11px] font-extrabold ${isSel ? 'text-emerald-300' : 'text-white'} truncate leading-tight">${wt.label}</div>
+                    <div class="text-[9px] ${isSel ? 'text-emerald-200' : 'text-slate-400'} truncate leading-tight mt-0.5">${wt.badge}</div>
+                  </div>
+                </button>
+              `;
+            }).join('')}
+          </div>
+          <div class="text-[10px] text-slate-300 bg-slate-950/70 border border-slate-800/80 rounded-xl px-2.5 py-1.5 leading-snug">
+            <span class="font-bold text-emerald-400">${activeTrainingObj.icon} Enfoque activo:</span> ${activeTrainingObj.desc}
+          </div>
+        </div>
+
         <!-- Fila de Resumen de Plantilla y Rendimiento -->
         <div class="grid grid-cols-2 gap-3">
           <!-- Goleador del Club -->
@@ -15649,6 +16139,18 @@ function renderHubView(container, gameState, callbacks) {
   container.querySelector("#btn-play-match").onclick = () => {
     callbacks.onStartMatch();
   };
+
+  // MEJORA 3: Selección del Plan de Entrenamiento Semanal
+  container.querySelectorAll(".btn-weekly-training").forEach(btn => {
+    btn.onclick = () => {
+      const trId = btn.dataset.training;
+      if (trId && gameState.weeklyTraining !== trId) {
+        gameState.weeklyTraining = trId;
+        SaveManager.saveGame(gameState);
+        renderHubView(container, gameState, callbacks);
+      }
+    };
+  });
 
   // Botón Ranuras en la Cabecera
   const btnHeaderSlots = container.querySelector("#btn-header-slots");
@@ -15749,7 +16251,10 @@ class GameManager {
           }
         }
 
-        if (this.state.isSeasonOver) {
+        if (!this.state.weeklyTraining) {
+        this.state.weeklyTraining = "recovery";
+      }
+      if (this.state.isSeasonOver) {
           this.currentView = "season_end";
         } else {
           this.currentView = "hub";
@@ -15835,6 +16340,7 @@ class GameManager {
         customPositions: {},
         instructions: getDefaultTacticalInstructions()
       },
+      weeklyTraining: "recovery",
       topScorers: {},
       isSeasonOver: false
     };
@@ -15861,6 +16367,9 @@ class GameManager {
           customPositions: {},
           instructions: getDefaultTacticalInstructions()
         };
+      }
+      if (!this.state.weeklyTraining) {
+        this.state.weeklyTraining = "recovery";
       }
       if (this.state.isSeasonOver) {
         this.currentView = "season_end";
@@ -15924,6 +16433,7 @@ class GameManager {
     this.state.teams = teams;
     this.state.topScorers = {};
     this.state.isSeasonOver = false;
+    this.state.weeklyTraining = "recovery";
     this.state.userTactics = {
       formation: optimal.formationKey,
       mentality: "balanced",
@@ -15963,7 +16473,9 @@ class GameManager {
   // Recuperación física y evolución del desgaste acumulado por minutos (estilo FIFA / Football Manager)
   recoverPlayersEnergy() {
     if (!this.state || !this.state.teams) return;
+    const isRecoveryTraining = (this.state.weeklyTraining || "recovery") === "recovery";
     this.state.teams.forEach(team => {
+      const isUserTeam = team.id === this.state.userTeamId;
       (team.players || []).forEach(p => {
         // 1. Evolución de lesiones (reducir semanas de baja y alta médica)
         if (p.injury) {
@@ -16017,6 +16529,9 @@ class GameManager {
           // Un partido de descanso completo elimina drásticamente la sobrecarga acumulada
           fatigueLoad = Math.max(0, fatigueLoad - 45);
         }
+        if (isUserTeam && isRecoveryTraining) {
+          fatigueLoad = Math.max(0, fatigueLoad - 8);
+        }
         p.fatigueLoad = fatigueLoad;
 
         const curEnergy = p.energy !== undefined ? p.energy : 100;
@@ -16030,7 +16545,7 @@ class GameManager {
 
         // 4. Regeneración semanal teniendo en cuenta media (OVR), físico (PHY) y minutos acumulados
         // Base más generosa para una semana normal de descanso y entrenamiento
-        const baseRecovery = 38;
+        const baseRecovery = (isUserTeam && isRecoveryTraining) ? 42 : 38;
         // Bonificación por Físico (resistencia y capacidad aeróbica)
         const phyBonus = Math.max(0, (phy - 50) * 0.38);
         // Bonificación por Media: Cuanta más media tengan, se recuperan MUCHO mejor (nutrición y fisios de élite)
@@ -16038,7 +16553,8 @@ class GameManager {
         // Bonificación por rotación (quedarse en banquillo o jugar pocos minutos)
         const restBonus = matchMins === 0 ? 32 : (matchMins < 45 ? 18 : (matchMins < 75 ? 8 : 0));
 
-        const totalRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
+        const rawRecovery = baseRecovery + phyBonus + ovrBonus + restBonus;
+        const totalRecovery = (isUserTeam && isRecoveryTraining) ? Math.round(rawRecovery * 1.10) : rawRecovery;
         const recoveredEnergy = curEnergy + totalRecovery;
 
         // 5. Techo máximo de energía inicial según la acumulación de minutos seguidos
