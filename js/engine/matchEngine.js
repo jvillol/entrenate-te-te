@@ -16,8 +16,10 @@ export class MatchSimulator {
     this.speed = this.userSpeed;
     this.showKeyHighlights = options.showKeyHighlights !== false;
     this.highlightTimeouts = [];
+    this.setPieceTimeouts = [];
     this.skipCurrentHighlight = null;
     this.isHighlightRunning = false;
+    this.isSkippingToEnd = false;
     this.isRunning = false;
     this.isFinished = false;
     this.isHalfTime = false;
@@ -86,9 +88,22 @@ export class MatchSimulator {
       ? options.awayBench.map(id => this.awayTeam.players.find(p => p.id === id) || (typeof id === 'object' ? id : null)).filter(Boolean)
       : awayOpt.bench;
 
-    // Inicializar cómputo de minutos de partido y desgaste
-    [...this.homePlayersOnPitch, ...this.homeBench].forEach(p => { p.matchMinutes = 0; });
-    [...this.awayPlayersOnPitch, ...this.awayBench].forEach(p => { p.matchMinutes = 0; });
+    // Inicializar cómputo de minutos de partido, desgaste y valoración en vivo (Rating 1.0 - 10.0)
+    const initPlayerMatchStats = (p, isStarter) => {
+      p.matchMinutes = 0;
+      p.matchGoals = 0;
+      p.matchAssists = 0;
+      p.matchSaves = 0;
+      p.matchTackles = 0;
+      p.matchKeyPasses = 0;
+      p.matchShots = 0;
+      p.matchRating = isStarter ? 6.5 : 6.0;
+      p.playedInMatch = isStarter;
+    };
+    this.homePlayersOnPitch.forEach(p => initPlayerMatchStats(p, true));
+    this.homeBench.forEach(p => initPlayerMatchStats(p, false));
+    this.awayPlayersOnPitch.forEach(p => initPlayerMatchStats(p, true));
+    this.awayBench.forEach(p => initPlayerMatchStats(p, false));
 
     // Inicializar posiciones 3D relativas (x: 0-100, y: 0-100, z: 0-25)
     this.ball = { x: 50, y: 50, z: 0, targetX: 50, targetY: 50, targetZ: 0, possession: "home" };
@@ -97,8 +112,10 @@ export class MatchSimulator {
     this.onTick = options.onTick || (() => {});
     this.onFinish = options.onFinish || (() => {});
     this.onAlert = options.onAlert || (() => {});
+    this.hasCustomOnGoal = typeof options.onGoal === "function";
     this.onGoal = options.onGoal || (() => {});
     this.onHalfTime = options.onHalfTime || (() => {});
+    this.hasCustomOnSub = typeof options.onSubstitution === "function";
     this.onSubstitution = options.onSubstitution || (() => {});
     this.onHighlightStart = options.onHighlightStart || (() => {});
     this.onHighlightPhase = options.onHighlightPhase || (() => {});
@@ -108,6 +125,18 @@ export class MatchSimulator {
     this.aiSide = this.userSide === "home" ? "away" : "home";
     this.lastAISubMinute = 0;
 
+    // Mejora 1: Charlas de vestuario (Pre-partido y Descanso)
+    this.activeTeamTalk = null;
+    this.halftimeTalkUsed = false;
+    if (options.preMatchTalk) {
+      this.applyTeamTalk("pre", options.preMatchTalk, true);
+    }
+
+    // Mejora 2: Gritos desde la banda en vivo (Touchline Shouts)
+    this.activeShout = null;
+    this.shoutCooldownUntil = 0;
+
+    this.hasCustomOnSetPiece = typeof options.onSetPiece === "function";
     this.onSetPiece = options.onSetPiece || (() => {});
     this.isSetPieceRunning = false;
     this.pauseRequested = false;
@@ -169,11 +198,27 @@ export class MatchSimulator {
     }));
   }
 
+  clearAllTimeouts() {
+    if (this.loopTimeout) {
+      clearTimeout(this.loopTimeout);
+      this.loopTimeout = null;
+    }
+    if (this.highlightTimeouts && this.highlightTimeouts.length > 0) {
+      this.highlightTimeouts.forEach(clearTimeout);
+      this.highlightTimeouts = [];
+    }
+    if (this.setPieceTimeouts && this.setPieceTimeouts.length > 0) {
+      this.setPieceTimeouts.forEach(clearTimeout);
+      this.setPieceTimeouts = [];
+    }
+  }
+
   start() {
-    if (this.isSetPieceRunning || this.isFinished || this.isHalfTime) return;
+    if (this.isSetPieceRunning || this.isHighlightRunning || this.isFinished || this.isHalfTime) return;
     if (this.isRunning) return;
     this.isRunning = true;
-    this.onTick(this.getState());
+    this.pauseRequested = false;
+    if (this.onTick) this.onTick(this.getState());
 
     const baseInterval = 460;
     const interval = Math.max(50, Math.round(baseInterval / this.speed));
@@ -190,14 +235,6 @@ export class MatchSimulator {
       clearTimeout(this.loopTimeout);
       this.loopTimeout = null;
     }
-    if (this.onTick) this.onTick(this.getState());
-  }
-
-  start() {
-    if (this.isRunning) return;
-    this.isRunning = true;
-    this.pauseRequested = false;
-    this.loop();
     if (this.onTick) this.onTick(this.getState());
   }
 
@@ -223,6 +260,290 @@ export class MatchSimulator {
     this.update2DPositions();
   }
 
+  // Ajustar valoración en vivo (1.0 a 10.0) de un futbolista
+  adjustPlayerRating(player, delta) {
+    if (!player) return;
+    player.playedInMatch = true;
+    const cur = player.matchRating !== undefined ? player.matchRating : 6.5;
+    player.matchRating = Math.round(Math.max(3.5, Math.min(10.0, cur + delta)) * 10) / 10;
+  }
+
+  // MEJORA 1: Aplicar charla de vestuario (Pre-partido o Descanso) con efecto real según contexto
+  applyTeamTalk(phase = "pre", talkId = "confidence", silent = false) {
+    const userPitch = this.userSide === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const userScore = this.userSide === "home" ? this.homeScore : this.awayScore;
+    const oppScore = this.userSide === "home" ? this.awayScore : this.homeScore;
+    const diff = userScore - oppScore;
+
+    let talkData = {
+      id: talkId,
+      phase,
+      label: "Confianza Plena",
+      icon: "💪",
+      atkMod: 1.0,
+      midMod: 1.0,
+      defMod: 1.0,
+      foulMod: 1.0,
+      drainMod: 1.0,
+      expiresAtMinute: phase === "pre" ? 28 : 75,
+      feedback: "El vestuario asiente con motivación."
+    };
+
+    if (phase === "pre") {
+      if (talkId === "passionate") {
+        talkData = {
+          id: "passionate",
+          phase: "pre",
+          label: "¡Salid a morder!",
+          icon: "🔥",
+          atkMod: 1.09,
+          midMod: 1.06,
+          defMod: 0.98,
+          foulMod: 1.15,
+          drainMod: 1.05,
+          expiresAtMinute: 28,
+          feedback: "🔥 ¡El equipo sale enchufadísimo! (+9% Ataque y +6% Medular en el arranque)"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.1));
+      } else if (talkId === "tactical") {
+        talkData = {
+          id: "tactical",
+          phase: "pre",
+          label: "Orden y Concentración",
+          icon: "🧠",
+          atkMod: 1.0,
+          midMod: 1.06,
+          defMod: 1.09,
+          foulMod: 0.85,
+          drainMod: 0.96,
+          expiresAtMinute: 32,
+          feedback: "🧠 Bloques juntos y máxima concentración (+9% Defensa y +6% Control)"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.1));
+      } else if (talkId === "calm") {
+        talkData = {
+          id: "calm",
+          phase: "pre",
+          label: "Cabeza Fría / Sin Presión",
+          icon: "🧊",
+          atkMod: 1.02,
+          midMod: 1.04,
+          defMod: 1.05,
+          foulMod: 0.65,
+          drainMod: 0.92,
+          expiresAtMinute: 35,
+          feedback: "🧊 Jugadores tranquilos: -35% riesgo de faltas/tarjetas y ahorro físico"
+        };
+      } else {
+        // confidence
+        talkData = {
+          id: "confidence",
+          phase: "pre",
+          label: "Confianza Plena",
+          icon: "💪",
+          atkMod: 1.05,
+          midMod: 1.05,
+          defMod: 1.05,
+          foulMod: 0.95,
+          drainMod: 1.0,
+          expiresAtMinute: 30,
+          feedback: "💪 Moral alta en el once titular (+5% global en todas las líneas)"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.15));
+      }
+    } else {
+      // Descanso (contextual según el marcador)
+      this.halftimeTalkUsed = true;
+      if (talkId === "aggressive") {
+        if (diff <= 0) {
+          talkData = {
+            id: "aggressive",
+            phase: "ht",
+            label: "Bronca / Exigir Reacción",
+            icon: "😡",
+            atkMod: 1.13,
+            midMod: 1.09,
+            defMod: 1.03,
+            foulMod: 1.12,
+            drainMod: 1.04,
+            expiresAtMinute: 76,
+            feedback: "😡 ¡El vestuario reacciona con orgullo herido! (+13% Ataque, +9% Medular y +3% Energía)"
+          };
+          userPitch.forEach(p => {
+            p.energy = Math.min(100, (p.energy || 75) + 3);
+            this.adjustPlayerRating(p, 0.15);
+          });
+        } else {
+          talkData = {
+            id: "aggressive",
+            phase: "ht",
+            label: "Bronca Innecesaria",
+            icon: "😡",
+            atkMod: 0.95,
+            midMod: 0.96,
+            defMod: 0.97,
+            foulMod: 1.25,
+            drainMod: 1.05,
+            expiresAtMinute: 70,
+            feedback: "⚠️ Los jugadores no entienden la bronca ganando el partido (-4% precisión y más nervios)"
+          };
+          userPitch.forEach(p => this.adjustPlayerRating(p, -0.1));
+        }
+      } else if (talkId === "encourage") {
+        const boost = diff < 0 ? 1.11 : (diff === 0 ? 1.08 : 1.05);
+        talkData = {
+          id: "encourage",
+          phase: "ht",
+          label: "¡Creer en la Victoria!",
+          icon: "🔥",
+          atkMod: boost,
+          midMod: 1.06,
+          defMod: 1.04,
+          foulMod: 0.95,
+          drainMod: 1.0,
+          expiresAtMinute: 78,
+          feedback: diff < 0
+            ? "🔥 ¡Conjura de remontada en el vestuario! (+11% Ataque y fe ciega)"
+            : "🔥 ¡El equipo sale enchufado a por más goles en la 2ª mitad! (+8% empuje)"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.15));
+      } else if (talkId === "praise") {
+        if (diff > 0) {
+          talkData = {
+            id: "praise",
+            phase: "ht",
+            label: "Elogiar el Gran Trabajo",
+            icon: "👏",
+            atkMod: 1.06,
+            midMod: 1.08,
+            defMod: 1.08,
+            foulMod: 0.85,
+            drainMod: 0.95,
+            expiresAtMinute: 80,
+            feedback: "👏 ¡Moral por las nubes! El equipo se siente invencible (+8% Control y Defensa)"
+          };
+          userPitch.forEach(p => this.adjustPlayerRating(p, 0.2));
+        } else {
+          talkData = {
+            id: "praise",
+            phase: "ht",
+            label: "Elogio Complaciente",
+            icon: "👏",
+            atkMod: 0.97,
+            midMod: 0.98,
+            defMod: 0.97,
+            foulMod: 0.95,
+            drainMod: 0.96,
+            expiresAtMinute: 70,
+            feedback: "😐 Elogiar sin ir ganando relaja en exceso a algunos jugadores (-3% intensidad)"
+          };
+        }
+      } else if (talkId === "calm_control") {
+        talkData = {
+          id: "calm_control",
+          phase: "ht",
+          label: "Cabeza Fría y Cerrar Espacios",
+          icon: "🧊",
+          atkMod: 0.98,
+          midMod: 1.06,
+          defMod: 1.10,
+          foulMod: 0.60,
+          drainMod: 0.90,
+          expiresAtMinute: 82,
+          feedback: "🧊 Máxima disciplina táctica: +10% Defensa y -40% riesgo de tarjetas"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.1));
+      }
+    }
+
+    this.activeTeamTalk = talkData;
+    if (!silent && !this.isSkippingToEnd) {
+      this.triggerAlert("VESTUARIO", talkData.feedback, this.userSide, 3600);
+    }
+    if (this.onTick) this.onTick(this.getState());
+    return talkData;
+  }
+
+  // MEJORA 2: Órdenes rápidas de banda (Gritos desde el banquillo en vivo)
+  triggerShout(shoutId) {
+    if (this.isFinished || this.isHalfTime) {
+      return { success: false, reason: "El balón no está en juego." };
+    }
+    if (this.minute < this.shoutCooldownUntil) {
+      const waitMins = this.shoutCooldownUntil - this.minute;
+      return { success: false, reason: `Espera ${waitMins} min para dar otra orden desde la banda.` };
+    }
+
+    const duration = 12; // 12 minutos de efecto activo
+    const cooldown = 10; // 10 minutos de enfriamiento tras usarse (o total desde activación: 10 min)
+    const expiresAt = Math.min(this.maxMinutes, this.minute + duration);
+    this.shoutCooldownUntil = this.minute + 10;
+
+    const catalog = {
+      CROSS_BOX: {
+        id: "CROSS_BOX",
+        label: "¡Colgad balones!",
+        icon: "📢",
+        atkMod: 1.11,
+        midMod: 1.02,
+        defMod: 0.96,
+        foulMod: 1.0,
+        drainMod: 1.04,
+        possBonus: 0,
+        alertText: "📢 ¡Orden desde la banda: «¡Colgad balones al área!» (+Centros y remate durante 12')"
+      },
+      SHOOT_ON_SIGHT: {
+        id: "SHOOT_ON_SIGHT",
+        label: "¡Tirad a puerta!",
+        icon: "🚀",
+        atkMod: 1.13,
+        midMod: 1.0,
+        defMod: 0.97,
+        foulMod: 1.0,
+        drainMod: 1.03,
+        possBonus: -0.02,
+        alertText: "🚀 ¡Orden desde la banda: «¡Disparad en cuanto podáis!» (+Tiros y peligro durante 12')"
+      },
+      EASY_TACKLES: {
+        id: "EASY_TACKLES",
+        label: "¡Cuidado entradas!",
+        icon: "🛡️",
+        atkMod: 0.97,
+        midMod: 1.03,
+        defMod: 1.08,
+        foulMod: 0.45,
+        drainMod: 0.94,
+        possBonus: 0,
+        alertText: "🛡️ ¡Orden desde la banda: «¡Sin faltas, aguantad de pie!» (-55% faltas/tarjetas y +8% Defensa)"
+      },
+      WASTE_TIME: {
+        id: "WASTE_TIME",
+        label: "¡Dormid el balón!",
+        icon: "⏱️",
+        atkMod: 0.86,
+        midMod: 1.10,
+        defMod: 1.09,
+        foulMod: 0.85,
+        drainMod: 0.86,
+        possBonus: 0.09,
+        alertText: "⏱️ ¡Orden desde la banda: «¡Dormid el partido, posesiones largas!» (+Posesión y cerrojo durante 12')"
+      }
+    };
+
+    const chosen = catalog[shoutId];
+    if (!chosen) return { success: false, reason: "Orden no reconocida" };
+
+    this.activeShout = {
+      ...chosen,
+      startedAtMinute: this.minute,
+      expiresAtMinute: expiresAt
+    };
+
+    this.triggerAlert("BANDA", chosen.alertText, this.userSide, 3400);
+    if (this.onTick) this.onTick(this.getState());
+    return { success: true, shout: this.activeShout };
+  }
+
   // Realizar sustitución en vivo
   makeSubstitution(teamSide, pitchPlayerId, benchPlayerId, isHalfTime = false) {
     const isHome = teamSide === "home";
@@ -243,6 +564,20 @@ export class MatchSimulator {
 
     const outPlayer = onPitchList[pitchIndex];
     const inPlayer = benchList[benchIndex];
+
+    if (inPlayer.injury) {
+      return { success: false, reason: `${inPlayer.name} está lesionado y no puede entrar al campo.` };
+    }
+    if (inPlayer.suspension && inPlayer.suspension.roundsLeft > 0) {
+      return { success: false, reason: `${inPlayer.name} está sancionado y no puede entrar al campo.` };
+    }
+    if (inPlayer.subbedOut) {
+      return { success: false, reason: `${inPlayer.name} ya fue sustituido anteriormente en este partido.` };
+    }
+
+    outPlayer.subbedOut = true;
+    inPlayer.playedInMatch = true;
+    if (!inPlayer.matchRating || inPlayer.matchRating < 6.5) inPlayer.matchRating = 6.5;
 
     // Intercambiar
     onPitchList[pitchIndex] = inPlayer;
@@ -308,11 +643,30 @@ export class MatchSimulator {
       ? [...this.homePlayersOnPitch, ...this.homeBench]
       : [...this.awayPlayersOnPitch, ...this.awayBench];
 
+    for (const inId of subsInIds) {
+      const inP = allTeamPlayers.find(p => p.id === inId);
+      if (inP?.injury) {
+        return { success: false, reason: `${inP.name} está lesionado y no puede saltar al terreno de juego.` };
+      }
+      if (inP?.suspension && inP.suspension.roundsLeft > 0) {
+        return { success: false, reason: `${inP.name} está sancionado y no puede saltar al terreno de juego.` };
+      }
+      if (inP?.subbedOut) {
+        return { success: false, reason: `${inP.name} ya ha sido sustituido en este partido y no puede volver a entrar.` };
+      }
+    }
+
     const newPitch = newLineupPlayerIds.map(id => allTeamPlayers.find(p => p.id === id)).filter(Boolean);
     const newBench = newBenchPlayerIds.map(id => allTeamPlayers.find(p => p.id === id)).filter(Boolean);
 
-    if (newPitch.length !== 11) {
-      return { success: false, reason: "La alineación debe contar exactamente con 11 futbolistas." };
+    const expectedPitchCount = currentPitch.length || 11;
+    if (newPitch.length !== expectedPitchCount) {
+      return {
+        success: false,
+        reason: expectedPitchCount === 11
+          ? "La alineación debe contar exactamente con 11 futbolistas."
+          : `La alineación debe mantener los ${expectedPitchCount} futbolistas disponibles en el campo.`
+      };
     }
 
     // Registrar parejas de cambio para rótulos y estadísticas
@@ -320,6 +674,11 @@ export class MatchSimulator {
     for (let i = 0; i < subsInIds.length; i++) {
       const inP = allTeamPlayers.find(p => p.id === subsInIds[i]);
       const outP = allTeamPlayers.find(p => p.id === subsOutIds[i]);
+      if (outP) outP.subbedOut = true;
+      if (inP) {
+        inP.playedInMatch = true;
+        if (!inP.matchRating || inP.matchRating < 6.5) inP.matchRating = 6.5;
+      }
       if (inP && outP) {
         subsPairs.push({ inPlayer: inP, outPlayer: outP });
       }
@@ -447,7 +806,7 @@ export class MatchSimulator {
     if (candidate && mostTired) {
       this.lastAISubMinute = this.minute;
       const res = this.makeSubstitution(this.aiSide, mostTired.id, candidate.id);
-      if (res.success) {
+      if (res.success && !this.isSkippingToEnd && this.hasCustomOnSub) {
         this.pause();
         this.onSubstitution({
           teamSide: this.aiSide,
@@ -456,21 +815,25 @@ export class MatchSimulator {
           minute: this.minute,
           remaining: this.aiSide === "home" ? this.homeSubsRemaining : this.awaySubsRemaining
         });
+        return true;
       }
     }
+    return false;
   }
 
   // Activar lesión de un jugador durante el partido por fatiga, lance o falta
   triggerPlayerInjury(player, teamSide, cause = "random") {
-    if (!player || player.injury) return;
+    if (!player || player.injury) return false;
 
     const injuryData = generateRandomInjury(cause);
     player.injury = injuryData;
     player.energy = Math.max(10, (player.energy || 50) - 28);
 
     const teamObj = teamSide === "home" ? this.homeTeam : this.awayTeam;
-    const alertMsg = `${injuryData.icon} ¡LESIÓN! ${player.name} (${injuryData.type}) - ${injuryData.roundsLeft}j de baja`;
-    this.triggerAlert("LESIÓN", alertMsg, teamSide, 5000);
+    if (!this.isSkippingToEnd) {
+      const alertMsg = `${injuryData.icon} ¡LESIÓN! ${player.name} (${injuryData.type}) - ${injuryData.roundsLeft}j de baja`;
+      this.triggerAlert("LESIÓN", alertMsg, teamSide, 5000);
+    }
 
     this.events.push({
       minute: this.minute,
@@ -487,13 +850,15 @@ export class MatchSimulator {
       injury: injuryData,
       teamSide,
       minute: this.minute,
-      team: teamObj
+      team: teamObj,
+      isSkippingToEnd: this.isSkippingToEnd
     });
 
-    // Si es el equipo de la IA rival, gestionar sustitución inmediata de emergencia
-    if (teamSide === this.aiSide) {
-      this.handleAIInjurySub(player, teamSide);
+    // Si es el equipo de la IA rival (o si estamos saltando al final), gestionar sustitución inmediata de emergencia
+    if (teamSide === this.aiSide || this.isSkippingToEnd) {
+      return this.handleAIInjurySub(player, teamSide);
     }
+    return !this.isRunning;
   }
 
   // Sustitución forzosa por lesión para el equipo IA
@@ -502,9 +867,9 @@ export class MatchSimulator {
     const remaining = isHome ? this.homeSubsRemaining : this.awaySubsRemaining;
     const remainingWindows = isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining;
     const aiBenchRaw = isHome ? this.homeBench : this.awayBench;
-    const aiBench = (aiBenchRaw || []).filter(p => !p.injury);
+    const aiBench = (aiBenchRaw || []).filter(p => !p.injury && !(p.suspension && p.suspension.roundsLeft > 0) && !p.subbedOut);
 
-    if (remaining <= 0 || remainingWindows <= 0 || aiBench.length === 0) return;
+    if (remaining <= 0 || remainingWindows <= 0 || aiBench.length === 0) return false;
 
     const samePos = aiBench.filter(p => p.pos === injuredPlayer.pos);
     let candidate = null;
@@ -516,7 +881,8 @@ export class MatchSimulator {
 
     if (candidate) {
       const res = this.makeSubstitution(teamSide, injuredPlayer.id, candidate.id, this.isHalfTime);
-      if (res.success) {
+      if (res.success && !this.isSkippingToEnd && this.hasCustomOnSub) {
+        this.pause();
         this.onSubstitution({
           teamSide,
           team: teamSide === "home" ? this.homeTeam : this.awayTeam,
@@ -525,8 +891,10 @@ export class MatchSimulator {
           remaining: res.remaining,
           forcedInjury: true
         });
+        return true;
       }
     }
+    return false;
   }
 
   loop() {
@@ -627,40 +995,67 @@ export class MatchSimulator {
     const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
     const awayTempoMod = this.awayInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.awayInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
 
+    // Expiración de charlas de vestuario y gritos de banda activos
+    if (this.activeTeamTalk && this.minute > this.activeTeamTalk.expiresAtMinute) {
+      this.activeTeamTalk = null;
+    }
+    if (this.activeShout && this.minute > this.activeShout.expiresAtMinute) {
+      this.activeShout = null;
+    }
+
+    const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0);
+    const homeTalkDrain = this.userSide === "home" ? userDrainTalkMod : 1.0;
+    const awayTalkDrain = this.userSide === "away" ? userDrainTalkMod : 1.0;
+
     // Desgaste físico gradual y acumulación de minutos según atributos físicos (PHY), media (OVR), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
       p.matchMinutes = (p.matchMinutes || 0) + 1;
+      p.playedInMatch = true;
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
       const ovrFactor = 0.95 - (Math.max(65, Math.min(95, (p.ovr || 70))) - 65) * 0.005; // Mayor media resiste mejor el esfuerzo
-      const rate = isGK ? 0.04 : (0.28 * phyFactor * ovrFactor * homeMod.drain * homePressMod * homeTempoMod);
+      const rate = isGK ? 0.04 : (0.28 * phyFactor * ovrFactor * homeMod.drain * homePressMod * homeTempoMod * homeTalkDrain);
       p.energy = Math.max(25, (p.energy || 100) - rate);
+      if (this.minute % 18 === 0 && Math.random() < 0.45) {
+        this.adjustPlayerRating(p, 0.1);
+      }
     });
 
     this.awayPlayersOnPitch.forEach(p => {
       p.matchMinutes = (p.matchMinutes || 0) + 1;
+      p.playedInMatch = true;
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
       const ovrFactor = 0.95 - (Math.max(65, Math.min(95, (p.ovr || 70))) - 65) * 0.005;
-      const rate = isGK ? 0.04 : (0.28 * phyFactor * ovrFactor * awayMod.drain * awayPressMod * awayTempoMod);
+      const rate = isGK ? 0.04 : (0.28 * phyFactor * ovrFactor * awayMod.drain * awayPressMod * awayTempoMod * awayTalkDrain);
       p.energy = Math.max(25, (p.energy || 100) - rate);
+      if (this.minute % 18 === 0 && Math.random() < 0.45) {
+        this.adjustPlayerRating(p, 0.1);
+      }
     });
 
     // Comprobación de riesgo de lesión por acumulación de minutos y fatiga física (< 58% energía)
+    let injuryInterrupted = false;
     const checkFatigueInjury = (player, teamSide) => {
-      if (player.injury || player.pos === "POR") return;
+      if (injuryInterrupted || player.injury || player.pos === "POR") return;
       const energy = player.energy !== undefined ? player.energy : 100;
       if (energy < 58) {
         const fatigueRisk = (58 - energy) / 100;
         const phyFactor = Math.max(0.5, (player.phy || 70) / 100);
         const chance = (fatigueRisk * 0.0032) / phyFactor;
         if (Math.random() < chance) {
-          this.triggerPlayerInjury(player, teamSide, "fatigue");
+          if (this.triggerPlayerInjury(player, teamSide, "fatigue")) {
+            injuryInterrupted = true;
+          }
         }
       }
     };
     this.homePlayersOnPitch.forEach(p => checkFatigueInjury(p, "home"));
     this.awayPlayersOnPitch.forEach(p => checkFatigueInjury(p, "away"));
+    if (injuryInterrupted && !this.isSkippingToEnd) {
+      this.update2DPositions();
+      return true;
+    }
 
     // Modificadores de efectividad ofensiva y defensiva
     let homeAtkBonus = 0;
@@ -695,6 +1090,11 @@ export class MatchSimulator {
     if (this.awayInstructions?.inPossession?.passingStyle === "short") possModAway += 0.06;
     else if (this.awayInstructions?.inPossession?.passingStyle === "direct") possModAway -= 0.05;
     if (this.awayInstructions?.outOfPossession?.pressing === "high") possModAway += 0.04;
+
+    if (this.activeShout && this.activeShout.possBonus) {
+      if (this.userSide === "home") possModHome += this.activeShout.possBonus;
+      else possModAway += this.activeShout.possBonus;
+    }
 
     const probHomePoss = Math.max(0.20, Math.min(0.80, (midHome / (midHome + midAway)) + 0.03 + possModHome - possModAway));
 
@@ -752,7 +1152,13 @@ export class MatchSimulator {
       this.ball.targetY = ballYTarget;
 
       // Ocasión de ataque local
-      const attackScore = (homeAtk / (homeAtk + awayDef)) * 0.28;
+      let homeChanceMult = 0.28;
+      if (this.activeShout) {
+        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.16;
+        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.72;
+        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.75;
+      }
+      const attackScore = (homeAtk / (homeAtk + awayDef)) * homeChanceMult;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("home", () => {
           if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
@@ -772,12 +1178,13 @@ export class MatchSimulator {
             this.loop();
           }
         });
-        return true;
+        return !this.isSkippingToEnd;
       } else if (chanceRoll < attackScore + 0.055) {
         // Balón parado (Córner o Falta peligrosa)
         const isCorner = Math.random() < 0.65;
-        this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK");
-        return true;
+        if (this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK")) {
+          return true;
+        }
       } else {
         // Pase o centro medio
         this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
@@ -795,7 +1202,13 @@ export class MatchSimulator {
       this.ball.targetX = 35 - Math.random() * 28;
       this.ball.targetY = ballYTargetAway;
 
-      const attackScore = (awayAtk / (awayAtk + homeDef)) * 0.26;
+      let awayChanceMult = 0.26;
+      if (this.activeShout) {
+        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.16;
+        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.72;
+        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.75;
+      }
+      const attackScore = (awayAtk / (awayAtk + homeDef)) * awayChanceMult;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("away", () => {
           if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
@@ -815,12 +1228,13 @@ export class MatchSimulator {
             this.loop();
           }
         });
-        return true;
+        return !this.isSkippingToEnd;
       } else if (chanceRoll < attackScore + 0.055) {
         // Balón parado (Córner o Falta peligrosa)
         const isCorner = Math.random() < 0.65;
-        this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK");
-        return true;
+        if (this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK")) {
+          return true;
+        }
       } else {
         this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
       }
@@ -834,6 +1248,12 @@ export class MatchSimulator {
 
     if (Math.random() < baseFoulChance * pressFoulMod) {
       const foulTeam = Math.random() > 0.5 ? "home" : "away";
+      const userFoulMod = (this.activeTeamTalk ? this.activeTeamTalk.foulMod : 1.0) * (this.activeShout ? this.activeShout.foulMod : 1.0);
+      if (foulTeam === this.userSide && userFoulMod < 1.0 && Math.random() > userFoulMod) {
+        // El jugador frena la entrada a tiempo gracias a la charla / orden de banda
+        this.update2DPositions();
+        return false;
+      }
       this.stats.fouls[foulTeam]++;
       const victimTeam = foulTeam === "home" ? "away" : "home";
       const foulTeamObj = foulTeam === "home" ? this.homeTeam : this.awayTeam;
@@ -843,10 +1263,12 @@ export class MatchSimulator {
         ? foulCandidates[Math.floor(Math.random() * foulCandidates.length)]
         : foulPitch[0];
 
-      const isDirectRed = Math.random() < 0.015;
-      const isYellow = !isDirectRed && Math.random() < 0.22;
+      const cardMod = foulTeam === this.userSide ? userFoulMod : 1.0;
+      const isDirectRed = Math.random() < (0.015 * cardMod);
+      const isYellow = !isDirectRed && Math.random() < (0.22 * cardMod);
 
       if (isDirectRed && committingPlayer) {
+        this.adjustPlayerRating(committingPlayer, -1.5);
         this.stats.redCards[foulTeam]++;
         this.matchCards.reds[committingPlayer.id] = { player: committingPlayer, reason: "Roja directa", minute: this.minute, team: foulTeam };
         if (foulTeam === "home") {
@@ -871,6 +1293,7 @@ export class MatchSimulator {
       } else if (isYellow && committingPlayer) {
         if (this.matchCards.yellows[committingPlayer.id]) {
           // Segunda amarilla y expulsión
+          this.adjustPlayerRating(committingPlayer, -1.2);
           this.stats.yellowCards[foulTeam]++;
           this.stats.redCards[foulTeam]++;
           this.matchCards.reds[committingPlayer.id] = { player: committingPlayer, reason: "Segunda amarilla", minute: this.minute, team: foulTeam };
@@ -895,6 +1318,7 @@ export class MatchSimulator {
           this.onCard({ type: "SECOND_YELLOW", player: committingPlayer, teamSide: foulTeam, minute: this.minute });
         } else {
           // Primera amarilla
+          this.adjustPlayerRating(committingPlayer, -0.4);
           this.stats.yellowCards[foulTeam]++;
           this.matchCards.yellows[committingPlayer.id] = { player: committingPlayer, minute: this.minute, team: foulTeam };
           this.triggerAlert("TARJETA", `🟨 Tarjeta amarilla para ${committingPlayer.name} (${foulTeamObj.shortName})`, foulTeam, 2800);
@@ -914,18 +1338,25 @@ export class MatchSimulator {
       const foulTeamMentality = foulTeam === "home" ? this.homeMentality : this.awayMentality;
       const aggMod = (foulTeamMentality === "very_offensive" || foulTeamMentality === "offensive") ? 1.4 : 1.0;
       const injuryFoulChance = (isYellow ? 0.075 : 0.018) * aggMod;
+      let foulInjuryPaused = false;
       if (Math.random() < injuryFoulChance) {
         const victimPitch = victimTeam === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
         const eligible = victimPitch.filter(p => !p.injury);
         if (eligible.length > 0) {
           const victim = eligible[Math.floor(Math.random() * eligible.length)];
-          this.triggerPlayerInjury(victim, victimTeam, "foul");
+          foulInjuryPaused = this.triggerPlayerInjury(victim, victimTeam, "foul");
         }
       }
 
-      if (Math.random() < 0.40 && !this.isHighlightRunning && !this.isSetPieceRunning) {
-        this.triggerSetPiece(victimTeam, "FREE_KICK");
+      if (foulInjuryPaused && !this.isSkippingToEnd) {
+        this.update2DPositions();
         return true;
+      }
+
+      if (Math.random() < 0.40 && !this.isHighlightRunning && !this.isSetPieceRunning) {
+        if (this.triggerSetPiece(victimTeam, "FREE_KICK")) {
+          return true;
+        }
       }
     }
 
@@ -936,12 +1367,18 @@ export class MatchSimulator {
       const eligible = pitch.filter(p => !p.injury);
       if (eligible.length > 0) {
         const victim = eligible[Math.floor(Math.random() * eligible.length)];
-        this.triggerPlayerInjury(victim, side, "random");
+        if (this.triggerPlayerInjury(victim, side, "random") && !this.isSkippingToEnd) {
+          this.update2DPositions();
+          return true;
+        }
       }
     }
 
     // Comprobar y realizar posibles cambios tácticos de la IA rival
-    this.checkAISubstitutions();
+    if (this.checkAISubstitutions() && !this.isSkippingToEnd) {
+      this.update2DPositions();
+      return true;
+    }
 
     // Actualizar coordenadas 3D de los jugadores hacia el balón para visualización dinámica
     this.update2DPositions();
@@ -976,6 +1413,10 @@ export class MatchSimulator {
     const hasBoxToBox = hasRole("cm_box_to_box", "am_shadow_striker");
     const hasBallWinner = hasRole("cm_ball_winner", "dm_destroyer", "cb_stopper");
 
+    const isUserAtk = attackingSide === this.userSide;
+    const shoutCrossBoost = (isUserAtk && this.activeShout?.id === "CROSS_BOX") ? 2.2 : 0;
+    const shoutShootBoost = (isUserAtk && this.activeShout?.id === "SHOOT_ON_SIGHT") ? 2.2 : 0;
+
     // 12 Patrones Tácticos de Jugada Clave ponderados según roles activos e instrucciones del equipo
     const patternWeights = [
       {
@@ -984,11 +1425,11 @@ export class MatchSimulator {
       },
       {
         id: "WING_CROSS_HEADER",
-        weight: 1.0 + (hasWinger ? 1.3 : 0) + (hasTargetMan ? 1.4 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.9 : 0) + (teamInst?.inPossession?.finalThird === "early_crosses" ? 0.8 : 0)
+        weight: 1.0 + shoutCrossBoost + (hasWinger ? 1.3 : 0) + (hasTargetMan ? 1.4 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.9 : 0) + (teamInst?.inPossession?.finalThird === "early_crosses" ? 0.8 : 0)
       },
       {
         id: "NEAR_WING_CUTBACK",
-        weight: 1.0 + (hasWinger ? 1.3 : 0) + (hasInsideForward ? 0.9 : 0) + (hasBoxToBox ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.7 : 0)
+        weight: 1.0 + (shoutCrossBoost * 0.5) + (hasWinger ? 1.3 : 0) + (hasInsideForward ? 0.9 : 0) + (hasBoxToBox ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.7 : 0)
       },
       {
         id: "COUNTER_THROUGH_BALL",
@@ -1000,7 +1441,7 @@ export class MatchSimulator {
       },
       {
         id: "LONG_RANGE_BOMB",
-        weight: 0.95 + (hasBoxToBox ? 1.5 : 0) + (teamInst?.inPossession?.finalThird === "shoot_on_sight" ? 1.2 : 0)
+        weight: 0.95 + shoutShootBoost + (hasBoxToBox ? 1.5 : 0) + (teamInst?.inPossession?.finalThird === "shoot_on_sight" ? 1.2 : 0)
       },
       {
         id: "FALSE_NINE_DROP_AND_SPLIT",
@@ -1008,7 +1449,7 @@ export class MatchSimulator {
       },
       {
         id: "OVERLAPPING_FULLBACK_CROSS",
-        weight: 0.95 + (hasAttackingFB ? 2.0 : 0) + (hasTargetMan || hasPoacher ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.8 : 0)
+        weight: 0.95 + shoutCrossBoost + (hasAttackingFB ? 2.0 : 0) + (hasTargetMan || hasPoacher ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.8 : 0)
       },
       {
         id: "CHIPPED_PASS_OVER_DEFENSE",
@@ -1024,7 +1465,7 @@ export class MatchSimulator {
       },
       {
         id: "INSIDE_FORWARD_CURLED_SHOT",
-        weight: 1.0 + (hasInsideForward ? 2.0 : 0) + (hasWinger ? 1.0 : 0) + (teamInst?.inPossession?.finalThird === "dribble" ? 0.8 : 0)
+        weight: 1.0 + (shoutShootBoost * 0.7) + (hasInsideForward ? 2.0 : 0) + (hasWinger ? 1.0 : 0) + (teamInst?.inPossession?.finalThird === "dribble" ? 0.8 : 0)
       }
     ];
 
@@ -1408,8 +1849,17 @@ export class MatchSimulator {
       this.skipCurrentHighlight = null;
 
       this.stats.shots[attackingSide]++;
+      if (shooter) shooter.matchShots = (shooter.matchShots || 0) + 1;
+      if (passer) {
+        passer.matchKeyPasses = (passer.matchKeyPasses || 0) + 1;
+        this.adjustPlayerRating(passer, 0.15);
+      }
 
       if (outcome === "BLOCK") {
+        if (defender) {
+          defender.matchTackles = (defender.matchTackles || 0) + 1;
+          this.adjustPlayerRating(defender, 0.35);
+        }
         this.ball.targetX = boxX + (isHome ? -3 : 3);
         this.ball.targetY = boxY + (Math.random() * 8 - 4);
         this.ball.targetZ = 1.2;
@@ -1427,6 +1877,7 @@ export class MatchSimulator {
           }, 3500);
         }
       } else if (outcome === "POST") {
+        this.adjustPlayerRating(shooter, 0.2);
         this.ball.targetX = isHome ? 99 : 1;
         this.ball.targetY = targetCorner.includes("RIGHT") ? 55.5 : 44.5;
         this.ball.targetZ = 7;
@@ -1441,6 +1892,7 @@ export class MatchSimulator {
           }, 3500);
         }
       } else if (outcome === "WIDE") {
+        this.adjustPlayerRating(shooter, -0.1);
         this.ball.targetX = isHome ? 105 : -5;
         this.ball.targetY = wideDirection === "RIGHT" ? 64 : (wideDirection === "LEFT" ? 36 : 50);
         this.ball.targetZ = wideDirection === "HIGH" ? 14 : 4;
@@ -1456,6 +1908,11 @@ export class MatchSimulator {
         }
       } else if (outcome === "SAVE") {
         this.stats.shotsOnTarget[attackingSide]++;
+        this.adjustPlayerRating(shooter, 0.15);
+        if (goalkeeper) {
+          goalkeeper.matchSaves = (goalkeeper.matchSaves || 0) + 1;
+          this.adjustPlayerRating(goalkeeper, 0.45);
+        }
         this.ball.targetX = isHome ? 98 : 2;
         this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
         this.ball.targetZ = 5;
@@ -1470,8 +1927,9 @@ export class MatchSimulator {
             outcome: "SAVE",
             tacticalAnalysis: analysis,
             onComplete: () => {
-              if (!this.isFinished && !this.isHalfTime && this.showKeyHighlights && !isSkip) {
-                this.triggerSetPiece(attackingSide, "CORNER", null, onComplete);
+              if (!this.isFinished && !this.isHalfTime && this.showKeyHighlights && !isSkip && !this.isSkippingToEnd) {
+                const startedSP = this.triggerSetPiece(attackingSide, "CORNER", null, onComplete);
+                if (!startedSP && onComplete) onComplete();
               } else if (onComplete) {
                 onComplete();
               }
@@ -1500,6 +1958,16 @@ export class MatchSimulator {
         }
 
         shooter.goals = (shooter.goals || 0) + 1;
+        shooter.matchGoals = (shooter.matchGoals || 0) + 1;
+        this.adjustPlayerRating(shooter, 1.15);
+        if (passer && passer.id !== shooter.id) {
+          passer.assists = (passer.assists || 0) + 1;
+          passer.matchAssists = (passer.matchAssists || 0) + 1;
+          this.adjustPlayerRating(passer, 0.65);
+        }
+        if (goalkeeper) this.adjustPlayerRating(goalkeeper, -0.25);
+        defPlayers.filter(p => ["DFC", "LD", "LI", "MCD"].includes(p.pos)).forEach(d => this.adjustPlayerRating(d, -0.15));
+
         const event = {
           type: "GOAL",
           minute: this.minute,
@@ -1507,11 +1975,14 @@ export class MatchSimulator {
           teamId: atkTeam.id,
           teamName: atkTeam.shortName,
           playerName: shooter.name,
+          assisterName: (passer && passer.id !== shooter.id) ? passer.name : null,
           currentScore: `${this.homeScore} - ${this.awayScore}`
         };
         this.events.push(event);
 
-        this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, isSkip ? 2500 : 4500);
+        if (!this.isSkippingToEnd) {
+          this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, isSkip ? 2500 : 4500);
+        }
 
         const analysis = attackingSide === this.userSide
           ? `🎯 ¡Golazo! Jugada construida a la perfección y definición inapelable de ${shooter.name}.`
@@ -1520,7 +1991,7 @@ export class MatchSimulator {
         const goalCompletion = () => {
           this.isHighlightRunning = false;
           this.speed = this.userSpeed;
-          if (this.onHighlightEnd) {
+          if (!this.isSkippingToEnd && this.onHighlightEnd) {
             this.onHighlightEnd({
               outcome: "GOAL",
               tacticalAnalysis: analysis,
@@ -1532,7 +2003,7 @@ export class MatchSimulator {
             });
           }
 
-          if (this.onGoal) {
+          if (!this.isSkippingToEnd && this.hasCustomOnGoal) {
             this.onGoal({
               shooter,
               passer,
@@ -1550,7 +2021,7 @@ export class MatchSimulator {
           }
         };
 
-        if (isSkip) {
+        if (isSkip || this.isSkippingToEnd) {
           goalCompletion();
         } else {
           setHlTimeout(goalCompletion, 3500);
@@ -1564,7 +2035,12 @@ export class MatchSimulator {
       executeResolution(true);
     };
 
-    // Si el usuario tiene desactivadas las jugadas clave (Modo rápido / Omitir):
+    // Si estamos saltando al final del partido o el usuario tiene desactivadas las jugadas clave:
+    if (this.isSkippingToEnd) {
+      executeResolution(true);
+      return;
+    }
+
     if (!this.showKeyHighlights) {
       if (this.onHighlightStart) {
         this.onHighlightStart({
@@ -1724,7 +2200,7 @@ export class MatchSimulator {
 
   // Activar jugada a balón parado (Córner o Falta peligrosa)
   triggerSetPiece(attackingSide, type = "CORNER", customSpotData = null, postSetPieceCallback = null) {
-    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return;
+    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return false;
 
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
@@ -1752,9 +2228,41 @@ export class MatchSimulator {
         this.ball.targetY = spotY;
         this.ball.targetZ = 0;
         this.ball.possession = attackingSide;
-        this.triggerAlert("FALTA", `⚠️ Falta a ${distanceMeters}m de portería cometida sobre ${atkTeam.shortName}. Saque rápido.`, attackingSide, 2600);
-        return;
+        if (!this.isSkippingToEnd) {
+          this.triggerAlert("FALTA", `⚠️ Falta a ${distanceMeters}m de portería cometida sobre ${atkTeam.shortName}. Saque rápido.`, attackingSide, 2600);
+        }
+        return false;
       }
+    }
+
+    // Si estamos saltando al final del partido, resolver el balón parado de forma instantánea y síncrona
+    if (this.isSkippingToEnd) {
+      if (type === "CORNER") {
+        this.stats.corners[attackingSide]++;
+      }
+      this.stats.shots[attackingSide]++;
+      if (Math.random() < 0.35) {
+        this.stats.shotsOnTarget[attackingSide]++;
+        if (Math.random() < 0.25) {
+          const outfield = atkPlayers.filter(p => p.pos !== "POR");
+          const scorer = outfield[Math.floor(Math.random() * outfield.length)] || atkPlayers[0];
+          if (isHome) this.homeScore++;
+          else this.awayScore++;
+          if (scorer) {
+            scorer.goals = (scorer.goals || 0) + 1;
+            this.events.push({
+              type: "GOAL",
+              minute: this.minute,
+              teamSide: attackingSide,
+              teamId: atkTeam.id,
+              teamName: atkTeam.shortName,
+              playerName: scorer.name,
+              currentScore: `${this.homeScore} - ${this.awayScore}`
+            });
+          }
+        }
+      }
+      return false;
     }
 
     this.isSetPieceRunning = true;
@@ -1773,31 +2281,20 @@ export class MatchSimulator {
       minute: this.minute
     };
 
-    if (attackingSide === this.userSide) {
+    if (attackingSide === this.userSide && this.hasCustomOnSetPiece) {
       // El usuario ataca a balón parado: pausar y abrir la pizarra táctica interactiva
       this.pause();
       this.onSetPiece(setPieceInfo);
     } else {
-      // La IA rival ejecuta su jugada automáticamente en 3D
+      // La IA rival (o modo automático sin modal) ejecuta su jugada automáticamente
       const aiSetup = this.buildAISetPieceSetup(setPieceInfo);
       this.executeSetPiece(aiSetup, () => {
-        this.isSetPieceRunning = false;
-        if (!this.isFinished && !this.isHalfTime) {
-          if (this.pauseRequested) {
-            this.pauseRequested = false;
-            this.pause();
-            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
-            if (postSetPieceCallback) postSetPieceCallback();
-            return;
-          }
-          if (this.isRunning) {
-            this.loop();
-          } else if (postSetPieceCallback) {
-            postSetPieceCallback();
-          }
+        if (postSetPieceCallback) {
+          postSetPieceCallback();
         }
       });
     }
+    return true;
   }
 
   // Generar configuración automática para la IA rival en balón parado
@@ -1917,8 +2414,16 @@ export class MatchSimulator {
     const spAlertTitle = type === "CORNER" ? `Córner (${cornerSideLabel})` : "Falta";
     this.triggerAlert("BALÓN PARADO", `⚽ ${spAlertTitle} de ${atkTeam.shortName}`, attackingSide, 2600);
 
+    const setSpTimeout = (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      if (!this.setPieceTimeouts) this.setPieceTimeouts = [];
+      this.setPieceTimeouts.push(t);
+      return t;
+    };
+
     // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos
-    setTimeout(() => {
+    setSpTimeout(() => {
+      if (this.isFinished || this.isSkippingToEnd) return;
       const baseStat = targetStrategy === "DIRECT_SHOT" ? (taker.sho || 75) : (taker.pas || 75);
       const azarLanzamiento = (Math.random() * 44 - 22);
       const kickQuality = baseStat + azarLanzamiento;
@@ -1945,7 +2450,8 @@ export class MatchSimulator {
       this.ball.targetZ = destZ;
 
       // FASE 3: Remate, despeje, palo, parada o GOL
-      setTimeout(() => {
+      setSpTimeout(() => {
+        if (this.isFinished || this.isSkippingToEnd) return;
         this.stats.shots[attackingSide]++;
 
         if (targetStrategy === "DIRECT_SHOT") {
@@ -1954,7 +2460,7 @@ export class MatchSimulator {
           const isPost = !isGoal && kickQuality >= 72 && Math.random() < 0.5;
 
           if (isGoal) {
-            this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO");
+            this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO", onDone);
           } else if (isPost) {
             this.triggerAlert("AL PALO", `🥅 ¡Al palo el lanzamiento de ${taker.name}!`, attackingSide, 3000);
             this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
@@ -1987,7 +2493,7 @@ export class MatchSimulator {
             this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
             this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
           } else if (remateScore > gkScore + 5) {
-            this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "JUGADA ENSAYADA");
+            this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "JUGADA ENSAYADA", onDone);
           } else if (remateScore > gkScore - 4) {
             if (Math.random() < 0.3) {
               this.triggerAlert("AL PALO", `🥅 ¡Al palo el cabezazo de ${targetPlayer.name}!`, attackingSide, 3000);
@@ -2005,15 +2511,26 @@ export class MatchSimulator {
     }, 1500);
   }
 
-  handleSetPieceGoal(attackingSide, scorer, assister, style) {
+  handleSetPieceGoal(attackingSide, scorer, assister, style, onDone = null) {
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
     const defTeam = isHome ? this.awayTeam : this.homeTeam;
+    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
+    const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
 
+    this.stats.shotsOnTarget[attackingSide]++;
     if (isHome) this.homeScore++;
     else this.awayScore++;
 
     scorer.goals = (scorer.goals || 0) + 1;
+    scorer.matchGoals = (scorer.matchGoals || 0) + 1;
+    this.adjustPlayerRating(scorer, 1.15);
+    if (assister && assister.id !== scorer.id) {
+      assister.assists = (assister.assists || 0) + 1;
+      assister.matchAssists = (assister.matchAssists || 0) + 1;
+      this.adjustPlayerRating(assister, 0.65);
+    }
+    if (goalkeeper) this.adjustPlayerRating(goalkeeper, -0.25);
 
     this.ball.targetX = isHome ? 99.5 : 0.5;
     this.ball.targetY = 47 + Math.random() * 6;
@@ -2026,6 +2543,7 @@ export class MatchSimulator {
       teamId: atkTeam.id,
       teamName: atkTeam.shortName,
       playerName: scorer.name,
+      assisterName: (assister && assister.id !== scorer.id) ? assister.name : null,
       currentScore: `${this.homeScore} - ${this.awayScore}`
     };
     this.events.push(event);
@@ -2035,17 +2553,24 @@ export class MatchSimulator {
     this.isSetPieceRunning = false;
     this.speed = this.userSpeed;
 
-    this.onGoal({
-      shooter: scorer,
-      passer: assister,
-      attackingSide,
-      concedingSide: isHome ? "away" : "home",
-      atkTeam,
-      defTeam,
-      minute: this.minute,
-      formattedMinute: this.getFormattedMinute(),
-      score: `${this.homeScore} - ${this.awayScore}`
-    });
+    if (this.hasCustomOnGoal && !this.isSkippingToEnd) {
+      this.onGoal({
+        shooter: scorer,
+        passer: assister,
+        attackingSide,
+        concedingSide: isHome ? "away" : "home",
+        atkTeam,
+        defTeam,
+        minute: this.minute,
+        formattedMinute: this.getFormattedMinute(),
+        score: `${this.homeScore} - ${this.awayScore}`
+      });
+    } else {
+      if (onDone) onDone();
+      if (this.isRunning && !this.isFinished && !this.isHalfTime) {
+        this.loop();
+      }
+    }
   }
 
   finishSetPiecePlay(outcome = "GOAL_KICK", attackingSide = "home", onDone = null) {
@@ -2053,7 +2578,15 @@ export class MatchSimulator {
     const defSide = isHome ? "away" : "home";
     const defTeam = isHome ? this.awayTeam : this.homeTeam;
 
-    setTimeout(() => {
+    const setSpTimeout = (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      if (!this.setPieceTimeouts) this.setPieceTimeouts = [];
+      this.setPieceTimeouts.push(t);
+      return t;
+    };
+
+    setSpTimeout(() => {
+      if (this.isFinished || this.isSkippingToEnd) return;
       // 1. Ejecutar saque de puerta reglamentario o posesión del equipo defensor
       if (outcome === "GOAL_KICK") {
         this.triggerAlert("SAQUE DE PUERTA", `🧤 Saque de puerta para ${defTeam.shortName}`, defSide, 2200);
@@ -2080,7 +2613,8 @@ export class MatchSimulator {
         }
 
         // El portero efectúa el saque de puerta por alto hacia el centro del campo
-        setTimeout(() => {
+        setSpTimeout(() => {
+          if (this.isFinished || this.isSkippingToEnd) return;
           this.ball.targetX = isHome ? 54 - Math.random() * 12 : 46 + Math.random() * 12;
           this.ball.targetY = 32 + Math.random() * 36;
           this.ball.targetZ = 7 + Math.random() * 4;
@@ -2096,7 +2630,8 @@ export class MatchSimulator {
       }
 
       // 2. Transición y reanudación automática de la simulación
-      setTimeout(() => {
+      setSpTimeout(() => {
+        if (this.isFinished || this.isSkippingToEnd) return;
         this.isSetPieceRunning = false;
         this.speed = this.userSpeed;
 
@@ -2126,10 +2661,12 @@ export class MatchSimulator {
             if (onDone) onDone();
             return;
           }
-          this.isRunning = true;
-          this.loop();
+          if (onDone) onDone();
+          if (!this.isFinished && !this.isHalfTime && !this.pauseRequested) {
+            this.isRunning = true;
+            this.loop();
+          }
         }
-        if (onDone) onDone();
       }, outcome === "GOAL_KICK" ? 1600 : 1100);
     }, 1000);
   }
@@ -2346,7 +2883,21 @@ export class MatchSimulator {
       }
       sum += power;
     });
-    return sum / players.length;
+
+    let avgPower = sum / players.length;
+    if (side === this.userSide) {
+      if (this.activeTeamTalk && this.minute <= this.activeTeamTalk.expiresAtMinute) {
+        if (type === "atk") avgPower *= (this.activeTeamTalk.atkMod || 1.0);
+        else if (type === "mid") avgPower *= (this.activeTeamTalk.midMod || 1.0);
+        else if (type === "def") avgPower *= (this.activeTeamTalk.defMod || 1.0);
+      }
+      if (this.activeShout && this.minute <= this.activeShout.expiresAtMinute) {
+        if (type === "atk") avgPower *= (this.activeShout.atkMod || 1.0);
+        else if (type === "mid") avgPower *= (this.activeShout.midMod || 1.0);
+        else if (type === "def") avgPower *= (this.activeShout.defMod || 1.0);
+      }
+    }
+    return avgPower;
   }
 
   update2DPositions() {
@@ -2449,22 +3000,95 @@ export class MatchSimulator {
 
   // Saltar instantáneamente al final del partido
   skipToEnd() {
+    this.clearAllTimeouts();
+    this.isSkippingToEnd = true;
     this.halfTimeTriggered = true;
     this.isHalfTime = false;
     this.isSecondHalf = true;
     this.isHighlightRunning = false;
     this.isSetPieceRunning = false;
-    while (this.minute < this.maxMinutes) {
+    this.pauseRequested = false;
+
+    let safetyGuard = 0;
+    while (this.minute < this.maxMinutes && safetyGuard < 200) {
+      this.isSetPieceRunning = false;
+      this.isHighlightRunning = false;
       this.stepMinute();
+      safetyGuard++;
     }
-    this.finish();
+    this.isSkippingToEnd = false;
+    if (!this.isFinished) {
+      this.finish();
+    }
   }
 
   finish() {
+    this.clearAllTimeouts();
     this.minute = this.maxMinutes;
     this.isRunning = false;
+    this.isHighlightRunning = false;
+    this.isSetPieceRunning = false;
     this.isFinished = true;
+
+    // Bonus de valoración final por portería a cero (Clean Sheet) y victoria
+    const homeAll = this.homeTeam.players || [...this.homePlayersOnPitch, ...this.homeBench];
+    const awayAll = this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench];
+
+    if (this.awayScore === 0) {
+      homeAll.forEach(p => {
+        if ((p.matchMinutes || 0) >= 45) {
+          if (p.pos === "POR") this.adjustPlayerRating(p, 0.5);
+          else if (["DFC", "LD", "LI", "MCD"].includes(p.pos)) this.adjustPlayerRating(p, 0.3);
+        }
+      });
+    }
+    if (this.homeScore === 0) {
+      awayAll.forEach(p => {
+        if ((p.matchMinutes || 0) >= 45) {
+          if (p.pos === "POR") this.adjustPlayerRating(p, 0.5);
+          else if (["DFC", "LD", "LI", "MCD"].includes(p.pos)) this.adjustPlayerRating(p, 0.3);
+        }
+      });
+    }
+    if (this.homeScore > this.awayScore) {
+      homeAll.forEach(p => { if ((p.matchMinutes || 0) >= 20) this.adjustPlayerRating(p, 0.2); });
+    } else if (this.awayScore > this.homeScore) {
+      awayAll.forEach(p => { if ((p.matchMinutes || 0) >= 20) this.adjustPlayerRating(p, 0.2); });
+    }
+
     this.onFinish(this.getResult());
+  }
+
+  // MEJORA 5: Calcular el MVP del Partido (o de la 1ª parte) según nota en tiempo real
+  computeMVP() {
+    const homeAll = (this.homeTeam.players || [...this.homePlayersOnPitch, ...this.homeBench])
+      .filter(p => p.playedInMatch || (p.matchMinutes || 0) > 0)
+      .map(p => ({ ...p, teamId: this.homeTeam.id, teamName: this.homeTeam.shortName || this.homeTeam.name, teamSide: "home" }));
+    const awayAll = (this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench])
+      .filter(p => p.playedInMatch || (p.matchMinutes || 0) > 0)
+      .map(p => ({ ...p, teamId: this.awayTeam.id, teamName: this.awayTeam.shortName || this.awayTeam.name, teamSide: "away" }));
+
+    const allPlayed = [...homeAll, ...awayAll];
+    if (allPlayed.length === 0) return null;
+
+    allPlayed.sort((a, b) => {
+      const rDiff = (b.matchRating || 6.5) - (a.matchRating || 6.5);
+      if (Math.abs(rDiff) > 0.05) return rDiff;
+      const gDiff = (b.matchGoals || 0) - (a.matchGoals || 0);
+      if (gDiff !== 0) return gDiff;
+      const aDiff = (b.matchAssists || 0) - (a.matchAssists || 0);
+      if (aDiff !== 0) return aDiff;
+      return (b.ovr || 70) - (a.ovr || 70);
+    });
+
+    const best = allPlayed[0];
+    return {
+      ...best,
+      rating: best.matchRating || 6.5,
+      goals: best.matchGoals || 0,
+      assists: best.matchAssists || 0,
+      saves: best.matchSaves || 0
+    };
   }
 
   getState() {
@@ -2496,6 +3120,11 @@ export class MatchSimulator {
       awayMentality: this.awayMentality,
       homeInstructions: this.homeInstructions,
       awayInstructions: this.awayInstructions,
+      activeTeamTalk: this.activeTeamTalk,
+      halftimeTalkUsed: this.halftimeTalkUsed,
+      activeShout: this.activeShout,
+      shoutCooldownUntil: this.shoutCooldownUntil,
+      currentMvp: this.computeMVP(),
       isRunning: this.isRunning,
       isHalfTime: this.isHalfTime,
       isSecondHalf: this.isSecondHalf,
@@ -2513,8 +3142,9 @@ export class MatchSimulator {
       events: this.events,
       cards: this.matchCards,
       scorers: this.events.filter(e => e.type === "GOAL"),
-      homePlayers: [...this.homePlayersOnPitch, ...this.homeBench],
-      awayPlayers: [...this.awayPlayersOnPitch, ...this.awayBench]
+      mvp: this.computeMVP(),
+      homePlayers: this.homeTeam.players || [...this.homePlayersOnPitch, ...this.homeBench],
+      awayPlayers: this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench]
     };
   }
 }

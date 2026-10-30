@@ -1158,7 +1158,8 @@ function generateRandomInjury(cause = "random") {
     type: picked.type,
     severity: picked.severity,
     roundsLeft: rounds,
-    icon: picked.icon
+    icon: picked.icon,
+    justAcquired: true
   };
 }
 
@@ -1587,7 +1588,7 @@ function simulateAIParties(match, teamsMap) {
         if (p) {
           p.seasonYellows = (p.seasonYellows || 0) + 1;
           if (p.seasonYellows % 5 === 0 && !p.suspension) {
-            p.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas" };
+            p.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas", justAcquired: true };
           }
         }
       }
@@ -1596,7 +1597,7 @@ function simulateAIParties(match, teamsMap) {
         const p = outfieldStarters[Math.floor(Math.random() * outfieldStarters.length)];
         if (p) {
           p.seasonReds = (p.seasonReds || 0) + 1;
-          p.suspension = { roundsLeft: 1, reason: "Tarjeta Roja" };
+          p.suspension = { roundsLeft: 1, reason: "Tarjeta Roja", justAcquired: true };
         }
       }
     }
@@ -1921,8 +1922,10 @@ class MatchSimulator {
     this.speed = this.userSpeed;
     this.showKeyHighlights = options.showKeyHighlights !== false;
     this.highlightTimeouts = [];
+    this.setPieceTimeouts = [];
     this.skipCurrentHighlight = null;
     this.isHighlightRunning = false;
+    this.isSkippingToEnd = false;
     this.isRunning = false;
     this.isFinished = false;
     this.isHalfTime = false;
@@ -1991,9 +1994,22 @@ class MatchSimulator {
       ? options.awayBench.map(id => this.awayTeam.players.find(p => p.id === id) || (typeof id === 'object' ? id : null)).filter(Boolean)
       : awayOpt.bench;
 
-    // Inicializar cómputo de minutos de partido y desgaste
-    [...this.homePlayersOnPitch, ...this.homeBench].forEach(p => { p.matchMinutes = 0; });
-    [...this.awayPlayersOnPitch, ...this.awayBench].forEach(p => { p.matchMinutes = 0; });
+    // Inicializar cómputo de minutos de partido, desgaste y valoración en vivo (Rating 1.0 - 10.0)
+    const initPlayerMatchStats = (p, isStarter) => {
+      p.matchMinutes = 0;
+      p.matchGoals = 0;
+      p.matchAssists = 0;
+      p.matchSaves = 0;
+      p.matchTackles = 0;
+      p.matchKeyPasses = 0;
+      p.matchShots = 0;
+      p.matchRating = isStarter ? 6.5 : 6.0;
+      p.playedInMatch = isStarter;
+    };
+    this.homePlayersOnPitch.forEach(p => initPlayerMatchStats(p, true));
+    this.homeBench.forEach(p => initPlayerMatchStats(p, false));
+    this.awayPlayersOnPitch.forEach(p => initPlayerMatchStats(p, true));
+    this.awayBench.forEach(p => initPlayerMatchStats(p, false));
 
     // Inicializar posiciones 3D relativas (x: 0-100, y: 0-100, z: 0-25)
     this.ball = { x: 50, y: 50, z: 0, targetX: 50, targetY: 50, targetZ: 0, possession: "home" };
@@ -2002,8 +2018,10 @@ class MatchSimulator {
     this.onTick = options.onTick || (() => {});
     this.onFinish = options.onFinish || (() => {});
     this.onAlert = options.onAlert || (() => {});
+    this.hasCustomOnGoal = typeof options.onGoal === "function";
     this.onGoal = options.onGoal || (() => {});
     this.onHalfTime = options.onHalfTime || (() => {});
+    this.hasCustomOnSub = typeof options.onSubstitution === "function";
     this.onSubstitution = options.onSubstitution || (() => {});
     this.onHighlightStart = options.onHighlightStart || (() => {});
     this.onHighlightPhase = options.onHighlightPhase || (() => {});
@@ -2013,6 +2031,18 @@ class MatchSimulator {
     this.aiSide = this.userSide === "home" ? "away" : "home";
     this.lastAISubMinute = 0;
 
+    // Mejora 1: Charlas de vestuario (Pre-partido y Descanso)
+    this.activeTeamTalk = null;
+    this.halftimeTalkUsed = false;
+    if (options.preMatchTalk) {
+      this.applyTeamTalk("pre", options.preMatchTalk, true);
+    }
+
+    // Mejora 2: Gritos desde la banda en vivo (Touchline Shouts)
+    this.activeShout = null;
+    this.shoutCooldownUntil = 0;
+
+    this.hasCustomOnSetPiece = typeof options.onSetPiece === "function";
     this.onSetPiece = options.onSetPiece || (() => {});
     this.isSetPieceRunning = false;
     this.pauseRequested = false;
@@ -2074,11 +2104,27 @@ class MatchSimulator {
     }));
   }
 
+  clearAllTimeouts() {
+    if (this.loopTimeout) {
+      clearTimeout(this.loopTimeout);
+      this.loopTimeout = null;
+    }
+    if (this.highlightTimeouts && this.highlightTimeouts.length > 0) {
+      this.highlightTimeouts.forEach(clearTimeout);
+      this.highlightTimeouts = [];
+    }
+    if (this.setPieceTimeouts && this.setPieceTimeouts.length > 0) {
+      this.setPieceTimeouts.forEach(clearTimeout);
+      this.setPieceTimeouts = [];
+    }
+  }
+
   start() {
-    if (this.isSetPieceRunning || this.isFinished || this.isHalfTime) return;
+    if (this.isSetPieceRunning || this.isHighlightRunning || this.isFinished || this.isHalfTime) return;
     if (this.isRunning) return;
     this.isRunning = true;
-    this.onTick(this.getState());
+    this.pauseRequested = false;
+    if (this.onTick) this.onTick(this.getState());
 
     const baseInterval = 460;
     const interval = Math.max(50, Math.round(baseInterval / this.speed));
@@ -2095,14 +2141,6 @@ class MatchSimulator {
       clearTimeout(this.loopTimeout);
       this.loopTimeout = null;
     }
-    if (this.onTick) this.onTick(this.getState());
-  }
-
-  start() {
-    if (this.isRunning) return;
-    this.isRunning = true;
-    this.pauseRequested = false;
-    this.loop();
     if (this.onTick) this.onTick(this.getState());
   }
 
@@ -2128,6 +2166,290 @@ class MatchSimulator {
     this.update2DPositions();
   }
 
+  // Ajustar valoración en vivo (1.0 a 10.0) de un futbolista
+  adjustPlayerRating(player, delta) {
+    if (!player) return;
+    player.playedInMatch = true;
+    const cur = player.matchRating !== undefined ? player.matchRating : 6.5;
+    player.matchRating = Math.round(Math.max(3.5, Math.min(10.0, cur + delta)) * 10) / 10;
+  }
+
+  // MEJORA 1: Aplicar charla de vestuario (Pre-partido o Descanso) con efecto real según contexto
+  applyTeamTalk(phase = "pre", talkId = "confidence", silent = false) {
+    const userPitch = this.userSide === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const userScore = this.userSide === "home" ? this.homeScore : this.awayScore;
+    const oppScore = this.userSide === "home" ? this.awayScore : this.homeScore;
+    const diff = userScore - oppScore;
+
+    let talkData = {
+      id: talkId,
+      phase,
+      label: "Confianza Plena",
+      icon: "💪",
+      atkMod: 1.0,
+      midMod: 1.0,
+      defMod: 1.0,
+      foulMod: 1.0,
+      drainMod: 1.0,
+      expiresAtMinute: phase === "pre" ? 28 : 75,
+      feedback: "El vestuario asiente con motivación."
+    };
+
+    if (phase === "pre") {
+      if (talkId === "passionate") {
+        talkData = {
+          id: "passionate",
+          phase: "pre",
+          label: "¡Salid a morder!",
+          icon: "🔥",
+          atkMod: 1.09,
+          midMod: 1.06,
+          defMod: 0.98,
+          foulMod: 1.15,
+          drainMod: 1.05,
+          expiresAtMinute: 28,
+          feedback: "🔥 ¡El equipo sale enchufadísimo! (+9% Ataque y +6% Medular en el arranque)"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.1));
+      } else if (talkId === "tactical") {
+        talkData = {
+          id: "tactical",
+          phase: "pre",
+          label: "Orden y Concentración",
+          icon: "🧠",
+          atkMod: 1.0,
+          midMod: 1.06,
+          defMod: 1.09,
+          foulMod: 0.85,
+          drainMod: 0.96,
+          expiresAtMinute: 32,
+          feedback: "🧠 Bloques juntos y máxima concentración (+9% Defensa y +6% Control)"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.1));
+      } else if (talkId === "calm") {
+        talkData = {
+          id: "calm",
+          phase: "pre",
+          label: "Cabeza Fría / Sin Presión",
+          icon: "🧊",
+          atkMod: 1.02,
+          midMod: 1.04,
+          defMod: 1.05,
+          foulMod: 0.65,
+          drainMod: 0.92,
+          expiresAtMinute: 35,
+          feedback: "🧊 Jugadores tranquilos: -35% riesgo de faltas/tarjetas y ahorro físico"
+        };
+      } else {
+        // confidence
+        talkData = {
+          id: "confidence",
+          phase: "pre",
+          label: "Confianza Plena",
+          icon: "💪",
+          atkMod: 1.05,
+          midMod: 1.05,
+          defMod: 1.05,
+          foulMod: 0.95,
+          drainMod: 1.0,
+          expiresAtMinute: 30,
+          feedback: "💪 Moral alta en el once titular (+5% global en todas las líneas)"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.15));
+      }
+    } else {
+      // Descanso (contextual según el marcador)
+      this.halftimeTalkUsed = true;
+      if (talkId === "aggressive") {
+        if (diff <= 0) {
+          talkData = {
+            id: "aggressive",
+            phase: "ht",
+            label: "Bronca / Exigir Reacción",
+            icon: "😡",
+            atkMod: 1.13,
+            midMod: 1.09,
+            defMod: 1.03,
+            foulMod: 1.12,
+            drainMod: 1.04,
+            expiresAtMinute: 76,
+            feedback: "😡 ¡El vestuario reacciona con orgullo herido! (+13% Ataque, +9% Medular y +3% Energía)"
+          };
+          userPitch.forEach(p => {
+            p.energy = Math.min(100, (p.energy || 75) + 3);
+            this.adjustPlayerRating(p, 0.15);
+          });
+        } else {
+          talkData = {
+            id: "aggressive",
+            phase: "ht",
+            label: "Bronca Innecesaria",
+            icon: "😡",
+            atkMod: 0.95,
+            midMod: 0.96,
+            defMod: 0.97,
+            foulMod: 1.25,
+            drainMod: 1.05,
+            expiresAtMinute: 70,
+            feedback: "⚠️ Los jugadores no entienden la bronca ganando el partido (-4% precisión y más nervios)"
+          };
+          userPitch.forEach(p => this.adjustPlayerRating(p, -0.1));
+        }
+      } else if (talkId === "encourage") {
+        const boost = diff < 0 ? 1.11 : (diff === 0 ? 1.08 : 1.05);
+        talkData = {
+          id: "encourage",
+          phase: "ht",
+          label: "¡Creer en la Victoria!",
+          icon: "🔥",
+          atkMod: boost,
+          midMod: 1.06,
+          defMod: 1.04,
+          foulMod: 0.95,
+          drainMod: 1.0,
+          expiresAtMinute: 78,
+          feedback: diff < 0
+            ? "🔥 ¡Conjura de remontada en el vestuario! (+11% Ataque y fe ciega)"
+            : "🔥 ¡El equipo sale enchufado a por más goles en la 2ª mitad! (+8% empuje)"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.15));
+      } else if (talkId === "praise") {
+        if (diff > 0) {
+          talkData = {
+            id: "praise",
+            phase: "ht",
+            label: "Elogiar el Gran Trabajo",
+            icon: "👏",
+            atkMod: 1.06,
+            midMod: 1.08,
+            defMod: 1.08,
+            foulMod: 0.85,
+            drainMod: 0.95,
+            expiresAtMinute: 80,
+            feedback: "👏 ¡Moral por las nubes! El equipo se siente invencible (+8% Control y Defensa)"
+          };
+          userPitch.forEach(p => this.adjustPlayerRating(p, 0.2));
+        } else {
+          talkData = {
+            id: "praise",
+            phase: "ht",
+            label: "Elogio Complaciente",
+            icon: "👏",
+            atkMod: 0.97,
+            midMod: 0.98,
+            defMod: 0.97,
+            foulMod: 0.95,
+            drainMod: 0.96,
+            expiresAtMinute: 70,
+            feedback: "😐 Elogiar sin ir ganando relaja en exceso a algunos jugadores (-3% intensidad)"
+          };
+        }
+      } else if (talkId === "calm_control") {
+        talkData = {
+          id: "calm_control",
+          phase: "ht",
+          label: "Cabeza Fría y Cerrar Espacios",
+          icon: "🧊",
+          atkMod: 0.98,
+          midMod: 1.06,
+          defMod: 1.10,
+          foulMod: 0.60,
+          drainMod: 0.90,
+          expiresAtMinute: 82,
+          feedback: "🧊 Máxima disciplina táctica: +10% Defensa y -40% riesgo de tarjetas"
+        };
+        userPitch.forEach(p => this.adjustPlayerRating(p, 0.1));
+      }
+    }
+
+    this.activeTeamTalk = talkData;
+    if (!silent && !this.isSkippingToEnd) {
+      this.triggerAlert("VESTUARIO", talkData.feedback, this.userSide, 3600);
+    }
+    if (this.onTick) this.onTick(this.getState());
+    return talkData;
+  }
+
+  // MEJORA 2: Órdenes rápidas de banda (Gritos desde el banquillo en vivo)
+  triggerShout(shoutId) {
+    if (this.isFinished || this.isHalfTime) {
+      return { success: false, reason: "El balón no está en juego." };
+    }
+    if (this.minute < this.shoutCooldownUntil) {
+      const waitMins = this.shoutCooldownUntil - this.minute;
+      return { success: false, reason: `Espera ${waitMins} min para dar otra orden desde la banda.` };
+    }
+
+    const duration = 12; // 12 minutos de efecto activo
+    const cooldown = 10; // 10 minutos de enfriamiento tras usarse (o total desde activación: 10 min)
+    const expiresAt = Math.min(this.maxMinutes, this.minute + duration);
+    this.shoutCooldownUntil = this.minute + 10;
+
+    const catalog = {
+      CROSS_BOX: {
+        id: "CROSS_BOX",
+        label: "¡Colgad balones!",
+        icon: "📢",
+        atkMod: 1.11,
+        midMod: 1.02,
+        defMod: 0.96,
+        foulMod: 1.0,
+        drainMod: 1.04,
+        possBonus: 0,
+        alertText: "📢 ¡Orden desde la banda: «¡Colgad balones al área!» (+Centros y remate durante 12')"
+      },
+      SHOOT_ON_SIGHT: {
+        id: "SHOOT_ON_SIGHT",
+        label: "¡Tirad a puerta!",
+        icon: "🚀",
+        atkMod: 1.13,
+        midMod: 1.0,
+        defMod: 0.97,
+        foulMod: 1.0,
+        drainMod: 1.03,
+        possBonus: -0.02,
+        alertText: "🚀 ¡Orden desde la banda: «¡Disparad en cuanto podáis!» (+Tiros y peligro durante 12')"
+      },
+      EASY_TACKLES: {
+        id: "EASY_TACKLES",
+        label: "¡Cuidado entradas!",
+        icon: "🛡️",
+        atkMod: 0.97,
+        midMod: 1.03,
+        defMod: 1.08,
+        foulMod: 0.45,
+        drainMod: 0.94,
+        possBonus: 0,
+        alertText: "🛡️ ¡Orden desde la banda: «¡Sin faltas, aguantad de pie!» (-55% faltas/tarjetas y +8% Defensa)"
+      },
+      WASTE_TIME: {
+        id: "WASTE_TIME",
+        label: "¡Dormid el balón!",
+        icon: "⏱️",
+        atkMod: 0.86,
+        midMod: 1.10,
+        defMod: 1.09,
+        foulMod: 0.85,
+        drainMod: 0.86,
+        possBonus: 0.09,
+        alertText: "⏱️ ¡Orden desde la banda: «¡Dormid el partido, posesiones largas!» (+Posesión y cerrojo durante 12')"
+      }
+    };
+
+    const chosen = catalog[shoutId];
+    if (!chosen) return { success: false, reason: "Orden no reconocida" };
+
+    this.activeShout = {
+      ...chosen,
+      startedAtMinute: this.minute,
+      expiresAtMinute: expiresAt
+    };
+
+    this.triggerAlert("BANDA", chosen.alertText, this.userSide, 3400);
+    if (this.onTick) this.onTick(this.getState());
+    return { success: true, shout: this.activeShout };
+  }
+
   // Realizar sustitución en vivo
   makeSubstitution(teamSide, pitchPlayerId, benchPlayerId, isHalfTime = false) {
     const isHome = teamSide === "home";
@@ -2148,6 +2470,20 @@ class MatchSimulator {
 
     const outPlayer = onPitchList[pitchIndex];
     const inPlayer = benchList[benchIndex];
+
+    if (inPlayer.injury) {
+      return { success: false, reason: `${inPlayer.name} está lesionado y no puede entrar al campo.` };
+    }
+    if (inPlayer.suspension && inPlayer.suspension.roundsLeft > 0) {
+      return { success: false, reason: `${inPlayer.name} está sancionado y no puede entrar al campo.` };
+    }
+    if (inPlayer.subbedOut) {
+      return { success: false, reason: `${inPlayer.name} ya fue sustituido anteriormente en este partido.` };
+    }
+
+    outPlayer.subbedOut = true;
+    inPlayer.playedInMatch = true;
+    if (!inPlayer.matchRating || inPlayer.matchRating < 6.5) inPlayer.matchRating = 6.5;
 
     // Intercambiar
     onPitchList[pitchIndex] = inPlayer;
@@ -2213,11 +2549,30 @@ class MatchSimulator {
       ? [...this.homePlayersOnPitch, ...this.homeBench]
       : [...this.awayPlayersOnPitch, ...this.awayBench];
 
+    for (const inId of subsInIds) {
+      const inP = allTeamPlayers.find(p => p.id === inId);
+      if (inP?.injury) {
+        return { success: false, reason: `${inP.name} está lesionado y no puede saltar al terreno de juego.` };
+      }
+      if (inP?.suspension && inP.suspension.roundsLeft > 0) {
+        return { success: false, reason: `${inP.name} está sancionado y no puede saltar al terreno de juego.` };
+      }
+      if (inP?.subbedOut) {
+        return { success: false, reason: `${inP.name} ya ha sido sustituido en este partido y no puede volver a entrar.` };
+      }
+    }
+
     const newPitch = newLineupPlayerIds.map(id => allTeamPlayers.find(p => p.id === id)).filter(Boolean);
     const newBench = newBenchPlayerIds.map(id => allTeamPlayers.find(p => p.id === id)).filter(Boolean);
 
-    if (newPitch.length !== 11) {
-      return { success: false, reason: "La alineación debe contar exactamente con 11 futbolistas." };
+    const expectedPitchCount = currentPitch.length || 11;
+    if (newPitch.length !== expectedPitchCount) {
+      return {
+        success: false,
+        reason: expectedPitchCount === 11
+          ? "La alineación debe contar exactamente con 11 futbolistas."
+          : `La alineación debe mantener los ${expectedPitchCount} futbolistas disponibles en el campo.`
+      };
     }
 
     // Registrar parejas de cambio para rótulos y estadísticas
@@ -2225,6 +2580,11 @@ class MatchSimulator {
     for (let i = 0; i < subsInIds.length; i++) {
       const inP = allTeamPlayers.find(p => p.id === subsInIds[i]);
       const outP = allTeamPlayers.find(p => p.id === subsOutIds[i]);
+      if (outP) outP.subbedOut = true;
+      if (inP) {
+        inP.playedInMatch = true;
+        if (!inP.matchRating || inP.matchRating < 6.5) inP.matchRating = 6.5;
+      }
       if (inP && outP) {
         subsPairs.push({ inPlayer: inP, outPlayer: outP });
       }
@@ -2352,7 +2712,7 @@ class MatchSimulator {
     if (candidate && mostTired) {
       this.lastAISubMinute = this.minute;
       const res = this.makeSubstitution(this.aiSide, mostTired.id, candidate.id);
-      if (res.success) {
+      if (res.success && !this.isSkippingToEnd && this.hasCustomOnSub) {
         this.pause();
         this.onSubstitution({
           teamSide: this.aiSide,
@@ -2361,21 +2721,25 @@ class MatchSimulator {
           minute: this.minute,
           remaining: this.aiSide === "home" ? this.homeSubsRemaining : this.awaySubsRemaining
         });
+        return true;
       }
     }
+    return false;
   }
 
   // Activar lesión de un jugador durante el partido por fatiga, lance o falta
   triggerPlayerInjury(player, teamSide, cause = "random") {
-    if (!player || player.injury) return;
+    if (!player || player.injury) return false;
 
     const injuryData = generateRandomInjury(cause);
     player.injury = injuryData;
     player.energy = Math.max(10, (player.energy || 50) - 28);
 
     const teamObj = teamSide === "home" ? this.homeTeam : this.awayTeam;
-    const alertMsg = `${injuryData.icon} ¡LESIÓN! ${player.name} (${injuryData.type}) - ${injuryData.roundsLeft}j de baja`;
-    this.triggerAlert("LESIÓN", alertMsg, teamSide, 5000);
+    if (!this.isSkippingToEnd) {
+      const alertMsg = `${injuryData.icon} ¡LESIÓN! ${player.name} (${injuryData.type}) - ${injuryData.roundsLeft}j de baja`;
+      this.triggerAlert("LESIÓN", alertMsg, teamSide, 5000);
+    }
 
     this.events.push({
       minute: this.minute,
@@ -2392,13 +2756,15 @@ class MatchSimulator {
       injury: injuryData,
       teamSide,
       minute: this.minute,
-      team: teamObj
+      team: teamObj,
+      isSkippingToEnd: this.isSkippingToEnd
     });
 
-    // Si es el equipo de la IA rival, gestionar sustitución inmediata de emergencia
-    if (teamSide === this.aiSide) {
-      this.handleAIInjurySub(player, teamSide);
+    // Si es el equipo de la IA rival (o si estamos saltando al final), gestionar sustitución inmediata de emergencia
+    if (teamSide === this.aiSide || this.isSkippingToEnd) {
+      return this.handleAIInjurySub(player, teamSide);
     }
+    return !this.isRunning;
   }
 
   // Sustitución forzosa por lesión para el equipo IA
@@ -2407,9 +2773,9 @@ class MatchSimulator {
     const remaining = isHome ? this.homeSubsRemaining : this.awaySubsRemaining;
     const remainingWindows = isHome ? this.homeWindowsRemaining : this.awayWindowsRemaining;
     const aiBenchRaw = isHome ? this.homeBench : this.awayBench;
-    const aiBench = (aiBenchRaw || []).filter(p => !p.injury);
+    const aiBench = (aiBenchRaw || []).filter(p => !p.injury && !(p.suspension && p.suspension.roundsLeft > 0) && !p.subbedOut);
 
-    if (remaining <= 0 || remainingWindows <= 0 || aiBench.length === 0) return;
+    if (remaining <= 0 || remainingWindows <= 0 || aiBench.length === 0) return false;
 
     const samePos = aiBench.filter(p => p.pos === injuredPlayer.pos);
     let candidate = null;
@@ -2421,7 +2787,8 @@ class MatchSimulator {
 
     if (candidate) {
       const res = this.makeSubstitution(teamSide, injuredPlayer.id, candidate.id, this.isHalfTime);
-      if (res.success) {
+      if (res.success && !this.isSkippingToEnd && this.hasCustomOnSub) {
+        this.pause();
         this.onSubstitution({
           teamSide,
           team: teamSide === "home" ? this.homeTeam : this.awayTeam,
@@ -2430,8 +2797,10 @@ class MatchSimulator {
           remaining: res.remaining,
           forcedInjury: true
         });
+        return true;
       }
     }
+    return false;
   }
 
   loop() {
@@ -2532,40 +2901,67 @@ class MatchSimulator {
     const awayPressMod = this.awayInstructions?.outOfPossession?.pressing === "high" ? 1.18 : (this.awayInstructions?.outOfPossession?.pressing === "low" ? 0.82 : 1.0);
     const awayTempoMod = this.awayInstructions?.inPossession?.tempo === "fast" ? 1.12 : (this.awayInstructions?.inPossession?.tempo === "slow" ? 0.88 : 1.0);
 
+    // Expiración de charlas de vestuario y gritos de banda activos
+    if (this.activeTeamTalk && this.minute > this.activeTeamTalk.expiresAtMinute) {
+      this.activeTeamTalk = null;
+    }
+    if (this.activeShout && this.minute > this.activeShout.expiresAtMinute) {
+      this.activeShout = null;
+    }
+
+    const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0);
+    const homeTalkDrain = this.userSide === "home" ? userDrainTalkMod : 1.0;
+    const awayTalkDrain = this.userSide === "away" ? userDrainTalkMod : 1.0;
+
     // Desgaste físico gradual y acumulación de minutos según atributos físicos (PHY), media (OVR), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
       p.matchMinutes = (p.matchMinutes || 0) + 1;
+      p.playedInMatch = true;
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
       const ovrFactor = 0.95 - (Math.max(65, Math.min(95, (p.ovr || 70))) - 65) * 0.005; // Mayor media resiste mejor el esfuerzo
-      const rate = isGK ? 0.04 : (0.28 * phyFactor * ovrFactor * homeMod.drain * homePressMod * homeTempoMod);
+      const rate = isGK ? 0.04 : (0.28 * phyFactor * ovrFactor * homeMod.drain * homePressMod * homeTempoMod * homeTalkDrain);
       p.energy = Math.max(25, (p.energy || 100) - rate);
+      if (this.minute % 18 === 0 && Math.random() < 0.45) {
+        this.adjustPlayerRating(p, 0.1);
+      }
     });
 
     this.awayPlayersOnPitch.forEach(p => {
       p.matchMinutes = (p.matchMinutes || 0) + 1;
+      p.playedInMatch = true;
       const isGK = p.pos === "POR";
       const phyFactor = (120 - Math.min(95, Math.max(45, (p.phy || 70)))) / 50;
       const ovrFactor = 0.95 - (Math.max(65, Math.min(95, (p.ovr || 70))) - 65) * 0.005;
-      const rate = isGK ? 0.04 : (0.28 * phyFactor * ovrFactor * awayMod.drain * awayPressMod * awayTempoMod);
+      const rate = isGK ? 0.04 : (0.28 * phyFactor * ovrFactor * awayMod.drain * awayPressMod * awayTempoMod * awayTalkDrain);
       p.energy = Math.max(25, (p.energy || 100) - rate);
+      if (this.minute % 18 === 0 && Math.random() < 0.45) {
+        this.adjustPlayerRating(p, 0.1);
+      }
     });
 
     // Comprobación de riesgo de lesión por acumulación de minutos y fatiga física (< 58% energía)
+    let injuryInterrupted = false;
     const checkFatigueInjury = (player, teamSide) => {
-      if (player.injury || player.pos === "POR") return;
+      if (injuryInterrupted || player.injury || player.pos === "POR") return;
       const energy = player.energy !== undefined ? player.energy : 100;
       if (energy < 58) {
         const fatigueRisk = (58 - energy) / 100;
         const phyFactor = Math.max(0.5, (player.phy || 70) / 100);
         const chance = (fatigueRisk * 0.0032) / phyFactor;
         if (Math.random() < chance) {
-          this.triggerPlayerInjury(player, teamSide, "fatigue");
+          if (this.triggerPlayerInjury(player, teamSide, "fatigue")) {
+            injuryInterrupted = true;
+          }
         }
       }
     };
     this.homePlayersOnPitch.forEach(p => checkFatigueInjury(p, "home"));
     this.awayPlayersOnPitch.forEach(p => checkFatigueInjury(p, "away"));
+    if (injuryInterrupted && !this.isSkippingToEnd) {
+      this.update2DPositions();
+      return true;
+    }
 
     // Modificadores de efectividad ofensiva y defensiva
     let homeAtkBonus = 0;
@@ -2600,6 +2996,11 @@ class MatchSimulator {
     if (this.awayInstructions?.inPossession?.passingStyle === "short") possModAway += 0.06;
     else if (this.awayInstructions?.inPossession?.passingStyle === "direct") possModAway -= 0.05;
     if (this.awayInstructions?.outOfPossession?.pressing === "high") possModAway += 0.04;
+
+    if (this.activeShout && this.activeShout.possBonus) {
+      if (this.userSide === "home") possModHome += this.activeShout.possBonus;
+      else possModAway += this.activeShout.possBonus;
+    }
 
     const probHomePoss = Math.max(0.20, Math.min(0.80, (midHome / (midHome + midAway)) + 0.03 + possModHome - possModAway));
 
@@ -2657,7 +3058,13 @@ class MatchSimulator {
       this.ball.targetY = ballYTarget;
 
       // Ocasión de ataque local
-      const attackScore = (homeAtk / (homeAtk + awayDef)) * 0.28;
+      let homeChanceMult = 0.28;
+      if (this.activeShout) {
+        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.16;
+        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.72;
+        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.75;
+      }
+      const attackScore = (homeAtk / (homeAtk + awayDef)) * homeChanceMult;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("home", () => {
           if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
@@ -2677,12 +3084,13 @@ class MatchSimulator {
             this.loop();
           }
         });
-        return true;
+        return !this.isSkippingToEnd;
       } else if (chanceRoll < attackScore + 0.055) {
         // Balón parado (Córner o Falta peligrosa)
         const isCorner = Math.random() < 0.65;
-        this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK");
-        return true;
+        if (this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK")) {
+          return true;
+        }
       } else {
         // Pase o centro medio
         this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
@@ -2700,7 +3108,13 @@ class MatchSimulator {
       this.ball.targetX = 35 - Math.random() * 28;
       this.ball.targetY = ballYTargetAway;
 
-      const attackScore = (awayAtk / (awayAtk + homeDef)) * 0.26;
+      let awayChanceMult = 0.26;
+      if (this.activeShout) {
+        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.16;
+        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.72;
+        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.75;
+      }
+      const attackScore = (awayAtk / (awayAtk + homeDef)) * awayChanceMult;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("away", () => {
           if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
@@ -2720,12 +3134,13 @@ class MatchSimulator {
             this.loop();
           }
         });
-        return true;
+        return !this.isSkippingToEnd;
       } else if (chanceRoll < attackScore + 0.055) {
         // Balón parado (Córner o Falta peligrosa)
         const isCorner = Math.random() < 0.65;
-        this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK");
-        return true;
+        if (this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK")) {
+          return true;
+        }
       } else {
         this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
       }
@@ -2739,6 +3154,12 @@ class MatchSimulator {
 
     if (Math.random() < baseFoulChance * pressFoulMod) {
       const foulTeam = Math.random() > 0.5 ? "home" : "away";
+      const userFoulMod = (this.activeTeamTalk ? this.activeTeamTalk.foulMod : 1.0) * (this.activeShout ? this.activeShout.foulMod : 1.0);
+      if (foulTeam === this.userSide && userFoulMod < 1.0 && Math.random() > userFoulMod) {
+        // El jugador frena la entrada a tiempo gracias a la charla / orden de banda
+        this.update2DPositions();
+        return false;
+      }
       this.stats.fouls[foulTeam]++;
       const victimTeam = foulTeam === "home" ? "away" : "home";
       const foulTeamObj = foulTeam === "home" ? this.homeTeam : this.awayTeam;
@@ -2748,10 +3169,12 @@ class MatchSimulator {
         ? foulCandidates[Math.floor(Math.random() * foulCandidates.length)]
         : foulPitch[0];
 
-      const isDirectRed = Math.random() < 0.015;
-      const isYellow = !isDirectRed && Math.random() < 0.22;
+      const cardMod = foulTeam === this.userSide ? userFoulMod : 1.0;
+      const isDirectRed = Math.random() < (0.015 * cardMod);
+      const isYellow = !isDirectRed && Math.random() < (0.22 * cardMod);
 
       if (isDirectRed && committingPlayer) {
+        this.adjustPlayerRating(committingPlayer, -1.5);
         this.stats.redCards[foulTeam]++;
         this.matchCards.reds[committingPlayer.id] = { player: committingPlayer, reason: "Roja directa", minute: this.minute, team: foulTeam };
         if (foulTeam === "home") {
@@ -2776,6 +3199,7 @@ class MatchSimulator {
       } else if (isYellow && committingPlayer) {
         if (this.matchCards.yellows[committingPlayer.id]) {
           // Segunda amarilla y expulsión
+          this.adjustPlayerRating(committingPlayer, -1.2);
           this.stats.yellowCards[foulTeam]++;
           this.stats.redCards[foulTeam]++;
           this.matchCards.reds[committingPlayer.id] = { player: committingPlayer, reason: "Segunda amarilla", minute: this.minute, team: foulTeam };
@@ -2800,6 +3224,7 @@ class MatchSimulator {
           this.onCard({ type: "SECOND_YELLOW", player: committingPlayer, teamSide: foulTeam, minute: this.minute });
         } else {
           // Primera amarilla
+          this.adjustPlayerRating(committingPlayer, -0.4);
           this.stats.yellowCards[foulTeam]++;
           this.matchCards.yellows[committingPlayer.id] = { player: committingPlayer, minute: this.minute, team: foulTeam };
           this.triggerAlert("TARJETA", `🟨 Tarjeta amarilla para ${committingPlayer.name} (${foulTeamObj.shortName})`, foulTeam, 2800);
@@ -2819,18 +3244,25 @@ class MatchSimulator {
       const foulTeamMentality = foulTeam === "home" ? this.homeMentality : this.awayMentality;
       const aggMod = (foulTeamMentality === "very_offensive" || foulTeamMentality === "offensive") ? 1.4 : 1.0;
       const injuryFoulChance = (isYellow ? 0.075 : 0.018) * aggMod;
+      let foulInjuryPaused = false;
       if (Math.random() < injuryFoulChance) {
         const victimPitch = victimTeam === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
         const eligible = victimPitch.filter(p => !p.injury);
         if (eligible.length > 0) {
           const victim = eligible[Math.floor(Math.random() * eligible.length)];
-          this.triggerPlayerInjury(victim, victimTeam, "foul");
+          foulInjuryPaused = this.triggerPlayerInjury(victim, victimTeam, "foul");
         }
       }
 
-      if (Math.random() < 0.40 && !this.isHighlightRunning && !this.isSetPieceRunning) {
-        this.triggerSetPiece(victimTeam, "FREE_KICK");
+      if (foulInjuryPaused && !this.isSkippingToEnd) {
+        this.update2DPositions();
         return true;
+      }
+
+      if (Math.random() < 0.40 && !this.isHighlightRunning && !this.isSetPieceRunning) {
+        if (this.triggerSetPiece(victimTeam, "FREE_KICK")) {
+          return true;
+        }
       }
     }
 
@@ -2841,12 +3273,18 @@ class MatchSimulator {
       const eligible = pitch.filter(p => !p.injury);
       if (eligible.length > 0) {
         const victim = eligible[Math.floor(Math.random() * eligible.length)];
-        this.triggerPlayerInjury(victim, side, "random");
+        if (this.triggerPlayerInjury(victim, side, "random") && !this.isSkippingToEnd) {
+          this.update2DPositions();
+          return true;
+        }
       }
     }
 
     // Comprobar y realizar posibles cambios tácticos de la IA rival
-    this.checkAISubstitutions();
+    if (this.checkAISubstitutions() && !this.isSkippingToEnd) {
+      this.update2DPositions();
+      return true;
+    }
 
     // Actualizar coordenadas 3D de los jugadores hacia el balón para visualización dinámica
     this.update2DPositions();
@@ -2881,6 +3319,10 @@ class MatchSimulator {
     const hasBoxToBox = hasRole("cm_box_to_box", "am_shadow_striker");
     const hasBallWinner = hasRole("cm_ball_winner", "dm_destroyer", "cb_stopper");
 
+    const isUserAtk = attackingSide === this.userSide;
+    const shoutCrossBoost = (isUserAtk && this.activeShout?.id === "CROSS_BOX") ? 2.2 : 0;
+    const shoutShootBoost = (isUserAtk && this.activeShout?.id === "SHOOT_ON_SIGHT") ? 2.2 : 0;
+
     // 12 Patrones Tácticos de Jugada Clave ponderados según roles activos e instrucciones del equipo
     const patternWeights = [
       {
@@ -2889,11 +3331,11 @@ class MatchSimulator {
       },
       {
         id: "WING_CROSS_HEADER",
-        weight: 1.0 + (hasWinger ? 1.3 : 0) + (hasTargetMan ? 1.4 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.9 : 0) + (teamInst?.inPossession?.finalThird === "early_crosses" ? 0.8 : 0)
+        weight: 1.0 + shoutCrossBoost + (hasWinger ? 1.3 : 0) + (hasTargetMan ? 1.4 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.9 : 0) + (teamInst?.inPossession?.finalThird === "early_crosses" ? 0.8 : 0)
       },
       {
         id: "NEAR_WING_CUTBACK",
-        weight: 1.0 + (hasWinger ? 1.3 : 0) + (hasInsideForward ? 0.9 : 0) + (hasBoxToBox ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.7 : 0)
+        weight: 1.0 + (shoutCrossBoost * 0.5) + (hasWinger ? 1.3 : 0) + (hasInsideForward ? 0.9 : 0) + (hasBoxToBox ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.7 : 0)
       },
       {
         id: "COUNTER_THROUGH_BALL",
@@ -2905,7 +3347,7 @@ class MatchSimulator {
       },
       {
         id: "LONG_RANGE_BOMB",
-        weight: 0.95 + (hasBoxToBox ? 1.5 : 0) + (teamInst?.inPossession?.finalThird === "shoot_on_sight" ? 1.2 : 0)
+        weight: 0.95 + shoutShootBoost + (hasBoxToBox ? 1.5 : 0) + (teamInst?.inPossession?.finalThird === "shoot_on_sight" ? 1.2 : 0)
       },
       {
         id: "FALSE_NINE_DROP_AND_SPLIT",
@@ -2913,7 +3355,7 @@ class MatchSimulator {
       },
       {
         id: "OVERLAPPING_FULLBACK_CROSS",
-        weight: 0.95 + (hasAttackingFB ? 2.0 : 0) + (hasTargetMan || hasPoacher ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.8 : 0)
+        weight: 0.95 + shoutCrossBoost + (hasAttackingFB ? 2.0 : 0) + (hasTargetMan || hasPoacher ? 0.8 : 0) + (teamInst?.inPossession?.width === "wide" ? 0.8 : 0)
       },
       {
         id: "CHIPPED_PASS_OVER_DEFENSE",
@@ -2929,7 +3371,7 @@ class MatchSimulator {
       },
       {
         id: "INSIDE_FORWARD_CURLED_SHOT",
-        weight: 1.0 + (hasInsideForward ? 2.0 : 0) + (hasWinger ? 1.0 : 0) + (teamInst?.inPossession?.finalThird === "dribble" ? 0.8 : 0)
+        weight: 1.0 + (shoutShootBoost * 0.7) + (hasInsideForward ? 2.0 : 0) + (hasWinger ? 1.0 : 0) + (teamInst?.inPossession?.finalThird === "dribble" ? 0.8 : 0)
       }
     ];
 
@@ -3313,8 +3755,17 @@ class MatchSimulator {
       this.skipCurrentHighlight = null;
 
       this.stats.shots[attackingSide]++;
+      if (shooter) shooter.matchShots = (shooter.matchShots || 0) + 1;
+      if (passer) {
+        passer.matchKeyPasses = (passer.matchKeyPasses || 0) + 1;
+        this.adjustPlayerRating(passer, 0.15);
+      }
 
       if (outcome === "BLOCK") {
+        if (defender) {
+          defender.matchTackles = (defender.matchTackles || 0) + 1;
+          this.adjustPlayerRating(defender, 0.35);
+        }
         this.ball.targetX = boxX + (isHome ? -3 : 3);
         this.ball.targetY = boxY + (Math.random() * 8 - 4);
         this.ball.targetZ = 1.2;
@@ -3332,6 +3783,7 @@ class MatchSimulator {
           }, 3500);
         }
       } else if (outcome === "POST") {
+        this.adjustPlayerRating(shooter, 0.2);
         this.ball.targetX = isHome ? 99 : 1;
         this.ball.targetY = targetCorner.includes("RIGHT") ? 55.5 : 44.5;
         this.ball.targetZ = 7;
@@ -3346,6 +3798,7 @@ class MatchSimulator {
           }, 3500);
         }
       } else if (outcome === "WIDE") {
+        this.adjustPlayerRating(shooter, -0.1);
         this.ball.targetX = isHome ? 105 : -5;
         this.ball.targetY = wideDirection === "RIGHT" ? 64 : (wideDirection === "LEFT" ? 36 : 50);
         this.ball.targetZ = wideDirection === "HIGH" ? 14 : 4;
@@ -3361,6 +3814,11 @@ class MatchSimulator {
         }
       } else if (outcome === "SAVE") {
         this.stats.shotsOnTarget[attackingSide]++;
+        this.adjustPlayerRating(shooter, 0.15);
+        if (goalkeeper) {
+          goalkeeper.matchSaves = (goalkeeper.matchSaves || 0) + 1;
+          this.adjustPlayerRating(goalkeeper, 0.45);
+        }
         this.ball.targetX = isHome ? 98 : 2;
         this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
         this.ball.targetZ = 5;
@@ -3375,8 +3833,9 @@ class MatchSimulator {
             outcome: "SAVE",
             tacticalAnalysis: analysis,
             onComplete: () => {
-              if (!this.isFinished && !this.isHalfTime && this.showKeyHighlights && !isSkip) {
-                this.triggerSetPiece(attackingSide, "CORNER", null, onComplete);
+              if (!this.isFinished && !this.isHalfTime && this.showKeyHighlights && !isSkip && !this.isSkippingToEnd) {
+                const startedSP = this.triggerSetPiece(attackingSide, "CORNER", null, onComplete);
+                if (!startedSP && onComplete) onComplete();
               } else if (onComplete) {
                 onComplete();
               }
@@ -3405,6 +3864,16 @@ class MatchSimulator {
         }
 
         shooter.goals = (shooter.goals || 0) + 1;
+        shooter.matchGoals = (shooter.matchGoals || 0) + 1;
+        this.adjustPlayerRating(shooter, 1.15);
+        if (passer && passer.id !== shooter.id) {
+          passer.assists = (passer.assists || 0) + 1;
+          passer.matchAssists = (passer.matchAssists || 0) + 1;
+          this.adjustPlayerRating(passer, 0.65);
+        }
+        if (goalkeeper) this.adjustPlayerRating(goalkeeper, -0.25);
+        defPlayers.filter(p => ["DFC", "LD", "LI", "MCD"].includes(p.pos)).forEach(d => this.adjustPlayerRating(d, -0.15));
+
         const event = {
           type: "GOAL",
           minute: this.minute,
@@ -3412,11 +3881,14 @@ class MatchSimulator {
           teamId: atkTeam.id,
           teamName: atkTeam.shortName,
           playerName: shooter.name,
+          assisterName: (passer && passer.id !== shooter.id) ? passer.name : null,
           currentScore: `${this.homeScore} - ${this.awayScore}`
         };
         this.events.push(event);
 
-        this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, isSkip ? 2500 : 4500);
+        if (!this.isSkippingToEnd) {
+          this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, isSkip ? 2500 : 4500);
+        }
 
         const analysis = attackingSide === this.userSide
           ? `🎯 ¡Golazo! Jugada construida a la perfección y definición inapelable de ${shooter.name}.`
@@ -3425,7 +3897,7 @@ class MatchSimulator {
         const goalCompletion = () => {
           this.isHighlightRunning = false;
           this.speed = this.userSpeed;
-          if (this.onHighlightEnd) {
+          if (!this.isSkippingToEnd && this.onHighlightEnd) {
             this.onHighlightEnd({
               outcome: "GOAL",
               tacticalAnalysis: analysis,
@@ -3437,7 +3909,7 @@ class MatchSimulator {
             });
           }
 
-          if (this.onGoal) {
+          if (!this.isSkippingToEnd && this.hasCustomOnGoal) {
             this.onGoal({
               shooter,
               passer,
@@ -3455,7 +3927,7 @@ class MatchSimulator {
           }
         };
 
-        if (isSkip) {
+        if (isSkip || this.isSkippingToEnd) {
           goalCompletion();
         } else {
           setHlTimeout(goalCompletion, 3500);
@@ -3469,7 +3941,12 @@ class MatchSimulator {
       executeResolution(true);
     };
 
-    // Si el usuario tiene desactivadas las jugadas clave (Modo rápido / Omitir):
+    // Si estamos saltando al final del partido o el usuario tiene desactivadas las jugadas clave:
+    if (this.isSkippingToEnd) {
+      executeResolution(true);
+      return;
+    }
+
     if (!this.showKeyHighlights) {
       if (this.onHighlightStart) {
         this.onHighlightStart({
@@ -3629,7 +4106,7 @@ class MatchSimulator {
 
   // Activar jugada a balón parado (Córner o Falta peligrosa)
   triggerSetPiece(attackingSide, type = "CORNER", customSpotData = null, postSetPieceCallback = null) {
-    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return;
+    if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return false;
 
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
@@ -3657,9 +4134,41 @@ class MatchSimulator {
         this.ball.targetY = spotY;
         this.ball.targetZ = 0;
         this.ball.possession = attackingSide;
-        this.triggerAlert("FALTA", `⚠️ Falta a ${distanceMeters}m de portería cometida sobre ${atkTeam.shortName}. Saque rápido.`, attackingSide, 2600);
-        return;
+        if (!this.isSkippingToEnd) {
+          this.triggerAlert("FALTA", `⚠️ Falta a ${distanceMeters}m de portería cometida sobre ${atkTeam.shortName}. Saque rápido.`, attackingSide, 2600);
+        }
+        return false;
       }
+    }
+
+    // Si estamos saltando al final del partido, resolver el balón parado de forma instantánea y síncrona
+    if (this.isSkippingToEnd) {
+      if (type === "CORNER") {
+        this.stats.corners[attackingSide]++;
+      }
+      this.stats.shots[attackingSide]++;
+      if (Math.random() < 0.35) {
+        this.stats.shotsOnTarget[attackingSide]++;
+        if (Math.random() < 0.25) {
+          const outfield = atkPlayers.filter(p => p.pos !== "POR");
+          const scorer = outfield[Math.floor(Math.random() * outfield.length)] || atkPlayers[0];
+          if (isHome) this.homeScore++;
+          else this.awayScore++;
+          if (scorer) {
+            scorer.goals = (scorer.goals || 0) + 1;
+            this.events.push({
+              type: "GOAL",
+              minute: this.minute,
+              teamSide: attackingSide,
+              teamId: atkTeam.id,
+              teamName: atkTeam.shortName,
+              playerName: scorer.name,
+              currentScore: `${this.homeScore} - ${this.awayScore}`
+            });
+          }
+        }
+      }
+      return false;
     }
 
     this.isSetPieceRunning = true;
@@ -3678,31 +4187,20 @@ class MatchSimulator {
       minute: this.minute
     };
 
-    if (attackingSide === this.userSide) {
+    if (attackingSide === this.userSide && this.hasCustomOnSetPiece) {
       // El usuario ataca a balón parado: pausar y abrir la pizarra táctica interactiva
       this.pause();
       this.onSetPiece(setPieceInfo);
     } else {
-      // La IA rival ejecuta su jugada automáticamente en 3D
+      // La IA rival (o modo automático sin modal) ejecuta su jugada automáticamente
       const aiSetup = this.buildAISetPieceSetup(setPieceInfo);
       this.executeSetPiece(aiSetup, () => {
-        this.isSetPieceRunning = false;
-        if (!this.isFinished && !this.isHalfTime) {
-          if (this.pauseRequested) {
-            this.pauseRequested = false;
-            this.pause();
-            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
-            if (postSetPieceCallback) postSetPieceCallback();
-            return;
-          }
-          if (this.isRunning) {
-            this.loop();
-          } else if (postSetPieceCallback) {
-            postSetPieceCallback();
-          }
+        if (postSetPieceCallback) {
+          postSetPieceCallback();
         }
       });
     }
+    return true;
   }
 
   // Generar configuración automática para la IA rival en balón parado
@@ -3822,8 +4320,16 @@ class MatchSimulator {
     const spAlertTitle = type === "CORNER" ? `Córner (${cornerSideLabel})` : "Falta";
     this.triggerAlert("BALÓN PARADO", `⚽ ${spAlertTitle} de ${atkTeam.shortName}`, attackingSide, 2600);
 
+    const setSpTimeout = (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      if (!this.setPieceTimeouts) this.setPieceTimeouts = [];
+      this.setPieceTimeouts.push(t);
+      return t;
+    };
+
     // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos
-    setTimeout(() => {
+    setSpTimeout(() => {
+      if (this.isFinished || this.isSkippingToEnd) return;
       const baseStat = targetStrategy === "DIRECT_SHOT" ? (taker.sho || 75) : (taker.pas || 75);
       const azarLanzamiento = (Math.random() * 44 - 22);
       const kickQuality = baseStat + azarLanzamiento;
@@ -3850,7 +4356,8 @@ class MatchSimulator {
       this.ball.targetZ = destZ;
 
       // FASE 3: Remate, despeje, palo, parada o GOL
-      setTimeout(() => {
+      setSpTimeout(() => {
+        if (this.isFinished || this.isSkippingToEnd) return;
         this.stats.shots[attackingSide]++;
 
         if (targetStrategy === "DIRECT_SHOT") {
@@ -3859,7 +4366,7 @@ class MatchSimulator {
           const isPost = !isGoal && kickQuality >= 72 && Math.random() < 0.5;
 
           if (isGoal) {
-            this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO");
+            this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO", onDone);
           } else if (isPost) {
             this.triggerAlert("AL PALO", `🥅 ¡Al palo el lanzamiento de ${taker.name}!`, attackingSide, 3000);
             this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
@@ -3892,7 +4399,7 @@ class MatchSimulator {
             this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
             this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
           } else if (remateScore > gkScore + 5) {
-            this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "JUGADA ENSAYADA");
+            this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "JUGADA ENSAYADA", onDone);
           } else if (remateScore > gkScore - 4) {
             if (Math.random() < 0.3) {
               this.triggerAlert("AL PALO", `🥅 ¡Al palo el cabezazo de ${targetPlayer.name}!`, attackingSide, 3000);
@@ -3910,15 +4417,26 @@ class MatchSimulator {
     }, 1500);
   }
 
-  handleSetPieceGoal(attackingSide, scorer, assister, style) {
+  handleSetPieceGoal(attackingSide, scorer, assister, style, onDone = null) {
     const isHome = attackingSide === "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
     const defTeam = isHome ? this.awayTeam : this.homeTeam;
+    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
+    const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
 
+    this.stats.shotsOnTarget[attackingSide]++;
     if (isHome) this.homeScore++;
     else this.awayScore++;
 
     scorer.goals = (scorer.goals || 0) + 1;
+    scorer.matchGoals = (scorer.matchGoals || 0) + 1;
+    this.adjustPlayerRating(scorer, 1.15);
+    if (assister && assister.id !== scorer.id) {
+      assister.assists = (assister.assists || 0) + 1;
+      assister.matchAssists = (assister.matchAssists || 0) + 1;
+      this.adjustPlayerRating(assister, 0.65);
+    }
+    if (goalkeeper) this.adjustPlayerRating(goalkeeper, -0.25);
 
     this.ball.targetX = isHome ? 99.5 : 0.5;
     this.ball.targetY = 47 + Math.random() * 6;
@@ -3931,6 +4449,7 @@ class MatchSimulator {
       teamId: atkTeam.id,
       teamName: atkTeam.shortName,
       playerName: scorer.name,
+      assisterName: (assister && assister.id !== scorer.id) ? assister.name : null,
       currentScore: `${this.homeScore} - ${this.awayScore}`
     };
     this.events.push(event);
@@ -3940,17 +4459,24 @@ class MatchSimulator {
     this.isSetPieceRunning = false;
     this.speed = this.userSpeed;
 
-    this.onGoal({
-      shooter: scorer,
-      passer: assister,
-      attackingSide,
-      concedingSide: isHome ? "away" : "home",
-      atkTeam,
-      defTeam,
-      minute: this.minute,
-      formattedMinute: this.getFormattedMinute(),
-      score: `${this.homeScore} - ${this.awayScore}`
-    });
+    if (this.hasCustomOnGoal && !this.isSkippingToEnd) {
+      this.onGoal({
+        shooter: scorer,
+        passer: assister,
+        attackingSide,
+        concedingSide: isHome ? "away" : "home",
+        atkTeam,
+        defTeam,
+        minute: this.minute,
+        formattedMinute: this.getFormattedMinute(),
+        score: `${this.homeScore} - ${this.awayScore}`
+      });
+    } else {
+      if (onDone) onDone();
+      if (this.isRunning && !this.isFinished && !this.isHalfTime) {
+        this.loop();
+      }
+    }
   }
 
   finishSetPiecePlay(outcome = "GOAL_KICK", attackingSide = "home", onDone = null) {
@@ -3958,7 +4484,15 @@ class MatchSimulator {
     const defSide = isHome ? "away" : "home";
     const defTeam = isHome ? this.awayTeam : this.homeTeam;
 
-    setTimeout(() => {
+    const setSpTimeout = (fn, ms) => {
+      const t = setTimeout(fn, ms);
+      if (!this.setPieceTimeouts) this.setPieceTimeouts = [];
+      this.setPieceTimeouts.push(t);
+      return t;
+    };
+
+    setSpTimeout(() => {
+      if (this.isFinished || this.isSkippingToEnd) return;
       // 1. Ejecutar saque de puerta reglamentario o posesión del equipo defensor
       if (outcome === "GOAL_KICK") {
         this.triggerAlert("SAQUE DE PUERTA", `🧤 Saque de puerta para ${defTeam.shortName}`, defSide, 2200);
@@ -3985,7 +4519,8 @@ class MatchSimulator {
         }
 
         // El portero efectúa el saque de puerta por alto hacia el centro del campo
-        setTimeout(() => {
+        setSpTimeout(() => {
+          if (this.isFinished || this.isSkippingToEnd) return;
           this.ball.targetX = isHome ? 54 - Math.random() * 12 : 46 + Math.random() * 12;
           this.ball.targetY = 32 + Math.random() * 36;
           this.ball.targetZ = 7 + Math.random() * 4;
@@ -4001,7 +4536,8 @@ class MatchSimulator {
       }
 
       // 2. Transición y reanudación automática de la simulación
-      setTimeout(() => {
+      setSpTimeout(() => {
+        if (this.isFinished || this.isSkippingToEnd) return;
         this.isSetPieceRunning = false;
         this.speed = this.userSpeed;
 
@@ -4031,10 +4567,12 @@ class MatchSimulator {
             if (onDone) onDone();
             return;
           }
-          this.isRunning = true;
-          this.loop();
+          if (onDone) onDone();
+          if (!this.isFinished && !this.isHalfTime && !this.pauseRequested) {
+            this.isRunning = true;
+            this.loop();
+          }
         }
-        if (onDone) onDone();
       }, outcome === "GOAL_KICK" ? 1600 : 1100);
     }, 1000);
   }
@@ -4251,7 +4789,21 @@ class MatchSimulator {
       }
       sum += power;
     });
-    return sum / players.length;
+
+    let avgPower = sum / players.length;
+    if (side === this.userSide) {
+      if (this.activeTeamTalk && this.minute <= this.activeTeamTalk.expiresAtMinute) {
+        if (type === "atk") avgPower *= (this.activeTeamTalk.atkMod || 1.0);
+        else if (type === "mid") avgPower *= (this.activeTeamTalk.midMod || 1.0);
+        else if (type === "def") avgPower *= (this.activeTeamTalk.defMod || 1.0);
+      }
+      if (this.activeShout && this.minute <= this.activeShout.expiresAtMinute) {
+        if (type === "atk") avgPower *= (this.activeShout.atkMod || 1.0);
+        else if (type === "mid") avgPower *= (this.activeShout.midMod || 1.0);
+        else if (type === "def") avgPower *= (this.activeShout.defMod || 1.0);
+      }
+    }
+    return avgPower;
   }
 
   update2DPositions() {
@@ -4354,22 +4906,95 @@ class MatchSimulator {
 
   // Saltar instantáneamente al final del partido
   skipToEnd() {
+    this.clearAllTimeouts();
+    this.isSkippingToEnd = true;
     this.halfTimeTriggered = true;
     this.isHalfTime = false;
     this.isSecondHalf = true;
     this.isHighlightRunning = false;
     this.isSetPieceRunning = false;
-    while (this.minute < this.maxMinutes) {
+    this.pauseRequested = false;
+
+    let safetyGuard = 0;
+    while (this.minute < this.maxMinutes && safetyGuard < 200) {
+      this.isSetPieceRunning = false;
+      this.isHighlightRunning = false;
       this.stepMinute();
+      safetyGuard++;
     }
-    this.finish();
+    this.isSkippingToEnd = false;
+    if (!this.isFinished) {
+      this.finish();
+    }
   }
 
   finish() {
+    this.clearAllTimeouts();
     this.minute = this.maxMinutes;
     this.isRunning = false;
+    this.isHighlightRunning = false;
+    this.isSetPieceRunning = false;
     this.isFinished = true;
+
+    // Bonus de valoración final por portería a cero (Clean Sheet) y victoria
+    const homeAll = this.homeTeam.players || [...this.homePlayersOnPitch, ...this.homeBench];
+    const awayAll = this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench];
+
+    if (this.awayScore === 0) {
+      homeAll.forEach(p => {
+        if ((p.matchMinutes || 0) >= 45) {
+          if (p.pos === "POR") this.adjustPlayerRating(p, 0.5);
+          else if (["DFC", "LD", "LI", "MCD"].includes(p.pos)) this.adjustPlayerRating(p, 0.3);
+        }
+      });
+    }
+    if (this.homeScore === 0) {
+      awayAll.forEach(p => {
+        if ((p.matchMinutes || 0) >= 45) {
+          if (p.pos === "POR") this.adjustPlayerRating(p, 0.5);
+          else if (["DFC", "LD", "LI", "MCD"].includes(p.pos)) this.adjustPlayerRating(p, 0.3);
+        }
+      });
+    }
+    if (this.homeScore > this.awayScore) {
+      homeAll.forEach(p => { if ((p.matchMinutes || 0) >= 20) this.adjustPlayerRating(p, 0.2); });
+    } else if (this.awayScore > this.homeScore) {
+      awayAll.forEach(p => { if ((p.matchMinutes || 0) >= 20) this.adjustPlayerRating(p, 0.2); });
+    }
+
     this.onFinish(this.getResult());
+  }
+
+  // MEJORA 5: Calcular el MVP del Partido (o de la 1ª parte) según nota en tiempo real
+  computeMVP() {
+    const homeAll = (this.homeTeam.players || [...this.homePlayersOnPitch, ...this.homeBench])
+      .filter(p => p.playedInMatch || (p.matchMinutes || 0) > 0)
+      .map(p => ({ ...p, teamId: this.homeTeam.id, teamName: this.homeTeam.shortName || this.homeTeam.name, teamSide: "home" }));
+    const awayAll = (this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench])
+      .filter(p => p.playedInMatch || (p.matchMinutes || 0) > 0)
+      .map(p => ({ ...p, teamId: this.awayTeam.id, teamName: this.awayTeam.shortName || this.awayTeam.name, teamSide: "away" }));
+
+    const allPlayed = [...homeAll, ...awayAll];
+    if (allPlayed.length === 0) return null;
+
+    allPlayed.sort((a, b) => {
+      const rDiff = (b.matchRating || 6.5) - (a.matchRating || 6.5);
+      if (Math.abs(rDiff) > 0.05) return rDiff;
+      const gDiff = (b.matchGoals || 0) - (a.matchGoals || 0);
+      if (gDiff !== 0) return gDiff;
+      const aDiff = (b.matchAssists || 0) - (a.matchAssists || 0);
+      if (aDiff !== 0) return aDiff;
+      return (b.ovr || 70) - (a.ovr || 70);
+    });
+
+    const best = allPlayed[0];
+    return {
+      ...best,
+      rating: best.matchRating || 6.5,
+      goals: best.matchGoals || 0,
+      assists: best.matchAssists || 0,
+      saves: best.matchSaves || 0
+    };
   }
 
   getState() {
@@ -4401,6 +5026,11 @@ class MatchSimulator {
       awayMentality: this.awayMentality,
       homeInstructions: this.homeInstructions,
       awayInstructions: this.awayInstructions,
+      activeTeamTalk: this.activeTeamTalk,
+      halftimeTalkUsed: this.halftimeTalkUsed,
+      activeShout: this.activeShout,
+      shoutCooldownUntil: this.shoutCooldownUntil,
+      currentMvp: this.computeMVP(),
       isRunning: this.isRunning,
       isHalfTime: this.isHalfTime,
       isSecondHalf: this.isSecondHalf,
@@ -4418,8 +5048,9 @@ class MatchSimulator {
       events: this.events,
       cards: this.matchCards,
       scorers: this.events.filter(e => e.type === "GOAL"),
-      homePlayers: [...this.homePlayersOnPitch, ...this.homeBench],
-      awayPlayers: [...this.awayPlayersOnPitch, ...this.awayBench]
+      mvp: this.computeMVP(),
+      homePlayers: this.homeTeam.players || [...this.homePlayersOnPitch, ...this.homeBench],
+      awayPlayers: this.awayTeam.players || [...this.awayPlayersOnPitch, ...this.awayBench]
     };
   }
 }
@@ -5781,9 +6412,27 @@ function renderTacticsView(container, gameState, onSaveTactics, onBackToHub) {
       tactics.lineup[inLineup2] = tmp;
     } else if (inLineup1 !== -1 && inBench2 !== -1) {
       // Uno en el 11 y otro en el banquillo
+      const benchP = team.players.find(p => p.id === tappedId);
+      if (benchP && benchP.injury) {
+        alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede alinearse como titular.`);
+        return;
+      }
+      if (benchP && benchP.suspension && benchP.suspension.roundsLeft > 0) {
+        alert(`🟥 ${benchP.name} está sancionado (${benchP.suspension.reason}) y no puede alinearse como titular.`);
+        return;
+      }
       tactics.lineup[inLineup1] = tappedId;
       tactics.bench[inBench2] = selectedPlayerId;
     } else if (inBench1 !== -1 && inLineup2 !== -1) {
+      const benchP = team.players.find(p => p.id === selectedPlayerId);
+      if (benchP && benchP.injury) {
+        alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede alinearse como titular.`);
+        return;
+      }
+      if (benchP && benchP.suspension && benchP.suspension.roundsLeft > 0) {
+        alert(`🟥 ${benchP.name} está sancionado (${benchP.suspension.reason}) y no puede alinearse como titular.`);
+        return;
+      }
       tactics.bench[inBench1] = tappedId;
       tactics.lineup[inLineup2] = selectedPlayerId;
     } else if (inBench1 !== -1 && inBench2 !== -1) {
@@ -5922,8 +6571,11 @@ function renderSquadView(container, gameState, onBackToHub) {
                     ${p.suspension ? `<span class="px-1.5 py-0.2 rounded bg-amber-950/90 border border-amber-500/60 text-[8px] font-bold text-amber-300">🛑 Sancionado (${p.suspension.roundsLeft}j)</span>` : ''}
                     ${(p.fatigueLoad || 0) >= 40 ? `<span class="px-1.5 py-0.2 rounded bg-amber-950 border border-amber-500/70 text-[8px] font-bold text-amber-300">🔥 Sobrecarga</span>` : (p.fatigueLoad || 0) >= 20 ? `<span class="px-1.5 py-0.2 rounded bg-yellow-950/80 border border-yellow-500/50 text-[8px] font-bold text-yellow-300">⚠️ Fatiga acum.</span>` : ''}
                   </div>
-                  <div class="flex items-center gap-2 mt-1">
+                  <div class="flex items-center gap-2 mt-1 flex-wrap">
                     <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0}</span>
+                    ${(p.assists || 0) > 0 ? `<span class="text-[10px] text-sky-400">👟 ${p.assists}</span>` : ''}
+                    ${p.avgRating ? `<span class="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300">⭐ ${p.avgRating.toFixed(2)}</span>` : ''}
+                    ${(p.mvpCount || 0) > 0 ? `<span class="text-[10px] font-bold text-yellow-400">🏆 ${p.mvpCount}</span>` : ''}
                     <span class="text-[10px] text-amber-400">🟨 ${p.seasonYellows || 0}</span>
                     ${(p.seasonReds || 0) > 0 ? `<span class="text-[10px] text-red-400">🟥 ${p.seasonReds}</span>` : ''}
                     <span class="text-[10px] font-mono ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400 font-bold'}">⚡ ${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
@@ -6074,19 +6726,25 @@ function renderSquadView(container, gameState, onBackToHub) {
           </div>
 
           <!-- Estadísticas de la Temporada -->
-          <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="grid grid-cols-4 gap-2 text-center">
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
-              <span class="text-[10px] text-slate-500 font-bold uppercase">Goles</span>
-              <div class="text-base font-black text-amber-400">${p.goals || 0}</div>
+              <span class="text-[9px] text-slate-500 font-bold uppercase block">Goles / Asis</span>
+              <div class="text-sm font-black text-amber-400">⚽ ${p.goals || 0} <span class="text-sky-400 text-xs">👟 ${p.assists || 0}</span></div>
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
-              <span class="text-[10px] text-slate-500 font-bold uppercase">Condición</span>
-              <div class="text-base font-black ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'}">${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
-              <div class="text-[9px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold">${(p.fatigueLoad || 0) >= 40 ? 'Sobrecarga (Rotar)' : (p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
+              <span class="text-[9px] text-slate-500 font-bold uppercase block">Nota Media</span>
+              <div class="text-sm font-black text-emerald-400">${p.avgRating ? `⭐ ${p.avgRating.toFixed(2)}` : '—'}</div>
+              <div class="text-[8.5px] text-slate-400 font-semibold">${p.matchesRated || 0} part.</div>
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
-              <span class="text-[10px] text-slate-500 font-bold uppercase">Moral</span>
-              <div class="text-base font-black text-sky-400">Excelente</div>
+              <span class="text-[9px] text-slate-500 font-bold uppercase block">Premios MVP</span>
+              <div class="text-sm font-black text-yellow-400">🏆 ${p.mvpCount || 0}</div>
+              <div class="text-[8.5px] text-slate-400 font-semibold">${p.lastMatchRating ? `Últ: ${p.lastMatchRating.toFixed(1)}` : 'Temporada'}</div>
+            </div>
+            <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
+              <span class="text-[9px] text-slate-500 font-bold uppercase block">Condición</span>
+              <div class="text-sm font-black ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'}">${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
+              <div class="text-[8.5px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold truncate">${(p.fatigueLoad || 0) >= 40 ? 'Sobrecarga' : (p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
             </div>
           </div>
         </div>
@@ -6508,6 +7166,14 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
   let preMatchSaveFeedback = null;
   let masterTacticsForNextMatches = null;
   let showPreMatchAllRoles = false;
+  let selectedPreMatchTalk = "confidence";
+
+  const PRE_MATCH_TALKS = [
+    { id: "passionate", icon: "🔥", label: "¡Salid a morder!", desc: "+9% Ataque y +6% Medular (1ª mitad)" },
+    { id: "tactical", icon: "🧠", label: "Orden y Concentración", desc: "+9% Defensa y +6% Control (1ª mitad)" },
+    { id: "confidence", icon: "💪", label: "Confianza Plena", desc: "+5% Equilibrado y moral alta" },
+    { id: "calm", icon: "🧊", label: "Cabeza Fría", desc: "-35% riesgo tarjetas y ahorro físico" }
+  ];
 
   function getOpponentLineup(oppTeam) {
     const optimal = buildOptimalLineup(oppTeam);
@@ -7230,6 +7896,34 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             ${renderTacticalInstructionsPanel(tactics.instructions, 'pre')}
           `}
 
+          <!-- MEJORA 1: Charla de Vestuario Pre-Partido -->
+          <div class="px-3 mb-2">
+            <div class="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-2.5 shadow-md">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[10px] uppercase font-extrabold text-amber-400 flex items-center gap-1">
+                  <span>🗣️</span> Charla de Vestuario Pre-Partido
+                </span>
+                <span class="text-[9px] text-emerald-400 font-semibold">
+                  ${PRE_MATCH_TALKS.find(t => t.id === selectedPreMatchTalk)?.desc || ''}
+                </span>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                ${PRE_MATCH_TALKS.map(t => {
+                  const isSel = selectedPreMatchTalk === t.id;
+                  return `
+                    <button type="button" class="btn-pre-talk p-1.5 rounded-xl border text-left transition flex items-center gap-1.5 ${isSel ? 'bg-amber-500/20 border-amber-400 text-white shadow ring-1 ring-amber-400/60' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-95'}" data-talk="${t.id}">
+                      <span class="text-sm flex-shrink-0">${t.icon}</span>
+                      <div class="min-w-0">
+                        <div class="text-[10px] font-extrabold ${isSel ? 'text-amber-300' : 'text-white'} truncate leading-tight">${t.label}</div>
+                        <div class="text-[8px] text-slate-400 truncate leading-tight">${t.desc}</div>
+                      </div>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          </div>
+
           <!-- Botón de Confirmación y Saltar al Campo con Guardado -->
           <footer class="px-3 space-y-2">
             <button id="btn-pre-save-tactics" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-98 text-sky-400 hover:text-sky-300 border border-sky-500/40 hover:border-sky-400 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
@@ -7413,6 +8107,13 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         tactics.mentality = b.dataset.mentality;
         masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
+    container.querySelectorAll(".btn-pre-talk").forEach(b => {
+      b.onclick = () => {
+        selectedPreMatchTalk = b.dataset.talk;
         renderPreMatch();
       };
     });
@@ -7707,12 +8408,20 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar como titular.`);
         return;
       }
+      if (benchP && benchP.suspension && benchP.suspension.roundsLeft > 0) {
+        alert(`🟥 ${benchP.name} está sancionado (${benchP.suspension.reason}) y no puede entrar como titular.`);
+        return;
+      }
       tactics.lineup[inLineup1] = tappedId;
       tactics.bench[inBench2] = selectedPreMatchPlayerId;
     } else if (inBench1 !== -1 && inLineup2 !== -1) {
       const benchP = userTeam.players.find(p => p.id === selectedPreMatchPlayerId);
       if (benchP && benchP.injury) {
         alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar como titular.`);
+        return;
+      }
+      if (benchP && benchP.suspension && benchP.suspension.roundsLeft > 0) {
+        alert(`🟥 ${benchP.name} está sancionado (${benchP.suspension.reason}) y no puede entrar como titular.`);
         return;
       }
       tactics.bench[inBench1] = tappedId;
@@ -7838,12 +8547,20 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       userShowHighlights = localStorage.getItem("match_show_highlights") !== "false";
     } catch(e) {}
 
+    const oppLineupIds = oppLineupData.lineup.map(p => p.id);
+    const oppBenchIds = oppLineupData.bench.map(p => p.id);
+
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
       speed: 1, // Ritmo fluido Football Manager por defecto
       showKeyHighlights: userShowHighlights,
       userSide: isUserHome ? "home" : "away",
+      preMatchTalk: selectedPreMatchTalk,
       homeFormation: isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       awayFormation: !isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
+      homeLineup: isUserHome ? gameState.userTactics.lineup : oppLineupIds,
+      homeBench: isUserHome ? gameState.userTactics.bench : oppBenchIds,
+      awayLineup: !isUserHome ? gameState.userTactics.lineup : oppLineupIds,
+      awayBench: !isUserHome ? gameState.userTactics.bench : oppBenchIds,
       homeMentality: isUserHome ? gameState.userTactics.mentality : "balanced",
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       homePlayerRoles: isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
@@ -8065,6 +8782,36 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
         <!-- Controles Inferiores de Gestión en Directo -->
         <footer class="p-3 bg-slate-900 border-t border-slate-800 flex flex-col gap-2">
+          <!-- Barra de Gritos desde la Banda (Mejora 2) y Estado de Charla / Orden Activa -->
+          <div class="bg-slate-950/90 border border-slate-800 rounded-xl p-2 flex flex-col gap-1.5">
+            <div class="flex items-center justify-between px-0.5">
+              <span class="text-[9px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                <span>📣 Gritos desde la Banda</span>
+              </span>
+              <span id="active-boost-badge" class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 truncate max-w-[195px]">
+                Sin orden activa
+              </span>
+            </div>
+            <div id="shouts-bar" class="grid grid-cols-4 gap-1.5">
+              <button class="btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition" data-shout="CROSS_BOX" title="Mayor frecuencia de centros al área (+remate aéreo)">
+                <span class="text-xs leading-none">📢</span>
+                <span class="leading-tight truncate w-full text-center">Colgad balones</span>
+              </button>
+              <button class="btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition" data-shout="SHOOT_ON_SIGHT" title="Probar disparo desde cualquier posición (+tiros)">
+                <span class="text-xs leading-none">🚀</span>
+                <span class="leading-tight truncate w-full text-center">Tirad a puerta</span>
+              </button>
+              <button class="btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition" data-shout="EASY_TACKLES" title="Frenar agresividad defensiva (-faltas y -tarjetas)">
+                <span class="text-xs leading-none">🛡️</span>
+                <span class="leading-tight truncate w-full text-center">Cuidado entradas</span>
+              </button>
+              <button class="btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition" data-shout="WASTE_TIME" title="Posesión larga, enfriar el partido y ahorrar piernas">
+                <span class="text-xs leading-none">⏱️</span>
+                <span class="leading-tight truncate w-full text-center">Dormid el balón</span>
+              </button>
+            </div>
+          </div>
+
           <div class="flex items-center justify-between gap-2">
             <button id="btn-play-pause" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-1.5 transition">
               <span id="play-pause-icon">⏸</span> <span id="play-pause-text">Pausar</span>
@@ -8156,7 +8903,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             </div>
 
             <!-- Resumen Estadístico del 1er Tiempo -->
-            <div class="bg-slate-950/70 rounded-2xl p-3 border border-slate-800 text-xs my-3 space-y-2">
+            <div class="bg-slate-950/70 rounded-2xl p-3 border border-slate-800 text-xs my-2.5 space-y-2">
               <div>
                 <div class="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
                   <span><span id="ht-stat-poss-h">50</span>% Posesión</span>
@@ -8177,9 +8924,37 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                   <b class="text-emerald-400"><span id="ht-ontarget-h">0</span> - <span id="ht-ontarget-a">0</span></b>
                 </div>
               </div>
+              <div id="ht-mvp-preview" class="pt-1 border-t border-slate-800/80 text-[10px] text-amber-300 font-bold flex items-center justify-between px-1"></div>
             </div>
 
-            <div class="space-y-2 mt-4">
+            <!-- Charla de Vestuario en el Descanso (Mejora 1) -->
+            <div class="bg-slate-950/90 rounded-2xl p-2.5 border border-amber-500/30 text-left my-2.5">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[10px] font-black uppercase tracking-wider text-amber-400">🗣️ Charla de Descanso</span>
+                <span class="text-[9px] text-slate-400 font-semibold">Efecto 45' - 68'</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5">
+                <button class="btn-ht-talk p-2 rounded-xl border border-slate-800 bg-slate-900 hover:border-rose-500/50 text-left transition active:scale-95" data-talk="aggressive">
+                  <div class="text-[10px] font-extrabold text-rose-400">😡 Bronca / Exigir</div>
+                  <div class="text-[8.5px] text-slate-400 leading-tight mt-0.5">Ideal si vas perdiendo o empatando</div>
+                </button>
+                <button class="btn-ht-talk p-2 rounded-xl border border-slate-800 bg-slate-900 hover:border-amber-500/50 text-left transition active:scale-95" data-talk="encourage">
+                  <div class="text-[10px] font-extrabold text-amber-300">🔥 ¡Creer en Ganar!</div>
+                  <div class="text-[8.5px] text-slate-400 leading-tight mt-0.5">Empuje ofensivo y moral al ataque</div>
+                </button>
+                <button class="btn-ht-talk p-2 rounded-xl border border-slate-800 bg-slate-900 hover:border-emerald-500/50 text-left transition active:scale-95" data-talk="praise">
+                  <div class="text-[10px] font-extrabold text-emerald-400">👏 Elogiar Trabajo</div>
+                  <div class="text-[8.5px] text-slate-400 leading-tight mt-0.5">Refuerza notas si vas ganando</div>
+                </button>
+                <button class="btn-ht-talk p-2 rounded-xl border border-slate-800 bg-slate-900 hover:border-sky-500/50 text-left transition active:scale-95" data-talk="calm_control">
+                  <div class="text-[10px] font-extrabold text-sky-300">🧊 Cerrar Espacios</div>
+                  <div class="text-[8.5px] text-slate-400 leading-tight mt-0.5">+Solidez atrás y -tarjetas</div>
+                </button>
+              </div>
+              <div id="ht-talk-feedback" class="hidden mt-1.5 text-[9.5px] font-bold text-emerald-300 bg-emerald-950/50 border border-emerald-500/30 rounded-lg px-2 py-1 text-center"></div>
+            </div>
+
+            <div class="space-y-2 mt-3">
               <button id="btn-ht-subs" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg active:scale-98 transition flex items-center justify-center gap-2">
                 <span>🔄 HACER CAMBIOS O AJUSTES</span>
                 <span id="ht-subs-badge" class="px-2 py-0.5 rounded-full bg-black/40 text-[10px] font-mono">5 rest.</span>
@@ -8378,10 +9153,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         </div>
 
         <!-- Modal Final de Partido -->
-        <div id="modal-match-end" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex flex-col justify-center p-4">
-          <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 max-w-sm mx-auto w-full shadow-2xl text-center">
+        <div id="modal-match-end" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex flex-col justify-center p-4 overflow-y-auto">
+          <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 max-w-sm mx-auto w-full shadow-2xl text-center my-auto">
             <span class="text-xs uppercase font-extrabold tracking-widest text-slate-400">FINAL DEL PARTIDO</span>
-            <div class="my-3 flex items-center justify-center gap-4">
+            <div class="my-2.5 flex items-center justify-center gap-4">
               <div class="text-right">
                 <div class="font-black text-sm text-white">${homeTeam.shortName}</div>
                 <div class="text-3xl font-black text-white" id="final-home-score">0</div>
@@ -8392,10 +9167,13 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                 <div class="text-3xl font-black text-white" id="final-away-score">0</div>
               </div>
             </div>
-            <div class="my-3 py-2 border-y border-slate-800 text-left text-xs max-h-28 overflow-y-auto" id="final-scorers-list"></div>
-            <div class="my-3 text-left">
+            <!-- Tarjeta MVP del Partido y Notas (Mejora 5) -->
+            <div id="final-mvp-card" class="my-2.5"></div>
+            <div id="final-ratings-summary" class="my-2 text-left"></div>
+            <div class="my-2 py-2 border-y border-slate-800 text-left text-xs max-h-24 overflow-y-auto" id="final-scorers-list"></div>
+            <div class="my-2.5 text-left">
               <div class="text-[10px] uppercase font-bold text-slate-400 mb-1">Otros partidos de la Jornada ${gameState.currentRound}:</div>
-              <div class="space-y-1 text-[11px] max-h-32 overflow-y-auto bg-slate-950/60 p-2 rounded-xl border border-slate-800" id="other-results-list"></div>
+              <div class="space-y-1 text-[11px] max-h-28 overflow-y-auto bg-slate-950/60 p-2 rounded-xl border border-slate-800" id="other-results-list"></div>
             </div>
             <button id="btn-finish-match-continue" class="w-full py-3.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 text-white font-extrabold text-sm rounded-xl shadow-lg active:scale-98 transition">
               CONTINUAR AL HUB ➔
@@ -9222,6 +10000,25 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     let currentHighlightData = null;
     let tacticalToastTimeout = null;
     let lastCarrierPlayerId = null;
+    const matchUiTimeouts = [];
+    const registerUiTimeout = (fn, ms) => {
+      const id = setTimeout(fn, ms);
+      matchUiTimeouts.push(id);
+      return id;
+    };
+    const clearAllMatchUiTimeouts = () => {
+      while (matchUiTimeouts.length > 0) {
+        clearTimeout(matchUiTimeouts.pop());
+      }
+      if (subChyronTimeout) {
+        clearTimeout(subChyronTimeout);
+        subChyronTimeout = null;
+      }
+      if (tacticalToastTimeout) {
+        clearTimeout(tacticalToastTimeout);
+        tacticalToastTimeout = null;
+      }
+    };
 
     function updateFMCommentary(text, badge = "MATCH ENGINE", isHighlight = false) {
       const ticker = container.querySelector("#fm-broadcast-ticker");
@@ -9363,10 +10160,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         elGoalOverlay.classList.remove("pointer-events-none");
         elGoalOverlay.onclick = finishGoalCelebration;
       }
-      goalTimer = setTimeout(finishGoalCelebration, goalData.isSkipped ? 1100 : 2000);
+      goalTimer = registerUiTimeout(finishGoalCelebration, goalData.isSkipped ? 1100 : 2000);
     }
 
     function startKickoffSequence(concedingSide) {
+      if (simulator.isFinished) return;
       isKickoffInProgress = true;
       const kickoffBadge = container.querySelector("#kickoff-badge");
       if (kickoffBadge) kickoffBadge.classList.remove("hidden");
@@ -9375,7 +10173,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       simulator.resetKickoff(concedingSide);
 
       // Tiempo para ver a los equipos situados en sus campos
-      setTimeout(() => {
+      registerUiTimeout(() => {
+        if (simulator.isFinished) return;
         // Pase hacia atrás para iniciar la jugada
         if (concedingSide === "home") {
           simulator.ball.targetX = 40;
@@ -9385,9 +10184,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           simulator.ball.targetY = 52;
         }
 
-        setTimeout(() => {
+        registerUiTimeout(() => {
           if (kickoffBadge) kickoffBadge.classList.add("hidden");
           isKickoffInProgress = false;
+          if (simulator.isFinished) return;
 
           // Si tras el gol ya se había cumplido el tiempo reglamentario del primer tiempo con su descuento
           if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered && !simulator.isSecondHalf) {
@@ -9403,7 +10203,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             return;
           }
 
-          if (simulator.pauseRequested || !simulator.isRunning) {
+          if (simulator.pauseRequested) {
             simulator.pauseRequested = false;
             simulator.pause();
             const iconPP = container.querySelector("#play-pause-icon");
@@ -9428,7 +10228,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     function handleSubstitutionChyron(subData) {
       showSubstitutionChyron(subData, () => {
         if (!simulator.isFinished && !simulator.isHalfTime) {
-          if (simulator.pauseRequested || !simulator.isRunning) {
+          if (simulator.pauseRequested) {
             simulator.pauseRequested = false;
             simulator.pause();
             const iconPP = container.querySelector("#play-pause-icon");
@@ -12343,6 +13143,40 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         }
       }
 
+      // Actualizar estado de Gritos desde la Banda y Charla activa (Mejoras 1 y 2)
+      const boostBadge = container.querySelector("#active-boost-badge");
+      if (boostBadge) {
+        if (state.activeShout) {
+          const left = Math.max(1, (state.activeShout.expiresAtMinute || state.minute) - state.minute);
+          boostBadge.textContent = `${state.activeShout.icon} ${state.activeShout.label} (${left}')`;
+          boostBadge.className = "text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/60 text-amber-300 animate-pulse truncate max-w-[195px]";
+        } else if (state.activeTeamTalk) {
+          const left = Math.max(1, (state.activeTeamTalk.expiresAtMinute || state.minute) - state.minute);
+          boostBadge.textContent = `${state.activeTeamTalk.icon} Charla: ${state.activeTeamTalk.label} (${left}')`;
+          boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 truncate max-w-[195px]";
+        } else if (state.shoutCooldownUntil > state.minute) {
+          const cd = state.shoutCooldownUntil - state.minute;
+          boostBadge.textContent = `⏳ Voz en descanso (${cd} min)`;
+          boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 truncate max-w-[195px]";
+        } else {
+          boostBadge.textContent = "✅ Banda lista para dar órdenes";
+          boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 truncate max-w-[195px]";
+        }
+      }
+
+      container.querySelectorAll(".btn-touchline-shout").forEach(btn => {
+        const sId = btn.dataset.shout;
+        const isCurrentActive = state.activeShout && state.activeShout.id === sId;
+        const onCooldown = state.shoutCooldownUntil > state.minute && !isCurrentActive;
+        if (isCurrentActive) {
+          btn.className = "btn-touchline-shout py-1.5 px-1 rounded-lg bg-amber-500/25 border-2 border-amber-400 text-[9px] font-extrabold text-amber-300 flex flex-col items-center justify-center gap-0.5 shadow transition";
+        } else if (onCooldown) {
+          btn.className = "btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-950/60 border border-slate-800/60 text-[9px] font-bold text-slate-500 opacity-60 flex flex-col items-center justify-center gap-0.5 cursor-not-allowed transition";
+        } else {
+          btn.className = "btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition";
+        }
+      });
+
       // Sincronización continua del botón de pausa / reanudar
       const elIconPP = container.querySelector("#play-pause-icon");
       const elTextPP = container.querySelector("#play-pause-text");
@@ -12396,6 +13230,44 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       const remainingSubs = isUserHome ? htState.homeSubsRemaining : htState.awaySubsRemaining;
       if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest. (Descanso: no gasta ventana)`;
+
+      // Mostrar mejor jugador de la 1ª parte (Mejora 5)
+      const htMvpPreview = container.querySelector("#ht-mvp-preview");
+      if (htMvpPreview && htState.currentMvp) {
+        const mvpTeamShort = htState.currentMvp.teamSide === "home" ? homeTeam.shortName : awayTeam.shortName;
+        htMvpPreview.innerHTML = `
+          <span>⭐ Destacado 1ªP: <b class="text-white">${htState.currentMvp.name}</b> (${mvpTeamShort})</span>
+          <span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-300 font-mono font-black">${htState.currentMvp.rating.toFixed(1)}</span>
+        `;
+      }
+
+      // Reiniciar estado de charla de descanso (Mejora 1)
+      const htTalkFeedback = container.querySelector("#ht-talk-feedback");
+      if (htTalkFeedback) {
+        htTalkFeedback.classList.add("hidden");
+        htTalkFeedback.textContent = "";
+      }
+      container.querySelectorAll(".btn-ht-talk").forEach(btn => {
+        btn.disabled = false;
+        btn.classList.remove("ring-2", "ring-amber-400", "bg-amber-500/20", "opacity-50");
+        btn.onclick = () => {
+          const talkId = btn.dataset.talk;
+          const res = simulator.applyTeamTalk("ht", talkId, false);
+          container.querySelectorAll(".btn-ht-talk").forEach(b => {
+            b.disabled = true;
+            if (b === btn) {
+              b.classList.add("ring-2", "ring-amber-400", "bg-amber-500/20");
+            } else {
+              b.classList.add("opacity-50");
+            }
+          });
+          if (htTalkFeedback && res) {
+            htTalkFeedback.textContent = `${res.feedback || res.label}`;
+            htTalkFeedback.classList.remove("hidden");
+          }
+          updateMatchUI(simulator.getState());
+        };
+      });
 
       const elTimer = container.querySelector("#match-timer");
       if (elTimer) {
@@ -12475,7 +13347,46 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       };
     });
 
+    // Botones de Gritos desde la Banda en vivo (Mejora 2)
+    container.querySelectorAll(".btn-touchline-shout").forEach(btn => {
+      btn.onclick = () => {
+        const shoutId = btn.dataset.shout;
+        const res = simulator.triggerShout(shoutId);
+        if (!res.success) {
+          showMatchAlert({ text: `⏳ ${res.reason}` });
+          return;
+        }
+        showMatchAlert({ text: `${res.shout.icon} ¡Orden desde la banda: ${res.shout.label}!` });
+        updateFMCommentary(res.shout.alertText || `📣 Gritas desde el área técnica: "${res.shout.label}"`, "tactical");
+        updateMatchUI(simulator.getState());
+      };
+    });
+
     container.querySelector("#btn-skip-end").onclick = () => {
+      clearAllMatchUiTimeouts();
+      currentHighlightData = null;
+      isKickoffInProgress = false;
+      container.querySelector("#modal-setpiece")?.classList.add("hidden");
+      container.querySelector("#modal-halftime")?.classList.add("hidden");
+      container.querySelector("#modal-halftime-tactics")?.classList.add("hidden");
+      container.querySelector("#modal-injury-alert")?.classList.add("hidden");
+      container.querySelector("#modal-live-subs")?.classList.add("hidden");
+      container.querySelector("#kickoff-badge")?.classList.add("hidden");
+      const hud = container.querySelector("#highlight-action-hud");
+      if (hud) {
+        hud.classList.remove("opacity-100", "translate-y-0");
+        hud.classList.add("opacity-0", "-translate-y-2");
+      }
+      const goalOverlay = container.querySelector("#goal-cinematic");
+      if (goalOverlay) {
+        goalOverlay.classList.remove("opacity-100", "scale-100");
+        goalOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+      }
+      const subOverlay = container.querySelector("#sub-cinematic");
+      if (subOverlay) {
+        subOverlay.classList.remove("opacity-100", "scale-100");
+        subOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+      }
       simulator.skipToEnd();
     };
 
@@ -12575,8 +13486,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       openTacticsModal(!simulator.isHalfTime);
     };
 
-    function openTacticsModal(isLive = false) {
-      const wasRunning = simulator.isRunning;
+    function openTacticsModal(isLive = false, options = {}) {
+      const wasRunning = options.forceResume ? true : simulator.isRunning;
       if (isLive) {
         simulator.pause();
         iconPP.textContent = "▶";
@@ -12625,7 +13536,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       let htLineupIds = [...initialPitchIds];
       let htBenchIds = currentBench.map(p => p.id);
-      let htSelectedPlayerId = null;
+      let htSelectedPlayerId = options.preselectPlayerId || null;
       let htSubTab = "pitch"; // "pitch" o "style"
       let htPlayerRoles = {
         ...(teamSide === "home" ? simulator.homePlayerRoles : simulator.awayPlayerRoles || {}),
@@ -12649,8 +13560,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       function renderHTTactics() {
         const formation = FORMATIONS[htFormationKey] || FORMATIONS["4-3-3"];
+        const allSimPlayers = [...currentPitch, ...currentBench];
         const allTeamPlayers = userTeam.players;
-        const getPlayer = (id) => allTeamPlayers.find(p => p.id === id);
+        const getPlayer = (id) => allSimPlayers.find(p => p.id === id) || allTeamPlayers.find(p => p.id === id);
 
         const subsMadeCount = htLineupIds.filter(id => !initialPitchIds.includes(id)).length;
         const curRemaining = startRemaining - subsMadeCount;
@@ -12792,6 +13704,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                   <span class="text-[7px] font-bold ${isNewSub ? 'text-emerald-400' : effSlot.isCustom ? 'text-amber-300 font-extrabold' : 'text-slate-300'} leading-none">${slot.label}</span>
                   <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
                     <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
+                  </div>
+                  <div class="absolute -top-1.5 -left-2 px-1 py-0.2 rounded-full ${(player.matchRating || 6.5) >= 7.5 ? 'bg-emerald-500 text-slate-950' : (player.matchRating || 6.5) < 6.0 ? 'bg-rose-500 text-white' : 'bg-amber-400 text-slate-950'} text-[6.5px] font-black shadow leading-none">
+                    ${(player.matchRating || 6.5).toFixed(1)}
                   </div>
                   ${effSlot.isCustom ? `
                     <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-slate-950 text-[6.5px] font-black flex items-center justify-center shadow">📍</div>
@@ -13157,7 +14072,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
                   ${wasStarter ? '<span class="text-[8px] text-red-400">🔻</span>' : ''}
                 </div>
                 <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
-                <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
+                <div class="flex items-center justify-center gap-1 mt-0.5">
+                  <span class="text-xs font-black text-amber-400">${p.ovr}</span>
+                  ${p.playedInMatch ? `<span class="text-[8px] font-mono font-bold px-1 rounded bg-slate-800 text-emerald-300">⭐${(p.matchRating || 6.5).toFixed(1)}</span>` : ''}
+                </div>
                 <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
                   <div class="h-full bg-emerald-400" style="width: ${p.energy || 100}%;"></div>
                 </div>
@@ -13199,6 +14117,26 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           htLineupIds[inLineup2] = tmp;
         } else if (inLineup1 !== -1 && inBench2 !== -1) {
           // Titular sale por Suplente
+          const allSimPlayers = [...currentPitch, ...currentBench];
+          const benchP = allSimPlayers.find(p => p.id === tappedId) || userTeam.players.find(p => p.id === tappedId);
+          if (benchP && benchP.injury) {
+            alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar al campo.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+          if (benchP && benchP.suspension) {
+            alert(`🟥 ${benchP.name} está sancionado y no puede entrar al campo.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+          if (benchP && benchP.subbedOut && !initialPitchIds.includes(tappedId)) {
+            alert(`⚠️ ${benchP.name} ya fue sustituido anteriormente y no puede reingresar.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
           if (isLive && startWindows <= 0) {
             alert("Has agotado las 3 ventanas de cambios permitidas en el partido. Los cambios en el descanso no consumen ventana, pero en juego ya no puedes hacer más cambios.");
             htSelectedPlayerId = null;
@@ -13220,6 +14158,26 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           htBenchIds[inBench2] = htSelectedPlayerId;
         } else if (inBench1 !== -1 && inLineup2 !== -1) {
           // Suplente entra por Titular
+          const allSimPlayers = [...currentPitch, ...currentBench];
+          const benchP = allSimPlayers.find(p => p.id === htSelectedPlayerId) || userTeam.players.find(p => p.id === htSelectedPlayerId);
+          if (benchP && benchP.injury) {
+            alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar al campo.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+          if (benchP && benchP.suspension) {
+            alert(`🟥 ${benchP.name} está sancionado y no puede entrar al campo.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+          if (benchP && benchP.subbedOut && !initialPitchIds.includes(htSelectedPlayerId)) {
+            alert(`⚠️ ${benchP.name} ya fue sustituido anteriormente y no puede reingresar.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
           if (isLive && startWindows <= 0) {
             alert("Has agotado las 3 ventanas de cambios permitidas en el partido. Los cambios en el descanso no consumen ventana, pero en juego ya no puedes hacer más cambios.");
             htSelectedPlayerId = null;
@@ -13286,8 +14244,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
         gameState.userTactics.formation = htFormationKey;
         gameState.userTactics.mentality = htMentality;
-        gameState.userTactics.lineup = [...htLineupIds];
-        gameState.userTactics.bench = [...htBenchIds];
+        if (htLineupIds.length === 11) {
+          gameState.userTactics.lineup = [...htLineupIds];
+          gameState.userTactics.bench = [...htBenchIds];
+        }
         gameState.userTactics.playerRoles = { ...htPlayerRoles };
         gameState.userTactics.customPositions = { ...htCustomPositions };
         gameState.userTactics.instructions = JSON.parse(JSON.stringify(htInstructions));
@@ -13305,8 +14265,6 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         if (masterTacticsForNextMatches) {
           masterTacticsForNextMatches.formation = htFormationKey;
           masterTacticsForNextMatches.mentality = htMentality;
-          masterTacticsForNextMatches.lineup = [...htLineupIds];
-          masterTacticsForNextMatches.bench = [...htBenchIds];
           masterTacticsForNextMatches.playerRoles = { ...htPlayerRoles };
           masterTacticsForNextMatches.customPositions = { ...htCustomPositions };
           masterTacticsForNextMatches.instructions = JSON.parse(JSON.stringify(htInstructions));
@@ -13804,13 +14762,14 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             placements: resolvedPlacements
           }, () => {
             if (!simulator.isFinished && !simulator.isHalfTime) {
-              if (simulator.pauseRequested || !simulator.isRunning) {
+              if (simulator.pauseRequested) {
                 simulator.pauseRequested = false;
                 simulator.pause();
                 if (iconPP) iconPP.textContent = "▶";
                 if (textPP) textPP.textContent = "Reanudar";
-                showMatchAlert({ text: "⏸ Partido en pausa tras el córner" });
+                showMatchAlert({ text: "⏸ Partido en pausa tras la jugada a balón parado" });
               } else {
+                if (!simulator.isRunning) simulator.start();
                 if (iconPP) iconPP.textContent = "⏸";
                 if (textPP) textPP.textContent = "Pausar";
               }
@@ -13884,11 +14843,13 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       }
       SaveManager.saveGame(gameState);
 
+      if (injData.isSkippingToEnd || simulator.isSkippingToEnd) return;
+
       if (isUserSide) {
         // Pausar el simulador para que el usuario gestione la lesión obligatoria
         simulator.pause();
-        const iconPP = container.querySelector("#pp-icon");
-        const textPP = container.querySelector("#pp-text");
+        const iconPP = container.querySelector("#play-pause-icon");
+        const textPP = container.querySelector("#play-pause-text");
         if (iconPP) iconPP.textContent = "▶";
         if (textPP) textPP.textContent = "Reanudar";
 
@@ -13927,7 +14888,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             btnSubNow.onclick = () => {
               if (modalInj) modalInj.classList.add("hidden");
               subSelectedPitchId = injData.player.id;
-              openTacticsModal(true);
+              openTacticsModal(!simulator.isHalfTime, { forceResume: true, preselectPlayerId: injData.player.id });
             };
           } else {
             btnSubNow.innerHTML = `<span>⚠️ Sin cambios disponibles (Continuar con jugador tocado)</span>`;
@@ -14019,25 +14980,35 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     }
 
     function handleLiveMatchEnd(result) {
-      // Sincronizar estados finales de energía y lesiones de ambos equipos con gameState
-      if (result.homePlayers) {
-        result.homePlayers.forEach(pSim => {
-          const pReal = homeTeam.players.find(p => p.id === pSim.id);
+      clearAllMatchUiTimeouts();
+      // Sincronizar estados finales de energía, goles, asistencias, notas, MVP, minutos y lesiones de ambos equipos con gameState
+      const syncTeamPlayers = (simPlayers, realTeam) => {
+        if (!simPlayers || !realTeam) return;
+        simPlayers.forEach(pSim => {
+          const pReal = realTeam.players.find(p => p.id === pSim.id);
           if (pReal) {
             pReal.energy = Math.round(pSim.energy !== undefined ? pSim.energy : 100);
+            pReal.goals = pSim.goals || 0;
+            pReal.assists = pSim.assists || 0;
+            pReal.matchMinutes = pSim.matchMinutes || 0;
+            if (pSim.playedInMatch || (pSim.matchMinutes || 0) > 0) {
+              const rating = Number((pSim.matchRating || 6.5).toFixed(2));
+              pReal.lastMatchRating = rating;
+              pReal.ratingSum = (pReal.ratingSum || 0) + rating;
+              pReal.matchesRated = (pReal.matchesRated || 0) + 1;
+              pReal.avgRating = Number((pReal.ratingSum / pReal.matchesRated).toFixed(2));
+            }
+            if (result.mvp && result.mvp.id === pReal.id) {
+              pReal.mvpCount = (pReal.mvpCount || 0) + 1;
+            }
             if (pSim.injury) pReal.injury = pSim.injury;
+            delete pReal.subbedOut;
           }
         });
-      }
-      if (result.awayPlayers) {
-        result.awayPlayers.forEach(pSim => {
-          const pReal = awayTeam.players.find(p => p.id === pSim.id);
-          if (pReal) {
-            pReal.energy = Math.round(pSim.energy !== undefined ? pSim.energy : 100);
-            if (pSim.injury) pReal.injury = pSim.injury;
-          }
-        });
-      }
+      };
+
+      syncTeamPlayers(result.homePlayers, homeTeam);
+      syncTeamPlayers(result.awayPlayers, awayTeam);
 
       // Sincronizar tarjetas y sanciones disciplinarias de ambos equipos
       if (result.cards) {
@@ -14048,7 +15019,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             if (pReal) {
               pReal.seasonYellows = (pReal.seasonYellows || 0) + 1;
               if (pReal.seasonYellows % 5 === 0 && !pReal.suspension) {
-                pReal.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas" };
+                pReal.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas", justAcquired: true };
               }
             }
           });
@@ -14059,7 +15030,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             const pReal = allMatchPlayers.find(p => p.id === pId);
             if (pReal) {
               pReal.seasonReds = (pReal.seasonReds || 0) + 1;
-              pReal.suspension = { roundsLeft: 1, reason: rCard?.reason || "Tarjeta Roja" };
+              pReal.suspension = { roundsLeft: 1, reason: rCard?.reason || "Tarjeta Roja", justAcquired: true };
             }
           });
         }
@@ -14104,6 +15075,58 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       if (fHScore) fHScore.textContent = result.homeScore;
       if (fAScore) fAScore.textContent = result.awayScore;
+
+      // Renderizar MVP del Partido y Mejores Notas (Mejora 5)
+      const fMvpCard = container.querySelector("#final-mvp-card");
+      if (fMvpCard && result.mvp) {
+        const mvpTeam = result.mvp.teamSide === "home" ? homeTeam : awayTeam;
+        const statsParts = [];
+        if (result.mvp.goals > 0) statsParts.push(`⚽ ${result.mvp.goals} gol${result.mvp.goals > 1 ? 'es' : ''}`);
+        if (result.mvp.assists > 0) statsParts.push(`👟 ${result.mvp.assists} asist.`);
+        if (result.mvp.saves > 0) statsParts.push(`🧤 ${result.mvp.saves} paradas`);
+        if (statsParts.length === 0) statsParts.push(`Actuación decisiva`);
+        fMvpCard.innerHTML = `
+          <div class="bg-gradient-to-r from-amber-500/20 via-yellow-500/15 to-amber-500/20 border border-amber-400/50 rounded-2xl p-2.5 flex items-center justify-between text-left shadow-lg">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/60 flex items-center justify-center text-lg flex-shrink-0">🏆</div>
+              <div class="min-w-0">
+                <div class="text-[9px] font-black uppercase tracking-wider text-amber-300">MVP DEL PARTIDO</div>
+                <div class="text-xs font-extrabold text-white truncate">${result.mvp.name} <span class="text-[10px] font-bold text-slate-400">(${mvpTeam.shortName} · ${result.mvp.pos})</span></div>
+                <div class="text-[9.5px] text-amber-200/90 font-semibold">${statsParts.join(' · ')}</div>
+              </div>
+            </div>
+            <div class="px-2.5 py-1 rounded-xl bg-amber-400 text-slate-950 font-black font-mono text-sm flex-shrink-0 shadow">
+              ${result.mvp.rating.toFixed(1)}
+            </div>
+          </div>
+        `;
+      }
+
+      const fRatingsSummary = container.querySelector("#final-ratings-summary");
+      if (fRatingsSummary) {
+        const userSimPlayers = (isUserHome ? result.homePlayers : result.awayPlayers) || [];
+        const playedUser = userSimPlayers
+          .filter(p => p.playedInMatch || (p.matchMinutes || 0) > 0)
+          .sort((a, b) => (b.matchRating || 6.5) - (a.matchRating || 6.5));
+        const top3 = playedUser.slice(0, 3);
+        if (top3.length > 0) {
+          fRatingsSummary.innerHTML = `
+            <div class="text-[9.5px] uppercase font-bold text-slate-400 mb-1">⭐ Mejores Notas de tu Equipo:</div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${top3.map(p => {
+                const r = (p.matchRating || 6.5).toFixed(1);
+                const badgeColor = p.matchRating >= 7.5 ? 'text-emerald-400 border-emerald-500/40 bg-emerald-950/40' : p.matchRating >= 6.5 ? 'text-amber-300 border-amber-500/30 bg-slate-950/80' : 'text-rose-400 border-rose-500/30 bg-rose-950/40';
+                return `
+                  <div class="p-1.5 rounded-xl border ${badgeColor} flex items-center justify-between text-[10px]">
+                    <span class="font-bold text-white truncate mr-1">${p.name.split(' ').slice(-1)[0]}</span>
+                    <span class="font-mono font-black">${r}</span>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }
+      }
 
       if (fScorers) {
         let itemsHtml = "";
@@ -14781,18 +15804,26 @@ class GameManager {
       (team.players || []).forEach(p => {
         // 1. Evolución de lesiones (reducir semanas de baja y alta médica)
         if (p.injury) {
-          p.injury.roundsLeft -= 1;
-          if (p.injury.roundsLeft <= 0) {
-            p.injury = null; // ¡Alta médica oficial!
-            p.energy = 85;
+          if (p.injury.justAcquired) {
+            delete p.injury.justAcquired;
+          } else {
+            p.injury.roundsLeft -= 1;
+            if (p.injury.roundsLeft <= 0) {
+              p.injury = null; // ¡Alta médica oficial!
+              p.energy = 85;
+            }
           }
         }
 
         // 2. Evolución de sanciones disciplinarias (cumplir jornadas de sanción)
         if (p.suspension) {
-          p.suspension.roundsLeft -= 1;
-          if (p.suspension.roundsLeft <= 0) {
-            p.suspension = null; // ¡Sanción cumplida!
+          if (p.suspension.justAcquired) {
+            delete p.suspension.justAcquired;
+          } else {
+            p.suspension.roundsLeft -= 1;
+            if (p.suspension.roundsLeft <= 0) {
+              p.suspension = null; // ¡Sanción cumplida!
+            }
           }
         }
 

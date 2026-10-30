@@ -78,8 +78,11 @@ export function renderSquadView(container, gameState, onBackToHub) {
                     ${p.suspension ? `<span class="px-1.5 py-0.2 rounded bg-amber-950/90 border border-amber-500/60 text-[8px] font-bold text-amber-300">🛑 Sancionado (${p.suspension.roundsLeft}j)</span>` : ''}
                     ${(p.fatigueLoad || 0) >= 40 ? `<span class="px-1.5 py-0.2 rounded bg-amber-950 border border-amber-500/70 text-[8px] font-bold text-amber-300">🔥 Sobrecarga</span>` : (p.fatigueLoad || 0) >= 20 ? `<span class="px-1.5 py-0.2 rounded bg-yellow-950/80 border border-yellow-500/50 text-[8px] font-bold text-yellow-300">⚠️ Fatiga acum.</span>` : ''}
                   </div>
-                  <div class="flex items-center gap-2 mt-1">
+                  <div class="flex items-center gap-2 mt-1 flex-wrap">
                     <span class="text-[10px] text-slate-400">⚽ ${p.goals || 0}</span>
+                    ${(p.assists || 0) > 0 ? `<span class="text-[10px] text-sky-400">👟 ${p.assists}</span>` : ''}
+                    ${p.avgRating ? `<span class="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-amber-500/15 border border-amber-500/40 text-amber-300">⭐ ${p.avgRating.toFixed(2)}</span>` : ''}
+                    ${(p.mvpCount || 0) > 0 ? `<span class="text-[10px] font-bold text-yellow-400">🏆 ${p.mvpCount}</span>` : ''}
                     <span class="text-[10px] text-amber-400">🟨 ${p.seasonYellows || 0}</span>
                     ${(p.seasonReds || 0) > 0 ? `<span class="text-[10px] text-red-400">🟥 ${p.seasonReds}</span>` : ''}
                     <span class="text-[10px] font-mono ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400 font-bold'}">⚡ ${Math.round(p.energy !== undefined ? p.energy : 100)}%</span>
@@ -230,19 +233,25 @@ export function renderSquadView(container, gameState, onBackToHub) {
           </div>
 
           <!-- Estadísticas de la Temporada -->
-          <div class="grid grid-cols-3 gap-2 text-center">
+          <div class="grid grid-cols-4 gap-2 text-center">
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
-              <span class="text-[10px] text-slate-500 font-bold uppercase">Goles</span>
-              <div class="text-base font-black text-amber-400">${p.goals || 0}</div>
+              <span class="text-[9px] text-slate-500 font-bold uppercase block">Goles / Asis</span>
+              <div class="text-sm font-black text-amber-400">⚽ ${p.goals || 0} <span class="text-sky-400 text-xs">👟 ${p.assists || 0}</span></div>
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
-              <span class="text-[10px] text-slate-500 font-bold uppercase">Condición</span>
-              <div class="text-base font-black ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'}">${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
-              <div class="text-[9px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold">${(p.fatigueLoad || 0) >= 40 ? 'Sobrecarga (Rotar)' : (p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
+              <span class="text-[9px] text-slate-500 font-bold uppercase block">Nota Media</span>
+              <div class="text-sm font-black text-emerald-400">${p.avgRating ? `⭐ ${p.avgRating.toFixed(2)}` : '—'}</div>
+              <div class="text-[8.5px] text-slate-400 font-semibold">${p.matchesRated || 0} part.</div>
             </div>
             <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
-              <span class="text-[10px] text-slate-500 font-bold uppercase">Moral</span>
-              <div class="text-base font-black text-sky-400">Excelente</div>
+              <span class="text-[9px] text-slate-500 font-bold uppercase block">Premios MVP</span>
+              <div class="text-sm font-black text-yellow-400">🏆 ${p.mvpCount || 0}</div>
+              <div class="text-[8.5px] text-slate-400 font-semibold">${p.lastMatchRating ? `Últ: ${p.lastMatchRating.toFixed(1)}` : 'Temporada'}</div>
+            </div>
+            <div class="p-2 rounded-xl bg-slate-950 border border-slate-800">
+              <span class="text-[9px] text-slate-500 font-bold uppercase block">Condición</span>
+              <div class="text-sm font-black ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'}">${Math.round(p.energy !== undefined ? p.energy : 100)}%</div>
+              <div class="text-[8.5px] ${(p.energy || 100) >= 85 ? 'text-emerald-400' : (p.energy || 100) >= 70 ? 'text-amber-400' : 'text-rose-400'} font-bold truncate">${(p.fatigueLoad || 0) >= 40 ? 'Sobrecarga' : (p.energy || 100) >= 85 ? 'Óptimo' : (p.energy || 100) >= 70 ? 'Cansado' : 'Fatigado'}</div>
             </div>
           </div>
         </div>

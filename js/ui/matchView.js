@@ -137,6 +137,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
   let preMatchSaveFeedback = null;
   let masterTacticsForNextMatches = null;
   let showPreMatchAllRoles = false;
+  let selectedPreMatchTalk = "confidence";
+
+  const PRE_MATCH_TALKS = [
+    { id: "passionate", icon: "🔥", label: "¡Salid a morder!", desc: "+9% Ataque y +6% Medular (1ª mitad)" },
+    { id: "tactical", icon: "🧠", label: "Orden y Concentración", desc: "+9% Defensa y +6% Control (1ª mitad)" },
+    { id: "confidence", icon: "💪", label: "Confianza Plena", desc: "+5% Equilibrado y moral alta" },
+    { id: "calm", icon: "🧊", label: "Cabeza Fría", desc: "-35% riesgo tarjetas y ahorro físico" }
+  ];
 
   function getOpponentLineup(oppTeam) {
     const optimal = buildOptimalLineup(oppTeam);
@@ -859,6 +867,34 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             ${renderTacticalInstructionsPanel(tactics.instructions, 'pre')}
           `}
 
+          <!-- MEJORA 1: Charla de Vestuario Pre-Partido -->
+          <div class="px-3 mb-2">
+            <div class="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-2.5 shadow-md">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[10px] uppercase font-extrabold text-amber-400 flex items-center gap-1">
+                  <span>🗣️</span> Charla de Vestuario Pre-Partido
+                </span>
+                <span class="text-[9px] text-emerald-400 font-semibold">
+                  ${PRE_MATCH_TALKS.find(t => t.id === selectedPreMatchTalk)?.desc || ''}
+                </span>
+              </div>
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                ${PRE_MATCH_TALKS.map(t => {
+                  const isSel = selectedPreMatchTalk === t.id;
+                  return `
+                    <button type="button" class="btn-pre-talk p-1.5 rounded-xl border text-left transition flex items-center gap-1.5 ${isSel ? 'bg-amber-500/20 border-amber-400 text-white shadow ring-1 ring-amber-400/60' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-95'}" data-talk="${t.id}">
+                      <span class="text-sm flex-shrink-0">${t.icon}</span>
+                      <div class="min-w-0">
+                        <div class="text-[10px] font-extrabold ${isSel ? 'text-amber-300' : 'text-white'} truncate leading-tight">${t.label}</div>
+                        <div class="text-[8px] text-slate-400 truncate leading-tight">${t.desc}</div>
+                      </div>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          </div>
+
           <!-- Botón de Confirmación y Saltar al Campo con Guardado -->
           <footer class="px-3 space-y-2">
             <button id="btn-pre-save-tactics" class="w-full py-2.5 bg-slate-900 hover:bg-slate-800 active:scale-98 text-sky-400 hover:text-sky-300 border border-sky-500/40 hover:border-sky-400 font-bold text-xs rounded-xl transition flex items-center justify-center gap-2 shadow-sm">
@@ -1042,6 +1078,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         tactics.mentality = b.dataset.mentality;
         masterTacticsForNextMatches = JSON.parse(JSON.stringify(gameState.userTactics));
         SaveManager.saveGame(gameState);
+        renderPreMatch();
+      };
+    });
+
+    container.querySelectorAll(".btn-pre-talk").forEach(b => {
+      b.onclick = () => {
+        selectedPreMatchTalk = b.dataset.talk;
         renderPreMatch();
       };
     });
@@ -1336,12 +1379,20 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar como titular.`);
         return;
       }
+      if (benchP && benchP.suspension && benchP.suspension.roundsLeft > 0) {
+        alert(`🟥 ${benchP.name} está sancionado (${benchP.suspension.reason}) y no puede entrar como titular.`);
+        return;
+      }
       tactics.lineup[inLineup1] = tappedId;
       tactics.bench[inBench2] = selectedPreMatchPlayerId;
     } else if (inBench1 !== -1 && inLineup2 !== -1) {
       const benchP = userTeam.players.find(p => p.id === selectedPreMatchPlayerId);
       if (benchP && benchP.injury) {
         alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar como titular.`);
+        return;
+      }
+      if (benchP && benchP.suspension && benchP.suspension.roundsLeft > 0) {
+        alert(`🟥 ${benchP.name} está sancionado (${benchP.suspension.reason}) y no puede entrar como titular.`);
         return;
       }
       tactics.bench[inBench1] = tappedId;
@@ -1467,12 +1518,20 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       userShowHighlights = localStorage.getItem("match_show_highlights") !== "false";
     } catch(e) {}
 
+    const oppLineupIds = oppLineupData.lineup.map(p => p.id);
+    const oppBenchIds = oppLineupData.bench.map(p => p.id);
+
     const simulator = new MatchSimulator(homeTeam, awayTeam, {
       speed: 1, // Ritmo fluido Football Manager por defecto
       showKeyHighlights: userShowHighlights,
       userSide: isUserHome ? "home" : "away",
+      preMatchTalk: selectedPreMatchTalk,
       homeFormation: isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
       awayFormation: !isUserHome ? gameState.userTactics.formation : oppLineupData.formationKey,
+      homeLineup: isUserHome ? gameState.userTactics.lineup : oppLineupIds,
+      homeBench: isUserHome ? gameState.userTactics.bench : oppBenchIds,
+      awayLineup: !isUserHome ? gameState.userTactics.lineup : oppLineupIds,
+      awayBench: !isUserHome ? gameState.userTactics.bench : oppBenchIds,
       homeMentality: isUserHome ? gameState.userTactics.mentality : "balanced",
       awayMentality: !isUserHome ? gameState.userTactics.mentality : "balanced",
       homePlayerRoles: isUserHome ? (gameState.userTactics.playerRoles || {}) : {},
@@ -1694,6 +1753,36 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
         <!-- Controles Inferiores de Gestión en Directo -->
         <footer class="p-3 bg-slate-900 border-t border-slate-800 flex flex-col gap-2">
+          <!-- Barra de Gritos desde la Banda (Mejora 2) y Estado de Charla / Orden Activa -->
+          <div class="bg-slate-950/90 border border-slate-800 rounded-xl p-2 flex flex-col gap-1.5">
+            <div class="flex items-center justify-between px-0.5">
+              <span class="text-[9px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1">
+                <span>📣 Gritos desde la Banda</span>
+              </span>
+              <span id="active-boost-badge" class="text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 truncate max-w-[195px]">
+                Sin orden activa
+              </span>
+            </div>
+            <div id="shouts-bar" class="grid grid-cols-4 gap-1.5">
+              <button class="btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition" data-shout="CROSS_BOX" title="Mayor frecuencia de centros al área (+remate aéreo)">
+                <span class="text-xs leading-none">📢</span>
+                <span class="leading-tight truncate w-full text-center">Colgad balones</span>
+              </button>
+              <button class="btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition" data-shout="SHOOT_ON_SIGHT" title="Probar disparo desde cualquier posición (+tiros)">
+                <span class="text-xs leading-none">🚀</span>
+                <span class="leading-tight truncate w-full text-center">Tirad a puerta</span>
+              </button>
+              <button class="btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition" data-shout="EASY_TACKLES" title="Frenar agresividad defensiva (-faltas y -tarjetas)">
+                <span class="text-xs leading-none">🛡️</span>
+                <span class="leading-tight truncate w-full text-center">Cuidado entradas</span>
+              </button>
+              <button class="btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition" data-shout="WASTE_TIME" title="Posesión larga, enfriar el partido y ahorrar piernas">
+                <span class="text-xs leading-none">⏱️</span>
+                <span class="leading-tight truncate w-full text-center">Dormid el balón</span>
+              </button>
+            </div>
+          </div>
+
           <div class="flex items-center justify-between gap-2">
             <button id="btn-play-pause" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 active:scale-95 text-white font-bold text-xs rounded-xl border border-slate-700 flex items-center justify-center gap-1.5 transition">
               <span id="play-pause-icon">⏸</span> <span id="play-pause-text">Pausar</span>
@@ -1785,7 +1874,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
 
             <!-- Resumen Estadístico del 1er Tiempo -->
-            <div class="bg-slate-950/70 rounded-2xl p-3 border border-slate-800 text-xs my-3 space-y-2">
+            <div class="bg-slate-950/70 rounded-2xl p-3 border border-slate-800 text-xs my-2.5 space-y-2">
               <div>
                 <div class="flex justify-between text-[10px] font-bold text-slate-400 mb-1">
                   <span><span id="ht-stat-poss-h">50</span>% Posesión</span>
@@ -1806,9 +1895,37 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                   <b class="text-emerald-400"><span id="ht-ontarget-h">0</span> - <span id="ht-ontarget-a">0</span></b>
                 </div>
               </div>
+              <div id="ht-mvp-preview" class="pt-1 border-t border-slate-800/80 text-[10px] text-amber-300 font-bold flex items-center justify-between px-1"></div>
             </div>
 
-            <div class="space-y-2 mt-4">
+            <!-- Charla de Vestuario en el Descanso (Mejora 1) -->
+            <div class="bg-slate-950/90 rounded-2xl p-2.5 border border-amber-500/30 text-left my-2.5">
+              <div class="flex items-center justify-between mb-1.5">
+                <span class="text-[10px] font-black uppercase tracking-wider text-amber-400">🗣️ Charla de Descanso</span>
+                <span class="text-[9px] text-slate-400 font-semibold">Efecto 45' - 68'</span>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5">
+                <button class="btn-ht-talk p-2 rounded-xl border border-slate-800 bg-slate-900 hover:border-rose-500/50 text-left transition active:scale-95" data-talk="aggressive">
+                  <div class="text-[10px] font-extrabold text-rose-400">😡 Bronca / Exigir</div>
+                  <div class="text-[8.5px] text-slate-400 leading-tight mt-0.5">Ideal si vas perdiendo o empatando</div>
+                </button>
+                <button class="btn-ht-talk p-2 rounded-xl border border-slate-800 bg-slate-900 hover:border-amber-500/50 text-left transition active:scale-95" data-talk="encourage">
+                  <div class="text-[10px] font-extrabold text-amber-300">🔥 ¡Creer en Ganar!</div>
+                  <div class="text-[8.5px] text-slate-400 leading-tight mt-0.5">Empuje ofensivo y moral al ataque</div>
+                </button>
+                <button class="btn-ht-talk p-2 rounded-xl border border-slate-800 bg-slate-900 hover:border-emerald-500/50 text-left transition active:scale-95" data-talk="praise">
+                  <div class="text-[10px] font-extrabold text-emerald-400">👏 Elogiar Trabajo</div>
+                  <div class="text-[8.5px] text-slate-400 leading-tight mt-0.5">Refuerza notas si vas ganando</div>
+                </button>
+                <button class="btn-ht-talk p-2 rounded-xl border border-slate-800 bg-slate-900 hover:border-sky-500/50 text-left transition active:scale-95" data-talk="calm_control">
+                  <div class="text-[10px] font-extrabold text-sky-300">🧊 Cerrar Espacios</div>
+                  <div class="text-[8.5px] text-slate-400 leading-tight mt-0.5">+Solidez atrás y -tarjetas</div>
+                </button>
+              </div>
+              <div id="ht-talk-feedback" class="hidden mt-1.5 text-[9.5px] font-bold text-emerald-300 bg-emerald-950/50 border border-emerald-500/30 rounded-lg px-2 py-1 text-center"></div>
+            </div>
+
+            <div class="space-y-2 mt-3">
               <button id="btn-ht-subs" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 text-white font-extrabold text-xs rounded-xl shadow-lg active:scale-98 transition flex items-center justify-center gap-2">
                 <span>🔄 HACER CAMBIOS O AJUSTES</span>
                 <span id="ht-subs-badge" class="px-2 py-0.5 rounded-full bg-black/40 text-[10px] font-mono">5 rest.</span>
@@ -2007,10 +2124,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         </div>
 
         <!-- Modal Final de Partido -->
-        <div id="modal-match-end" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex flex-col justify-center p-4">
-          <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 max-w-sm mx-auto w-full shadow-2xl text-center">
+        <div id="modal-match-end" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex flex-col justify-center p-4 overflow-y-auto">
+          <div class="bg-slate-900 border border-slate-700 rounded-3xl p-5 max-w-sm mx-auto w-full shadow-2xl text-center my-auto">
             <span class="text-xs uppercase font-extrabold tracking-widest text-slate-400">FINAL DEL PARTIDO</span>
-            <div class="my-3 flex items-center justify-center gap-4">
+            <div class="my-2.5 flex items-center justify-center gap-4">
               <div class="text-right">
                 <div class="font-black text-sm text-white">${homeTeam.shortName}</div>
                 <div class="text-3xl font-black text-white" id="final-home-score">0</div>
@@ -2021,10 +2138,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                 <div class="text-3xl font-black text-white" id="final-away-score">0</div>
               </div>
             </div>
-            <div class="my-3 py-2 border-y border-slate-800 text-left text-xs max-h-28 overflow-y-auto" id="final-scorers-list"></div>
-            <div class="my-3 text-left">
+            <!-- Tarjeta MVP del Partido y Notas (Mejora 5) -->
+            <div id="final-mvp-card" class="my-2.5"></div>
+            <div id="final-ratings-summary" class="my-2 text-left"></div>
+            <div class="my-2 py-2 border-y border-slate-800 text-left text-xs max-h-24 overflow-y-auto" id="final-scorers-list"></div>
+            <div class="my-2.5 text-left">
               <div class="text-[10px] uppercase font-bold text-slate-400 mb-1">Otros partidos de la Jornada ${gameState.currentRound}:</div>
-              <div class="space-y-1 text-[11px] max-h-32 overflow-y-auto bg-slate-950/60 p-2 rounded-xl border border-slate-800" id="other-results-list"></div>
+              <div class="space-y-1 text-[11px] max-h-28 overflow-y-auto bg-slate-950/60 p-2 rounded-xl border border-slate-800" id="other-results-list"></div>
             </div>
             <button id="btn-finish-match-continue" class="w-full py-3.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 text-white font-extrabold text-sm rounded-xl shadow-lg active:scale-98 transition">
               CONTINUAR AL HUB ➔
@@ -2851,6 +2971,25 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     let currentHighlightData = null;
     let tacticalToastTimeout = null;
     let lastCarrierPlayerId = null;
+    const matchUiTimeouts = [];
+    const registerUiTimeout = (fn, ms) => {
+      const id = setTimeout(fn, ms);
+      matchUiTimeouts.push(id);
+      return id;
+    };
+    const clearAllMatchUiTimeouts = () => {
+      while (matchUiTimeouts.length > 0) {
+        clearTimeout(matchUiTimeouts.pop());
+      }
+      if (subChyronTimeout) {
+        clearTimeout(subChyronTimeout);
+        subChyronTimeout = null;
+      }
+      if (tacticalToastTimeout) {
+        clearTimeout(tacticalToastTimeout);
+        tacticalToastTimeout = null;
+      }
+    };
 
     function updateFMCommentary(text, badge = "MATCH ENGINE", isHighlight = false) {
       const ticker = container.querySelector("#fm-broadcast-ticker");
@@ -2992,10 +3131,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         elGoalOverlay.classList.remove("pointer-events-none");
         elGoalOverlay.onclick = finishGoalCelebration;
       }
-      goalTimer = setTimeout(finishGoalCelebration, goalData.isSkipped ? 1100 : 2000);
+      goalTimer = registerUiTimeout(finishGoalCelebration, goalData.isSkipped ? 1100 : 2000);
     }
 
     function startKickoffSequence(concedingSide) {
+      if (simulator.isFinished) return;
       isKickoffInProgress = true;
       const kickoffBadge = container.querySelector("#kickoff-badge");
       if (kickoffBadge) kickoffBadge.classList.remove("hidden");
@@ -3004,7 +3144,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       simulator.resetKickoff(concedingSide);
 
       // Tiempo para ver a los equipos situados en sus campos
-      setTimeout(() => {
+      registerUiTimeout(() => {
+        if (simulator.isFinished) return;
         // Pase hacia atrás para iniciar la jugada
         if (concedingSide === "home") {
           simulator.ball.targetX = 40;
@@ -3014,9 +3155,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           simulator.ball.targetY = 52;
         }
 
-        setTimeout(() => {
+        registerUiTimeout(() => {
           if (kickoffBadge) kickoffBadge.classList.add("hidden");
           isKickoffInProgress = false;
+          if (simulator.isFinished) return;
 
           // Si tras el gol ya se había cumplido el tiempo reglamentario del primer tiempo con su descuento
           if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered && !simulator.isSecondHalf) {
@@ -3032,7 +3174,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             return;
           }
 
-          if (simulator.pauseRequested || !simulator.isRunning) {
+          if (simulator.pauseRequested) {
             simulator.pauseRequested = false;
             simulator.pause();
             const iconPP = container.querySelector("#play-pause-icon");
@@ -3057,7 +3199,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     function handleSubstitutionChyron(subData) {
       showSubstitutionChyron(subData, () => {
         if (!simulator.isFinished && !simulator.isHalfTime) {
-          if (simulator.pauseRequested || !simulator.isRunning) {
+          if (simulator.pauseRequested) {
             simulator.pauseRequested = false;
             simulator.pause();
             const iconPP = container.querySelector("#play-pause-icon");
@@ -5972,6 +6114,40 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
       }
 
+      // Actualizar estado de Gritos desde la Banda y Charla activa (Mejoras 1 y 2)
+      const boostBadge = container.querySelector("#active-boost-badge");
+      if (boostBadge) {
+        if (state.activeShout) {
+          const left = Math.max(1, (state.activeShout.expiresAtMinute || state.minute) - state.minute);
+          boostBadge.textContent = `${state.activeShout.icon} ${state.activeShout.label} (${left}')`;
+          boostBadge.className = "text-[9px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/60 text-amber-300 animate-pulse truncate max-w-[195px]";
+        } else if (state.activeTeamTalk) {
+          const left = Math.max(1, (state.activeTeamTalk.expiresAtMinute || state.minute) - state.minute);
+          boostBadge.textContent = `${state.activeTeamTalk.icon} Charla: ${state.activeTeamTalk.label} (${left}')`;
+          boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 truncate max-w-[195px]";
+        } else if (state.shoutCooldownUntil > state.minute) {
+          const cd = state.shoutCooldownUntil - state.minute;
+          boostBadge.textContent = `⏳ Voz en descanso (${cd} min)`;
+          boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-slate-900 border border-slate-700 text-slate-400 truncate max-w-[195px]";
+        } else {
+          boostBadge.textContent = "✅ Banda lista para dar órdenes";
+          boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 truncate max-w-[195px]";
+        }
+      }
+
+      container.querySelectorAll(".btn-touchline-shout").forEach(btn => {
+        const sId = btn.dataset.shout;
+        const isCurrentActive = state.activeShout && state.activeShout.id === sId;
+        const onCooldown = state.shoutCooldownUntil > state.minute && !isCurrentActive;
+        if (isCurrentActive) {
+          btn.className = "btn-touchline-shout py-1.5 px-1 rounded-lg bg-amber-500/25 border-2 border-amber-400 text-[9px] font-extrabold text-amber-300 flex flex-col items-center justify-center gap-0.5 shadow transition";
+        } else if (onCooldown) {
+          btn.className = "btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-950/60 border border-slate-800/60 text-[9px] font-bold text-slate-500 opacity-60 flex flex-col items-center justify-center gap-0.5 cursor-not-allowed transition";
+        } else {
+          btn.className = "btn-touchline-shout py-1.5 px-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-[9px] font-extrabold text-slate-200 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition";
+        }
+      });
+
       // Sincronización continua del botón de pausa / reanudar
       const elIconPP = container.querySelector("#play-pause-icon");
       const elTextPP = container.querySelector("#play-pause-text");
@@ -6025,6 +6201,44 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       const remainingSubs = isUserHome ? htState.homeSubsRemaining : htState.awaySubsRemaining;
       if (htSubsBadge) htSubsBadge.textContent = `${remainingSubs} rest. (Descanso: no gasta ventana)`;
+
+      // Mostrar mejor jugador de la 1ª parte (Mejora 5)
+      const htMvpPreview = container.querySelector("#ht-mvp-preview");
+      if (htMvpPreview && htState.currentMvp) {
+        const mvpTeamShort = htState.currentMvp.teamSide === "home" ? homeTeam.shortName : awayTeam.shortName;
+        htMvpPreview.innerHTML = `
+          <span>⭐ Destacado 1ªP: <b class="text-white">${htState.currentMvp.name}</b> (${mvpTeamShort})</span>
+          <span class="px-1.5 py-0.5 rounded bg-amber-500/20 border border-amber-400/50 text-amber-300 font-mono font-black">${htState.currentMvp.rating.toFixed(1)}</span>
+        `;
+      }
+
+      // Reiniciar estado de charla de descanso (Mejora 1)
+      const htTalkFeedback = container.querySelector("#ht-talk-feedback");
+      if (htTalkFeedback) {
+        htTalkFeedback.classList.add("hidden");
+        htTalkFeedback.textContent = "";
+      }
+      container.querySelectorAll(".btn-ht-talk").forEach(btn => {
+        btn.disabled = false;
+        btn.classList.remove("ring-2", "ring-amber-400", "bg-amber-500/20", "opacity-50");
+        btn.onclick = () => {
+          const talkId = btn.dataset.talk;
+          const res = simulator.applyTeamTalk("ht", talkId, false);
+          container.querySelectorAll(".btn-ht-talk").forEach(b => {
+            b.disabled = true;
+            if (b === btn) {
+              b.classList.add("ring-2", "ring-amber-400", "bg-amber-500/20");
+            } else {
+              b.classList.add("opacity-50");
+            }
+          });
+          if (htTalkFeedback && res) {
+            htTalkFeedback.textContent = `${res.feedback || res.label}`;
+            htTalkFeedback.classList.remove("hidden");
+          }
+          updateMatchUI(simulator.getState());
+        };
+      });
 
       const elTimer = container.querySelector("#match-timer");
       if (elTimer) {
@@ -6104,7 +6318,46 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       };
     });
 
+    // Botones de Gritos desde la Banda en vivo (Mejora 2)
+    container.querySelectorAll(".btn-touchline-shout").forEach(btn => {
+      btn.onclick = () => {
+        const shoutId = btn.dataset.shout;
+        const res = simulator.triggerShout(shoutId);
+        if (!res.success) {
+          showMatchAlert({ text: `⏳ ${res.reason}` });
+          return;
+        }
+        showMatchAlert({ text: `${res.shout.icon} ¡Orden desde la banda: ${res.shout.label}!` });
+        updateFMCommentary(res.shout.alertText || `📣 Gritas desde el área técnica: "${res.shout.label}"`, "tactical");
+        updateMatchUI(simulator.getState());
+      };
+    });
+
     container.querySelector("#btn-skip-end").onclick = () => {
+      clearAllMatchUiTimeouts();
+      currentHighlightData = null;
+      isKickoffInProgress = false;
+      container.querySelector("#modal-setpiece")?.classList.add("hidden");
+      container.querySelector("#modal-halftime")?.classList.add("hidden");
+      container.querySelector("#modal-halftime-tactics")?.classList.add("hidden");
+      container.querySelector("#modal-injury-alert")?.classList.add("hidden");
+      container.querySelector("#modal-live-subs")?.classList.add("hidden");
+      container.querySelector("#kickoff-badge")?.classList.add("hidden");
+      const hud = container.querySelector("#highlight-action-hud");
+      if (hud) {
+        hud.classList.remove("opacity-100", "translate-y-0");
+        hud.classList.add("opacity-0", "-translate-y-2");
+      }
+      const goalOverlay = container.querySelector("#goal-cinematic");
+      if (goalOverlay) {
+        goalOverlay.classList.remove("opacity-100", "scale-100");
+        goalOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+      }
+      const subOverlay = container.querySelector("#sub-cinematic");
+      if (subOverlay) {
+        subOverlay.classList.remove("opacity-100", "scale-100");
+        subOverlay.classList.add("opacity-0", "pointer-events-none", "scale-95");
+      }
       simulator.skipToEnd();
     };
 
@@ -6204,8 +6457,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       openTacticsModal(!simulator.isHalfTime);
     };
 
-    function openTacticsModal(isLive = false) {
-      const wasRunning = simulator.isRunning;
+    function openTacticsModal(isLive = false, options = {}) {
+      const wasRunning = options.forceResume ? true : simulator.isRunning;
       if (isLive) {
         simulator.pause();
         iconPP.textContent = "▶";
@@ -6254,7 +6507,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       let htLineupIds = [...initialPitchIds];
       let htBenchIds = currentBench.map(p => p.id);
-      let htSelectedPlayerId = null;
+      let htSelectedPlayerId = options.preselectPlayerId || null;
       let htSubTab = "pitch"; // "pitch" o "style"
       let htPlayerRoles = {
         ...(teamSide === "home" ? simulator.homePlayerRoles : simulator.awayPlayerRoles || {}),
@@ -6278,8 +6531,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       function renderHTTactics() {
         const formation = FORMATIONS[htFormationKey] || FORMATIONS["4-3-3"];
+        const allSimPlayers = [...currentPitch, ...currentBench];
         const allTeamPlayers = userTeam.players;
-        const getPlayer = (id) => allTeamPlayers.find(p => p.id === id);
+        const getPlayer = (id) => allSimPlayers.find(p => p.id === id) || allTeamPlayers.find(p => p.id === id);
 
         const subsMadeCount = htLineupIds.filter(id => !initialPitchIds.includes(id)).length;
         const curRemaining = startRemaining - subsMadeCount;
@@ -6421,6 +6675,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                   <span class="text-[7px] font-bold ${isNewSub ? 'text-emerald-400' : effSlot.isCustom ? 'text-amber-300 font-extrabold' : 'text-slate-300'} leading-none">${slot.label}</span>
                   <div class="absolute -bottom-1 w-5 h-1 bg-black/60 rounded-full overflow-hidden">
                     <div class="h-full ${player.energy > 70 ? 'bg-emerald-400' : player.energy > 50 ? 'bg-amber-400' : 'bg-red-500'}" style="width: ${player.energy || 100}%;"></div>
+                  </div>
+                  <div class="absolute -top-1.5 -left-2 px-1 py-0.2 rounded-full ${(player.matchRating || 6.5) >= 7.5 ? 'bg-emerald-500 text-slate-950' : (player.matchRating || 6.5) < 6.0 ? 'bg-rose-500 text-white' : 'bg-amber-400 text-slate-950'} text-[6.5px] font-black shadow leading-none">
+                    ${(player.matchRating || 6.5).toFixed(1)}
                   </div>
                   ${effSlot.isCustom ? `
                     <div class="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-400 text-slate-950 text-[6.5px] font-black flex items-center justify-center shadow">📍</div>
@@ -6786,7 +7043,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                   ${wasStarter ? '<span class="text-[8px] text-red-400">🔻</span>' : ''}
                 </div>
                 <div class="text-[10px] font-bold text-white truncate max-w-[70px] mt-1">${p.name.split(' ').slice(-1)[0]}</div>
-                <div class="text-xs font-black text-amber-400 mt-0.5">${p.ovr}</div>
+                <div class="flex items-center justify-center gap-1 mt-0.5">
+                  <span class="text-xs font-black text-amber-400">${p.ovr}</span>
+                  ${p.playedInMatch ? `<span class="text-[8px] font-mono font-bold px-1 rounded bg-slate-800 text-emerald-300">⭐${(p.matchRating || 6.5).toFixed(1)}</span>` : ''}
+                </div>
                 <div class="w-10 h-1 bg-slate-800 rounded-full mx-auto mt-1 overflow-hidden">
                   <div class="h-full bg-emerald-400" style="width: ${p.energy || 100}%;"></div>
                 </div>
@@ -6828,6 +7088,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           htLineupIds[inLineup2] = tmp;
         } else if (inLineup1 !== -1 && inBench2 !== -1) {
           // Titular sale por Suplente
+          const allSimPlayers = [...currentPitch, ...currentBench];
+          const benchP = allSimPlayers.find(p => p.id === tappedId) || userTeam.players.find(p => p.id === tappedId);
+          if (benchP && benchP.injury) {
+            alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar al campo.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+          if (benchP && benchP.suspension) {
+            alert(`🟥 ${benchP.name} está sancionado y no puede entrar al campo.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+          if (benchP && benchP.subbedOut && !initialPitchIds.includes(tappedId)) {
+            alert(`⚠️ ${benchP.name} ya fue sustituido anteriormente y no puede reingresar.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
           if (isLive && startWindows <= 0) {
             alert("Has agotado las 3 ventanas de cambios permitidas en el partido. Los cambios en el descanso no consumen ventana, pero en juego ya no puedes hacer más cambios.");
             htSelectedPlayerId = null;
@@ -6849,6 +7129,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           htBenchIds[inBench2] = htSelectedPlayerId;
         } else if (inBench1 !== -1 && inLineup2 !== -1) {
           // Suplente entra por Titular
+          const allSimPlayers = [...currentPitch, ...currentBench];
+          const benchP = allSimPlayers.find(p => p.id === htSelectedPlayerId) || userTeam.players.find(p => p.id === htSelectedPlayerId);
+          if (benchP && benchP.injury) {
+            alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede entrar al campo.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+          if (benchP && benchP.suspension) {
+            alert(`🟥 ${benchP.name} está sancionado y no puede entrar al campo.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
+          if (benchP && benchP.subbedOut && !initialPitchIds.includes(htSelectedPlayerId)) {
+            alert(`⚠️ ${benchP.name} ya fue sustituido anteriormente y no puede reingresar.`);
+            htSelectedPlayerId = null;
+            renderHTTactics();
+            return;
+          }
           if (isLive && startWindows <= 0) {
             alert("Has agotado las 3 ventanas de cambios permitidas en el partido. Los cambios en el descanso no consumen ventana, pero en juego ya no puedes hacer más cambios.");
             htSelectedPlayerId = null;
@@ -6915,8 +7215,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
         gameState.userTactics.formation = htFormationKey;
         gameState.userTactics.mentality = htMentality;
-        gameState.userTactics.lineup = [...htLineupIds];
-        gameState.userTactics.bench = [...htBenchIds];
+        if (htLineupIds.length === 11) {
+          gameState.userTactics.lineup = [...htLineupIds];
+          gameState.userTactics.bench = [...htBenchIds];
+        }
         gameState.userTactics.playerRoles = { ...htPlayerRoles };
         gameState.userTactics.customPositions = { ...htCustomPositions };
         gameState.userTactics.instructions = JSON.parse(JSON.stringify(htInstructions));
@@ -6934,8 +7236,6 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         if (masterTacticsForNextMatches) {
           masterTacticsForNextMatches.formation = htFormationKey;
           masterTacticsForNextMatches.mentality = htMentality;
-          masterTacticsForNextMatches.lineup = [...htLineupIds];
-          masterTacticsForNextMatches.bench = [...htBenchIds];
           masterTacticsForNextMatches.playerRoles = { ...htPlayerRoles };
           masterTacticsForNextMatches.customPositions = { ...htCustomPositions };
           masterTacticsForNextMatches.instructions = JSON.parse(JSON.stringify(htInstructions));
@@ -7433,13 +7733,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             placements: resolvedPlacements
           }, () => {
             if (!simulator.isFinished && !simulator.isHalfTime) {
-              if (simulator.pauseRequested || !simulator.isRunning) {
+              if (simulator.pauseRequested) {
                 simulator.pauseRequested = false;
                 simulator.pause();
                 if (iconPP) iconPP.textContent = "▶";
                 if (textPP) textPP.textContent = "Reanudar";
-                showMatchAlert({ text: "⏸ Partido en pausa tras el córner" });
+                showMatchAlert({ text: "⏸ Partido en pausa tras la jugada a balón parado" });
               } else {
+                if (!simulator.isRunning) simulator.start();
                 if (iconPP) iconPP.textContent = "⏸";
                 if (textPP) textPP.textContent = "Pausar";
               }
@@ -7513,11 +7814,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       }
       SaveManager.saveGame(gameState);
 
+      if (injData.isSkippingToEnd || simulator.isSkippingToEnd) return;
+
       if (isUserSide) {
         // Pausar el simulador para que el usuario gestione la lesión obligatoria
         simulator.pause();
-        const iconPP = container.querySelector("#pp-icon");
-        const textPP = container.querySelector("#pp-text");
+        const iconPP = container.querySelector("#play-pause-icon");
+        const textPP = container.querySelector("#play-pause-text");
         if (iconPP) iconPP.textContent = "▶";
         if (textPP) textPP.textContent = "Reanudar";
 
@@ -7556,7 +7859,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             btnSubNow.onclick = () => {
               if (modalInj) modalInj.classList.add("hidden");
               subSelectedPitchId = injData.player.id;
-              openTacticsModal(true);
+              openTacticsModal(!simulator.isHalfTime, { forceResume: true, preselectPlayerId: injData.player.id });
             };
           } else {
             btnSubNow.innerHTML = `<span>⚠️ Sin cambios disponibles (Continuar con jugador tocado)</span>`;
@@ -7648,25 +7951,35 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     function handleLiveMatchEnd(result) {
-      // Sincronizar estados finales de energía y lesiones de ambos equipos con gameState
-      if (result.homePlayers) {
-        result.homePlayers.forEach(pSim => {
-          const pReal = homeTeam.players.find(p => p.id === pSim.id);
+      clearAllMatchUiTimeouts();
+      // Sincronizar estados finales de energía, goles, asistencias, notas, MVP, minutos y lesiones de ambos equipos con gameState
+      const syncTeamPlayers = (simPlayers, realTeam) => {
+        if (!simPlayers || !realTeam) return;
+        simPlayers.forEach(pSim => {
+          const pReal = realTeam.players.find(p => p.id === pSim.id);
           if (pReal) {
             pReal.energy = Math.round(pSim.energy !== undefined ? pSim.energy : 100);
+            pReal.goals = pSim.goals || 0;
+            pReal.assists = pSim.assists || 0;
+            pReal.matchMinutes = pSim.matchMinutes || 0;
+            if (pSim.playedInMatch || (pSim.matchMinutes || 0) > 0) {
+              const rating = Number((pSim.matchRating || 6.5).toFixed(2));
+              pReal.lastMatchRating = rating;
+              pReal.ratingSum = (pReal.ratingSum || 0) + rating;
+              pReal.matchesRated = (pReal.matchesRated || 0) + 1;
+              pReal.avgRating = Number((pReal.ratingSum / pReal.matchesRated).toFixed(2));
+            }
+            if (result.mvp && result.mvp.id === pReal.id) {
+              pReal.mvpCount = (pReal.mvpCount || 0) + 1;
+            }
             if (pSim.injury) pReal.injury = pSim.injury;
+            delete pReal.subbedOut;
           }
         });
-      }
-      if (result.awayPlayers) {
-        result.awayPlayers.forEach(pSim => {
-          const pReal = awayTeam.players.find(p => p.id === pSim.id);
-          if (pReal) {
-            pReal.energy = Math.round(pSim.energy !== undefined ? pSim.energy : 100);
-            if (pSim.injury) pReal.injury = pSim.injury;
-          }
-        });
-      }
+      };
+
+      syncTeamPlayers(result.homePlayers, homeTeam);
+      syncTeamPlayers(result.awayPlayers, awayTeam);
 
       // Sincronizar tarjetas y sanciones disciplinarias de ambos equipos
       if (result.cards) {
@@ -7677,7 +7990,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             if (pReal) {
               pReal.seasonYellows = (pReal.seasonYellows || 0) + 1;
               if (pReal.seasonYellows % 5 === 0 && !pReal.suspension) {
-                pReal.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas" };
+                pReal.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas", justAcquired: true };
               }
             }
           });
@@ -7688,7 +8001,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             const pReal = allMatchPlayers.find(p => p.id === pId);
             if (pReal) {
               pReal.seasonReds = (pReal.seasonReds || 0) + 1;
-              pReal.suspension = { roundsLeft: 1, reason: rCard?.reason || "Tarjeta Roja" };
+              pReal.suspension = { roundsLeft: 1, reason: rCard?.reason || "Tarjeta Roja", justAcquired: true };
             }
           });
         }
@@ -7733,6 +8046,58 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       if (fHScore) fHScore.textContent = result.homeScore;
       if (fAScore) fAScore.textContent = result.awayScore;
+
+      // Renderizar MVP del Partido y Mejores Notas (Mejora 5)
+      const fMvpCard = container.querySelector("#final-mvp-card");
+      if (fMvpCard && result.mvp) {
+        const mvpTeam = result.mvp.teamSide === "home" ? homeTeam : awayTeam;
+        const statsParts = [];
+        if (result.mvp.goals > 0) statsParts.push(`⚽ ${result.mvp.goals} gol${result.mvp.goals > 1 ? 'es' : ''}`);
+        if (result.mvp.assists > 0) statsParts.push(`👟 ${result.mvp.assists} asist.`);
+        if (result.mvp.saves > 0) statsParts.push(`🧤 ${result.mvp.saves} paradas`);
+        if (statsParts.length === 0) statsParts.push(`Actuación decisiva`);
+        fMvpCard.innerHTML = `
+          <div class="bg-gradient-to-r from-amber-500/20 via-yellow-500/15 to-amber-500/20 border border-amber-400/50 rounded-2xl p-2.5 flex items-center justify-between text-left shadow-lg">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-9 h-9 rounded-xl bg-amber-400/20 border border-amber-400/60 flex items-center justify-center text-lg flex-shrink-0">🏆</div>
+              <div class="min-w-0">
+                <div class="text-[9px] font-black uppercase tracking-wider text-amber-300">MVP DEL PARTIDO</div>
+                <div class="text-xs font-extrabold text-white truncate">${result.mvp.name} <span class="text-[10px] font-bold text-slate-400">(${mvpTeam.shortName} · ${result.mvp.pos})</span></div>
+                <div class="text-[9.5px] text-amber-200/90 font-semibold">${statsParts.join(' · ')}</div>
+              </div>
+            </div>
+            <div class="px-2.5 py-1 rounded-xl bg-amber-400 text-slate-950 font-black font-mono text-sm flex-shrink-0 shadow">
+              ${result.mvp.rating.toFixed(1)}
+            </div>
+          </div>
+        `;
+      }
+
+      const fRatingsSummary = container.querySelector("#final-ratings-summary");
+      if (fRatingsSummary) {
+        const userSimPlayers = (isUserHome ? result.homePlayers : result.awayPlayers) || [];
+        const playedUser = userSimPlayers
+          .filter(p => p.playedInMatch || (p.matchMinutes || 0) > 0)
+          .sort((a, b) => (b.matchRating || 6.5) - (a.matchRating || 6.5));
+        const top3 = playedUser.slice(0, 3);
+        if (top3.length > 0) {
+          fRatingsSummary.innerHTML = `
+            <div class="text-[9.5px] uppercase font-bold text-slate-400 mb-1">⭐ Mejores Notas de tu Equipo:</div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${top3.map(p => {
+                const r = (p.matchRating || 6.5).toFixed(1);
+                const badgeColor = p.matchRating >= 7.5 ? 'text-emerald-400 border-emerald-500/40 bg-emerald-950/40' : p.matchRating >= 6.5 ? 'text-amber-300 border-amber-500/30 bg-slate-950/80' : 'text-rose-400 border-rose-500/30 bg-rose-950/40';
+                return `
+                  <div class="p-1.5 rounded-xl border ${badgeColor} flex items-center justify-between text-[10px]">
+                    <span class="font-bold text-white truncate mr-1">${p.name.split(' ').slice(-1)[0]}</span>
+                    <span class="font-mono font-black">${r}</span>
+                  </div>
+                `;
+              }).join('')}
+            </div>
+          `;
+        }
+      }
 
       if (fScorers) {
         let itemsHtml = "";

@@ -298,7 +298,7 @@ export function simulateAIParties(match, teamsMap) {
         if (p) {
           p.seasonYellows = (p.seasonYellows || 0) + 1;
           if (p.seasonYellows % 5 === 0 && !p.suspension) {
-            p.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas" };
+            p.suspension = { roundsLeft: 1, reason: "Ciclo de 5 Amarillas", justAcquired: true };
           }
         }
       }
@@ -307,7 +307,7 @@ export function simulateAIParties(match, teamsMap) {
         const p = outfieldStarters[Math.floor(Math.random() * outfieldStarters.length)];
         if (p) {
           p.seasonReds = (p.seasonReds || 0) + 1;
-          p.suspension = { roundsLeft: 1, reason: "Tarjeta Roja" };
+          p.suspension = { roundsLeft: 1, reason: "Tarjeta Roja", justAcquired: true };
         }
       }
     }

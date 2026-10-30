@@ -475,7 +475,8 @@ export function generateRandomInjury(cause = "random") {
     type: picked.type,
     severity: picked.severity,
     roundsLeft: rounds,
-    icon: picked.icon
+    icon: picked.icon,
+    justAcquired: true
   };
 }
 

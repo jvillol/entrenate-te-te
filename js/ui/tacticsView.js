@@ -996,9 +996,27 @@ export function renderTacticsView(container, gameState, onSaveTactics, onBackToH
       tactics.lineup[inLineup2] = tmp;
     } else if (inLineup1 !== -1 && inBench2 !== -1) {
       // Uno en el 11 y otro en el banquillo
+      const benchP = team.players.find(p => p.id === tappedId);
+      if (benchP && benchP.injury) {
+        alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede alinearse como titular.`);
+        return;
+      }
+      if (benchP && benchP.suspension && benchP.suspension.roundsLeft > 0) {
+        alert(`🟥 ${benchP.name} está sancionado (${benchP.suspension.reason}) y no puede alinearse como titular.`);
+        return;
+      }
       tactics.lineup[inLineup1] = tappedId;
       tactics.bench[inBench2] = selectedPlayerId;
     } else if (inBench1 !== -1 && inLineup2 !== -1) {
+      const benchP = team.players.find(p => p.id === selectedPlayerId);
+      if (benchP && benchP.injury) {
+        alert(`⚠️ ${benchP.name} está lesionado (${benchP.injury.type}) y no puede alinearse como titular.`);
+        return;
+      }
+      if (benchP && benchP.suspension && benchP.suspension.roundsLeft > 0) {
+        alert(`🟥 ${benchP.name} está sancionado (${benchP.suspension.reason}) y no puede alinearse como titular.`);
+        return;
+      }
       tactics.bench[inBench1] = tappedId;
       tactics.lineup[inLineup2] = selectedPlayerId;
     } else if (inBench1 !== -1 && inBench2 !== -1) {

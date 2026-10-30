@@ -278,18 +278,26 @@ class GameManager {
       (team.players || []).forEach(p => {
         // 1. Evolución de lesiones (reducir semanas de baja y alta médica)
         if (p.injury) {
-          p.injury.roundsLeft -= 1;
-          if (p.injury.roundsLeft <= 0) {
-            p.injury = null; // ¡Alta médica oficial!
-            p.energy = 85;
+          if (p.injury.justAcquired) {
+            delete p.injury.justAcquired;
+          } else {
+            p.injury.roundsLeft -= 1;
+            if (p.injury.roundsLeft <= 0) {
+              p.injury = null; // ¡Alta médica oficial!
+              p.energy = 85;
+            }
           }
         }
 
         // 2. Evolución de sanciones disciplinarias (cumplir jornadas de sanción)
         if (p.suspension) {
-          p.suspension.roundsLeft -= 1;
-          if (p.suspension.roundsLeft <= 0) {
-            p.suspension = null; // ¡Sanción cumplida!
+          if (p.suspension.justAcquired) {
+            delete p.suspension.justAcquired;
+          } else {
+            p.suspension.roundsLeft -= 1;
+            if (p.suspension.roundsLeft <= 0) {
+              p.suspension = null; // ¡Sanción cumplida!
+            }
           }
         }
 
