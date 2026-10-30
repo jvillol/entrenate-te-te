@@ -2564,6 +2564,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
             <!-- Tarjeta MVP del Partido y Notas (Mejora 5) -->
             <div id="final-mvp-card" class="my-2.5"></div>
+            <!-- Estadísticas del Partido -->
+            <div id="final-match-stats" class="my-2.5 bg-slate-950/70 p-2.5 rounded-2xl border border-slate-800 text-left"></div>
             <div id="final-ratings-summary" class="my-2 text-left"></div>
             <div class="my-2 py-2 border-y border-slate-800 text-left text-xs max-h-24 overflow-y-auto" id="final-scorers-list"></div>
             <div class="my-2.5 text-left">
@@ -6875,7 +6877,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           showMatchAlert({ text: `⏳ ${res.reason}` });
           return;
         }
-        showMatchAlert({ text: `🏟️ ¡El estadio ruge y empuja al equipo! (+4% espíritu de remontada)` });
+        showMatchAlert({ text: `🏟️ ¡El estadio ruge y empuja al equipo! (+0.4% aliento de remontada)` });
         updateFMCommentary(`🏟️ Pides el aliento de la grada: todo el estadio se levanta y ruge al unísono para guiar la remontada del equipo.`, "tactical");
         updateMatchUI(simulator.getState());
       };
@@ -8759,6 +8761,73 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
             <div class="px-2.5 py-1 rounded-xl bg-amber-400 text-slate-950 font-black font-mono text-sm flex-shrink-0 shadow">
               ${result.mvp.rating.toFixed(1)}
+            </div>
+          </div>
+        `;
+      }
+
+      // Renderizar Estadísticas del Partido (Posesión, Tiros a Puerta, Tiros Totales)
+      const fMatchStats = container.querySelector("#final-match-stats");
+      if (fMatchStats) {
+        const stats = result.stats || {};
+        const posHome = stats.possession?.home ?? 50;
+        const posAway = stats.possession?.away ?? (100 - posHome);
+        const shotsHome = stats.shots?.home ?? 0;
+        const shotsAway = stats.shots?.away ?? 0;
+        const onTargetHome = stats.shotsOnTarget?.home ?? 0;
+        const onTargetAway = stats.shotsOnTarget?.away ?? 0;
+
+        const totalShots = shotsHome + shotsAway;
+        const shotsHomePct = totalShots > 0 ? Math.round((shotsHome / totalShots) * 100) : 50;
+        const shotsAwayPct = 100 - shotsHomePct;
+
+        const totalOnTarget = onTargetHome + onTargetAway;
+        const onTargetHomePct = totalOnTarget > 0 ? Math.round((onTargetHome / totalOnTarget) * 100) : 50;
+        const onTargetAwayPct = 100 - onTargetHomePct;
+
+        fMatchStats.innerHTML = `
+          <div class="text-[9.5px] uppercase font-bold text-slate-400 tracking-wider text-center mb-2 flex items-center justify-center gap-1.5">
+            <span>📊</span>
+            <span>Estadísticas del Partido</span>
+          </div>
+          <div class="space-y-2">
+            <!-- Posesión -->
+            <div>
+              <div class="flex justify-between items-center text-xs font-bold mb-1">
+                <span class="text-sky-400 font-mono">${posHome}%</span>
+                <span class="text-[9.5px] text-slate-300 font-extrabold uppercase tracking-wide">Posesión</span>
+                <span class="text-indigo-400 font-mono">${posAway}%</span>
+              </div>
+              <div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+                <div class="bg-sky-500 h-full transition-all duration-500" style="width: ${posHome}%"></div>
+                <div class="bg-indigo-500 h-full transition-all duration-500" style="width: ${posAway}%"></div>
+              </div>
+            </div>
+
+            <!-- Tiros a Puerta -->
+            <div>
+              <div class="flex justify-between items-center text-xs font-bold mb-1">
+                <span class="text-sky-400 font-mono">${onTargetHome}</span>
+                <span class="text-[9.5px] text-slate-300 font-extrabold uppercase tracking-wide">Tiros a Puerta</span>
+                <span class="text-indigo-400 font-mono">${onTargetAway}</span>
+              </div>
+              <div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+                <div class="bg-sky-500 h-full transition-all duration-500" style="width: ${onTargetHomePct}%"></div>
+                <div class="bg-indigo-500 h-full transition-all duration-500" style="width: ${onTargetAwayPct}%"></div>
+              </div>
+            </div>
+
+            <!-- Tiros Totales -->
+            <div>
+              <div class="flex justify-between items-center text-xs font-bold mb-1">
+                <span class="text-sky-400 font-mono">${shotsHome}</span>
+                <span class="text-[9.5px] text-slate-300 font-extrabold uppercase tracking-wide">Tiros Totales</span>
+                <span class="text-indigo-400 font-mono">${shotsAway}</span>
+              </div>
+              <div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+                <div class="bg-sky-500 h-full transition-all duration-500" style="width: ${shotsHomePct}%"></div>
+                <div class="bg-indigo-500 h-full transition-all duration-500" style="width: ${shotsAwayPct}%"></div>
+              </div>
             </div>
           </div>
         `;
