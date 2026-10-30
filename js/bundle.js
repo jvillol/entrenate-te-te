@@ -1505,24 +1505,24 @@ function simulateAIParties(match, teamsMap) {
   const homeStats = getTeamStrength(homeTeam);
   const awayStats = getTeamStrength(awayTeam);
 
-  // Factor campo local (sutil empuje equilibrado de +1.2 puntos efectivos en ataque y defensa)
-  const homeAdvantage = 1.2;
+  // Factor campo local (sutil empuje equilibrado de +0.4 puntos, strictly <= 0.5%)
+  const homeAdvantage = 0.4;
 
   // Diferenciales entre ataque de uno y defensa del otro
   const homeAtkDiff = (homeStats.atk + homeAdvantage) - awayStats.def;
   const awayAtkDiff = awayStats.atk - (homeStats.def + homeAdvantage * 0.65);
-  const midDiff = (homeStats.mid + 0.5) - awayStats.mid;
+  const midDiff = (homeStats.mid + 0.1) - awayStats.mid;
 
   // Azar del fútbol (días inspirados, penaltis, errores o paradas milagrosas)
-  const homeLuck = (Math.random() - Math.random()) * 0.45;
-  const awayLuck = (Math.random() - Math.random()) * 0.45;
+  const homeLuck = (Math.random() - Math.random()) * 0.35;
+  const awayLuck = (Math.random() - Math.random()) * 0.35;
 
-  // Cálculo de goles esperados (Lambda para distribución de Poisson con ventaja local realista)
-  const baseHomeLambda = 1.38 + (homeAtkDiff * 0.046) + (midDiff * 0.02) + homeLuck;
-  const baseAwayLambda = 1.02 + (awayAtkDiff * 0.044) - (midDiff * 0.02) + awayLuck;
+  // Cálculo de goles esperados con techo equilibrado para evitar marcadores desorbitados (6-0)
+  const baseHomeLambda = 1.25 + (homeAtkDiff * 0.038) + (midDiff * 0.015) + homeLuck;
+  const baseAwayLambda = 1.05 + (awayAtkDiff * 0.036) - (midDiff * 0.015) + awayLuck;
 
-  const lambdaHome = Math.max(0.25, Math.min(4.8, baseHomeLambda));
-  const lambdaAway = Math.max(0.15, Math.min(4.2, baseAwayLambda));
+  const lambdaHome = Math.max(0.20, Math.min(2.7, baseHomeLambda));
+  const lambdaAway = Math.max(0.15, Math.min(2.5, baseAwayLambda));
 
   const homeScore = samplePoisson(lambdaHome);
   const awayScore = samplePoisson(lambdaAway);
@@ -2650,21 +2650,21 @@ class MatchSimulator {
       return { success: false, reason: `La grada recupera el aliento. Podrás activarla en ${wait} min o tras una jugada clave.` };
     }
 
-    // Activar aliento durante 10 minutos con un plus moderado (+1.5%)
+    // Activar aliento durante 10 minutos con un plus comedido (+0.4%, strictly <= 0.5%)
     this.activeCrowdRoar = {
       startedAtMinute: this.minute,
       expiresAtMinute: Math.min(this.maxMinutes, this.minute + 10),
-      boostPct: 0.015
+      boostPct: 0.004
     };
     this.crowdRoarCooldownUntil = this.minute + 15;
     this.crowdRoarUnlockedByHighlight = false;
 
-    // Pequeño plus sutil de adrenalina instantánea (+0.5 energía) a los futbolistas locales
+    // Apenas un ligero chispazo de concentración anímica
     this.homePlayersOnPitch.forEach(p => {
-      p.energy = Math.min(100, (p.energy || 75) + 0.5);
+      p.energy = Math.min(100, (p.energy || 75) + 0.1);
     });
 
-    this.triggerAlert("GRADA", "🏟️ ¡El estadio ruge y se vuelca con el equipo para empujar la remontada! (+1.5% aliento)", "home", 3800);
+    this.triggerAlert("GRADA", "🏟️ ¡El estadio empuja con su aliento al equipo! (+0.4% aliento)", "home", 3800);
     if (this.onTick) this.onTick(this.getState());
     return { success: true, activeCrowdRoar: this.activeCrowdRoar };
   }
@@ -3221,7 +3221,7 @@ class MatchSimulator {
 
     const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0) * (this.weeklyTraining === "recovery" ? 0.93 : 1.0);
     const homeTalkDrain = (this.userSide === "home" ? userDrainTalkMod : 1.0) * weatherHalfDrain;
-    const awayTalkDrain = (this.userSide === "away" ? userDrainTalkMod : 1.0) * weatherHalfDrain * 1.01; // Factor campo: el visitante acusa levemente el viaje
+    const awayTalkDrain = (this.userSide === "away" ? userDrainTalkMod : 1.0) * weatherHalfDrain * 1.002; // Factor campo sutil: el visitante acusa levemente el viaje (+0.2%)
 
     // Desgaste físico gradual y acumulación de minutos según atributos físicos (PHY), media (OVR), posición, mentalidad y estilo táctico
     this.homePlayersOnPitch.forEach(p => {
@@ -3289,14 +3289,14 @@ class MatchSimulator {
     const homeDefBonus = this.homeInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.homeInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
     const awayDefBonus = this.awayInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.awayInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
 
-    // Factor Campo: El equipo local cuenta con un sutil empuje ambiental base (+0.7 ATA / +0.6 DEF)
-    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 0.7) * (homeMod.atk + homeAtkBonus);
-    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 0.6) * (homeMod.def + homeDefBonus);
+    // Factor Campo: El equipo local cuenta con un sutil empuje ambiental base (+0.2 ATA / +0.2 DEF)
+    const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 0.2) * (homeMod.atk + homeAtkBonus);
+    const homeDef = (this.calcTeamPower(this.homePlayersOnPitch, "def", "home") + 0.2) * (homeMod.def + homeDefBonus);
     const awayAtk = this.calcTeamPower(this.awayPlayersOnPitch, "atk", "away") * (awayMod.atk + awayAtkBonus);
     const awayDef = this.calcTeamPower(this.awayPlayersOnPitch, "def", "away") * (awayMod.def + awayDefBonus);
 
-    // Disputa de la posesión con impacto de estilo de pase, presión alta y sutil factor campo en la medular (+0.4)
-    const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home") + 0.4;
+    // Disputa de la posesión con impacto de estilo de pase, presión alta y sutil factor campo en la medular (+0.1)
+    const midHome = this.calcTeamPower(this.homePlayersOnPitch, "mid", "home") + 0.1;
     const midAway = this.calcTeamPower(this.awayPlayersOnPitch, "mid", "away");
 
     const wShortBonus = this.weather?.shortPassBonus || 0;
@@ -3315,8 +3315,8 @@ class MatchSimulator {
       else possModAway += this.activeShout.possBonus;
     }
 
-    // Ventaja base ambiental del estadio local en posesión (+1.2% leve y equilibrado)
-    const probHomePoss = Math.max(0.20, Math.min(0.80, (midHome / (midHome + midAway)) + 0.012 + possModHome - possModAway));
+    // Ventaja base ambiental del estadio local en posesión (+0.4% comedido, strictly <= 0.5%)
+    const probHomePoss = Math.max(0.20, Math.min(0.80, (midHome / (midHome + midAway)) + 0.004 + possModHome - possModAway));
 
     let currentPoss = Math.random() < probHomePoss ? "home" : "away";
 
@@ -3371,11 +3371,13 @@ class MatchSimulator {
       this.ball.targetX = 65 + Math.random() * 28;
       this.ball.targetY = ballYTarget;
 
-      // Ocasión de ataque local (con sutil arreón final de la afición local si empata o pierde en el tramo final)
-      const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.008 : 0;
-      let homeChanceMult = 0.145 + lateHomeSurge;
+      // Ocasión de ataque local (con sutil arreón final de la afición local si empata o pierde en el tramo final: +0.3%, strictly <= 0.5%)
+      const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.003 : 0;
+      let homeChanceMult = 0.165 + lateHomeSurge;
       if (this.minute <= 25) homeChanceMult *= 0.85; // Orden táctico, rigor defensivo y máxima energía inicial
-      if (this.homeScore - this.awayScore >= 2) homeChanceMult *= 0.78; // Gestión de ventaja y contemporización de ritmo
+      const leadDiffHome = this.homeScore - this.awayScore;
+      if (leadDiffHome >= 3) homeChanceMult *= 0.35; // Freno natural a goleadas desorbitadas (6-0)
+      else if (leadDiffHome >= 2) homeChanceMult *= 0.60;
 
       if (this.activeShout) {
         if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.15;
@@ -3426,9 +3428,11 @@ class MatchSimulator {
       this.ball.targetX = 35 - Math.random() * 28;
       this.ball.targetY = ballYTargetAway;
 
-      let awayChanceMult = 0.135;
+      let awayChanceMult = 0.155;
       if (this.minute <= 25) awayChanceMult *= 0.85; // Orden táctico, rigor defensivo y máxima energía inicial
-      if (this.awayScore - this.homeScore >= 2) awayChanceMult *= 0.78; // Gestión de ventaja y contemporización de ritmo
+      const leadDiffAway = this.awayScore - this.homeScore;
+      if (leadDiffAway >= 3) awayChanceMult *= 0.35; // Freno natural a goleadas desorbitadas
+      else if (leadDiffAway >= 2) awayChanceMult *= 0.60;
 
       if (this.activeShout) {
         if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.15;
@@ -3795,15 +3799,15 @@ class MatchSimulator {
     const isLongShot = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
     const weatherShotBonus = isLongShot ? (this.weather?.longShotBonus || 0) : ((this.weather?.longShotBonus || 0) * 0.45);
     const userFinishingBonus = (attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 3.5 : 0;
-    const homeGroundShotBonus = isHome ? 0.6 : 0;
-    const lateHomeShotSurge = (isHome && this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.4 : 0;
-    const roarBoost = (attackingSide === "home" && this.activeCrowdRoar) ? 0.7 : 0;
+    const homeGroundShotBonus = isHome ? 0.2 : 0;
+    const lateHomeShotSurge = (isHome && this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.1 : 0;
+    const roarBoost = (attackingSide === "home" && this.activeCrowdRoar) ? 0.2 : 0;
     const shotQuality = shooterSho + weatherShotBonus + userFinishingBonus + homeGroundShotBonus + lateHomeShotSurge + roarBoost + (Math.random() * 26 - 13);
 
     const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
     const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
     const userDefBonus = (defSide === this.userSide && this.weeklyTraining === "defensive") ? 3.5 : 0;
-    const homeGkSaveBonus = (!isHome) ? 0.5 : 0;
+    const homeGkSaveBonus = (!isHome) ? 0.2 : 0;
     const gkSavePower = (gkSkill * gkFitness) + userDefBonus + homeGkSaveBonus + (Math.random() * 24 - 12);
 
     // Presión y taponamiento defensivo en el área (bloqueo por el central)
@@ -3811,8 +3815,8 @@ class MatchSimulator {
     const blockProb = Math.min(0.24, Math.max(0.08, (defBlockSkill - 55) * 0.0055));
     const isDefenderBlock = Math.random() < blockProb;
 
-    // Precisión del remate: en el fútbol profesional ~62% de tiros limpios van a portería
-    const onTargetProb = 0.62 + (isHome ? 0.008 : 0) + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.04 : 0);
+    // Precisión del remate: en el fútbol profesional ~62% de tiros limpios van a portería (+0.3% de local, strictly <= 0.5%)
+    const onTargetProb = 0.62 + (isHome ? 0.003 : 0) + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.04 : 0);
     const onTarget = !isDefenderBlock && (Math.random() < onTargetProb);
 
     let outcome = "GOAL";
@@ -3830,8 +3834,12 @@ class MatchSimulator {
     } else if (!onTarget) {
       outcome = Math.random() < 0.18 ? "POST" : "WIDE";
     } else {
-      // Duelo directo entre rematador y guardameta: si la definición es precisa y potente, bate la estirada
-      if (shotQuality > gkSavePower - 1.5) {
+      // Duelo directo entre rematador y guardameta:
+      // En la élite, un tiro a puerta tiene una probabilidad realista de gol del ~32-38%
+      const skillGap = (shotQuality - gkSavePower) * 0.012;
+      const goalProbOnTarget = Math.max(0.15, Math.min(0.48, 0.35 + skillGap));
+      const isGoal = Math.random() < goalProbOnTarget;
+      if (isGoal) {
         outcome = "GOAL";
       } else {
         outcome = "SAVE";
@@ -5167,16 +5175,16 @@ class MatchSimulator {
       }
     }
 
-    // Factor Campo: El equipo local cuenta con un sutil empuje ambiental equilibrado (+1.2%)
+    // Factor Campo: El equipo local cuenta con un sutil empuje ambiental equilibrado (+0.4%, strictly <= 0.5%)
     if (side === "home") {
-      avgPower *= 1.012;
+      avgPower *= 1.004;
     }
 
-    // Feature B: Aliento de la Grada (Sutil impulso anímico para remontar: ~1.5% promedio)
+    // Feature B: Aliento de la Grada (Sutil impulso anímico para remontar: ~0.4% promedio, strictly <= 0.5%)
     if (this.activeCrowdRoar && side === "home" && this.minute <= this.activeCrowdRoar.expiresAtMinute) {
-      if (type === "atk") avgPower *= 1.018;
-      else if (type === "mid") avgPower *= 1.014;
-      else if (type === "def") avgPower *= 1.010;
+      if (type === "atk") avgPower *= 1.005;
+      else if (type === "mid") avgPower *= 1.004;
+      else if (type === "def") avgPower *= 1.003;
     }
 
     return avgPower;
@@ -14122,7 +14130,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 truncate max-w-[195px]";
         } else if (state.activeCrowdRoar) {
           const left = Math.max(1, (state.activeCrowdRoar.expiresAtMinute || state.minute) - state.minute);
-          boostBadge.textContent = `🏟️ Rugido Grada (+1.5% aliento) (${left}')`;
+          boostBadge.textContent = `🏟️ Rugido Grada (+0.4% aliento) (${left}')`;
           boostBadge.className = "text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400 text-amber-300 animate-pulse truncate max-w-[195px]";
         } else if (state.shoutCooldownUntil > state.minute) {
           const cd = state.shoutCooldownUntil - state.minute;

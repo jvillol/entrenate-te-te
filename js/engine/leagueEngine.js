@@ -211,24 +211,24 @@ export function simulateAIParties(match, teamsMap) {
   const homeStats = getTeamStrength(homeTeam);
   const awayStats = getTeamStrength(awayTeam);
 
-  // Factor campo local (sutil empuje equilibrado de +1.2 puntos efectivos en ataque y defensa)
-  const homeAdvantage = 1.2;
+  // Factor campo local (sutil empuje equilibrado de +0.4 puntos, strictly <= 0.5%)
+  const homeAdvantage = 0.4;
 
   // Diferenciales entre ataque de uno y defensa del otro
   const homeAtkDiff = (homeStats.atk + homeAdvantage) - awayStats.def;
   const awayAtkDiff = awayStats.atk - (homeStats.def + homeAdvantage * 0.65);
-  const midDiff = (homeStats.mid + 0.5) - awayStats.mid;
+  const midDiff = (homeStats.mid + 0.1) - awayStats.mid;
 
   // Azar del fútbol (días inspirados, penaltis, errores o paradas milagrosas)
-  const homeLuck = (Math.random() - Math.random()) * 0.45;
-  const awayLuck = (Math.random() - Math.random()) * 0.45;
+  const homeLuck = (Math.random() - Math.random()) * 0.35;
+  const awayLuck = (Math.random() - Math.random()) * 0.35;
 
-  // Cálculo de goles esperados (Lambda para distribución de Poisson con ventaja local realista)
-  const baseHomeLambda = 1.38 + (homeAtkDiff * 0.046) + (midDiff * 0.02) + homeLuck;
-  const baseAwayLambda = 1.02 + (awayAtkDiff * 0.044) - (midDiff * 0.02) + awayLuck;
+  // Cálculo de goles esperados con techo equilibrado para evitar marcadores desorbitados (6-0)
+  const baseHomeLambda = 1.25 + (homeAtkDiff * 0.038) + (midDiff * 0.015) + homeLuck;
+  const baseAwayLambda = 1.05 + (awayAtkDiff * 0.036) - (midDiff * 0.015) + awayLuck;
 
-  const lambdaHome = Math.max(0.25, Math.min(4.8, baseHomeLambda));
-  const lambdaAway = Math.max(0.15, Math.min(4.2, baseAwayLambda));
+  const lambdaHome = Math.max(0.20, Math.min(2.7, baseHomeLambda));
+  const lambdaAway = Math.max(0.15, Math.min(2.5, baseAwayLambda));
 
   const homeScore = samplePoisson(lambdaHome);
   const awayScore = samplePoisson(lambdaAway);

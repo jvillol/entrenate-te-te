@@ -6609,7 +6609,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           boostBadge.className = "text-[9px] font-bold px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/50 text-sky-300 truncate max-w-[195px]";
         } else if (state.activeCrowdRoar) {
           const left = Math.max(1, (state.activeCrowdRoar.expiresAtMinute || state.minute) - state.minute);
-          boostBadge.textContent = `🏟️ Rugido Grada (+1.5% aliento) (${left}')`;
+          boostBadge.textContent = `🏟️ Rugido Grada (+0.4% aliento) (${left}')`;
           boostBadge.className = "text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400 text-amber-300 animate-pulse truncate max-w-[195px]";
         } else if (state.shoutCooldownUntil > state.minute) {
           const cd = state.shoutCooldownUntil - state.minute;
