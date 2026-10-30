@@ -211,13 +211,13 @@ export function simulateAIParties(match, teamsMap) {
   const homeStats = getTeamStrength(homeTeam);
   const awayStats = getTeamStrength(awayTeam);
 
-  // Factor campo local (+3.3 puntos de poder efectivos en ataque y defensa)
-  const homeAdvantage = 3.3;
+  // Factor campo local (sutil empuje equilibrado de +1.2 puntos efectivos en ataque y defensa)
+  const homeAdvantage = 1.2;
 
   // Diferenciales entre ataque de uno y defensa del otro
   const homeAtkDiff = (homeStats.atk + homeAdvantage) - awayStats.def;
   const awayAtkDiff = awayStats.atk - (homeStats.def + homeAdvantage * 0.65);
-  const midDiff = (homeStats.mid + 1.8) - awayStats.mid;
+  const midDiff = (homeStats.mid + 0.5) - awayStats.mid;
 
   // Azar del fútbol (días inspirados, penaltis, errores o paradas milagrosas)
   const homeLuck = (Math.random() - Math.random()) * 0.45;
