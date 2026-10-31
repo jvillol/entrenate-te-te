@@ -12005,32 +12005,32 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       ctx.stroke();
 
       // Dorsal y apellido en la espalda con escorzo 3D según el giro del cuerpo (como el #20 azul de la imagen)
-      if (isBackView && !isReferee && !isLinesman) {
-        const backScaleX = Math.max(0.42, frontalFactor * 0.95 + 0.18);
-        const backOffsetX = -dirX * 0.85 * sc;
+      if (isBackView && !isReferee && !isLinesman && frontalFactor > 0.34) {
+        const backScaleX = Math.max(0.42, frontalFactor * 0.88 + 0.12);
+        const backOffsetX = -dirX * 0.55 * sc;
         ctx.save();
-        ctx.translate(shCenterX * 0.65 + wCenterX * 0.35 + backOffsetX, shCenterY + 5.4 * sc);
+        ctx.translate(shCenterX * 0.65 + wCenterX * 0.35 + backOffsetX, shCenterY + 5.2 * sc);
         ctx.scale(backScaleX, 1);
 
-        // Nombre corto sobre el dorsal (estilo Premier League)
-        if (name && sc > 0.72) {
-          const surname = name.split(" ").slice(-1)[0].toUpperCase().slice(0, 9);
-          ctx.font = `800 ${Math.max(3.2, Math.round(2.35 * sc))}px sans-serif`;
+        // Nombre corto sobre el dorsal contenido dentro del ancho de los hombros
+        if (name && sc > 0.78 && frontalFactor > 0.48) {
+          const surname = name.split(" ").slice(-1)[0].toUpperCase().slice(0, 8);
+          ctx.font = `800 ${Math.max(2.6, Math.round(2.1 * sc))}px sans-serif`;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           ctx.fillStyle = kit.number || "#ffffff";
-          ctx.fillText(surname, 0, -3.5 * sc);
+          ctx.fillText(surname, 0, -3.2 * sc, 4.4 * sc);
         }
 
         // Dorsal numérico nítido
-        ctx.font = `900 ${Math.max(5.5, Math.round(6.1 * sc))}px "Impact", "Arial Black", sans-serif`;
+        ctx.font = `900 ${Math.max(4.6, Math.round(5.4 * sc))}px "Impact", "Arial Black", sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.strokeStyle = "rgba(15, 23, 42, 0.68)";
-        ctx.lineWidth = Math.max(0.9, 1.2 * sc);
-        ctx.strokeText(`${number}`, 0, 0.8 * sc);
+        ctx.lineWidth = Math.max(0.8, 1.1 * sc);
+        ctx.strokeText(`${number}`, 0, 0.7 * sc, 4.2 * sc);
         ctx.fillStyle = kit.number || "#ffffff";
-        ctx.fillText(`${number}`, 0, 0.8 * sc);
+        ctx.fillText(`${number}`, 0, 0.7 * sc, 4.2 * sc);
         ctx.restore();
       } else if (!isBackView && !isReferee && !isLinesman && !isKeeper && frontalFactor > 0.32) {
         // Detalle de sponsor frontal en el pecho
@@ -12142,21 +12142,23 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       const defKit = isHome ? kits.away : kits.home;
 
       const sc = Math.min(w / 460, h / 290);
+      const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
       const lerp = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
-      const smoothstep = (t) => {
+      const smooth01 = (t) => {
         const c = Math.max(0, Math.min(1, t));
         return c * c * (3 - 2 * c);
       };
+      const smoothstep = smooth01;
 
-      // Seguimiento suave de cámara broadcast conectado a la posición real del balón
+      // Seguimiento suave de cámara broadcast conectado a la posición real del balón (manteniendo siempre la portería encuadrada)
       if (hlData.camU === undefined) {
         const initX = hlData.liveOrigin?.x ?? 50;
         const initY = hlData.liveOrigin?.y ?? 50;
         const initProg = isHome ? (100 - initX) : initX;
-        const initU = Math.max(2, Math.min(42, initProg * 0.68));
-        const initV = Math.max(4, Math.min(62, 3 + (initY / 100) * 58));
-        hlData.camU = Math.max(0, Math.min(16, (initU - 14) * 0.62));
-        hlData.camV = 34 + (initV - 34) * 0.28;
+        const initU = Math.max(2, Math.min(34, initProg * 0.62));
+        const initV = Math.max(6, Math.min(58, 3 + (initY / 100) * 58));
+        hlData.camU = clamp((initU - 14) * 0.25, 0, 4.2);
+        hlData.camV = 34 + clamp((initV - 34) * 0.16, -3.5, 3.5);
       }
       const p3d = (u, v, z = 0) => projectEA3D(u, v, z, w, h, hlData.camU || 0, hlData.camV || 34);
 
@@ -12490,16 +12492,16 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         ctx.stroke();
       };
 
-      // Línea de gol (u = 0), línea de banda lejana (v = 0) y línea de medio campo (u = 36)
+      // Línea de gol (u = 0), línea de banda lejana (v = 0) y línea de medio campo (u = 48)
       drawPitchLine3D(0, 0, 0, 62);
       drawPitchLine3D(0, 0, 56, 0);
-      drawPitchLine3D(36.0, 0, 36.0, 64);
+      drawPitchLine3D(48.0, 0, 48.0, 64);
 
-      // Círculo central en la medular (u = 36.0, v = 34.0, radio 8.5m)
+      // Círculo central en la medular (u = 48.0, v = 34.0, radio 9.15m)
       ctx.beginPath();
       for (let s = 0; s <= 32; s++) {
         const ang = (s / 32) * Math.PI * 2;
-        const cp = p3d(36.0 + Math.cos(ang) * 8.5, 34.0 + Math.sin(ang) * 8.5, 0);
+        const cp = p3d(48.0 + Math.cos(ang) * 9.15, 34.0 + Math.sin(ang) * 9.15, 0);
         if (s === 0) ctx.moveTo(cp.x, cp.y);
         else ctx.lineTo(cp.x, cp.y);
       }
@@ -12675,14 +12677,14 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       // 6. SIMULACIÓN DINÁMICA CONECTADA EN TIEMPO REAL CON LOS 22 JUGADORES DEL CAMPO 2D
       // - u = distancia a línea de gol (0 = portería, 11 = penalti, 16.5 = frontal área, 34..36 = medular)
       // - v = posición lateral (0 = banda lejana sup-dcha, 34 = centro portería, 55..60 = banda cercana inf-izq)
-      const isHomeAtk = hlData.isHome !== false;
-      const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 0.68, 1.2, 54.0);
-      const to3DV = (y2d) => clamp(3.0 + (y2d / 100) * 58.0, 2.5, 60.5);
+      const isHomeAtk = isHome;
+      const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 0.58, 1.5, 34.0);
+      const to3DV = (y2d) => clamp(5.0 + (y2d / 100) * 52.0, 4.5, 57.5);
       const to2DX = (u3d) => {
-        const progX = clamp(u3d / 0.68, 1.5, 98.5);
+        const progX = clamp(u3d / 0.58, 1.5, 98.5);
         return isHomeAtk ? (100 - progX) : progX;
       };
-      const to2DY = (v3d) => clamp(((v3d - 3.0) / 58.0) * 100, 3.0, 97.0);
+      const to2DY = (v3d) => clamp(((v3d - 5.0) / 52.0) * 100, 3.0, 97.0);
 
       const playPattern = hlData.playPattern || "TIKI_TAKA_CENTRAL";
       const seed = hlData.patternSeed !== undefined ? hlData.patternSeed : 0.5;
@@ -12696,8 +12698,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         const origBallX = hlData.liveOrigin?.x ?? simulator?.ball?.x ?? 55;
         const origBallY = hlData.liveOrigin?.y ?? simulator?.ball?.y ?? 50;
 
-        hlData._origBallU = clamp(to3DU(origBallX), 15.0, 38.0);
-        hlData._origBallV = clamp(to3DV(origBallY), 6.0, 56.0);
+        hlData._origBallU = clamp(to3DU(origBallX), 15.0, 29.5);
+        hlData._origBallV = clamp(to3DV(origBallY), 8.0, 52.0);
 
         const pivId = hlData.pivot?.id;
         const pasId = hlData.passer?.id;
@@ -12709,7 +12711,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           let u0 = to3DU(p.x ?? p.curX ?? 50);
           let v0 = to3DV(p.y ?? p.curY ?? 50);
           // Comprimir sutilmente jugadores muy atrasados para que entren en el plano de la jugada
-          if (u0 > 37.5) u0 = 31.0 + (u0 - 37.5) * 0.35;
+          if (u0 > 29.0) u0 = 24.5 + (u0 - 29.0) * 0.45;
           let role = "COMPANION";
           if (p.id === shoId) role = "STRIKER";
           else if (p.id === pasId) role = "PASSER";
@@ -13245,12 +13247,12 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       // 6.8 SEGUIMIENTO DE CÁMARA 3D Y SINCRONIZACIÓN EN VIVO CON EL MOTOR 2D DEL PARTIDO
       {
-        const targetCamU = elapsed < 10.2
-          ? clamp((ballU - 14.0) * 0.72, 0.0, 17.5)
-          : clamp((ballU - 14.0) * 0.25, 0.0, 4.5);
-        const targetCamV = elapsed < 10.2
-          ? clamp((ballV - 34.0) * 0.48, -11.5, 11.5)
-          : clamp((ballV - 34.0) * 0.22, -5.0, 5.0);
+        const targetCamU = elapsed < 9.8
+          ? clamp((ballU - 14.0) * 0.25, 0.0, 4.2)
+          : 0.0;
+        const targetCamV = elapsed < 9.8
+          ? 34.0 + clamp((ballV - 34.0) * 0.16, -3.5, 3.5)
+          : 34.0 + clamp((ballV - 34.0) * 0.08, -1.8, 1.8);
         hlData.camU = lerp(hlData.camU ?? targetCamU, targetCamU, 0.09);
         hlData.camV = lerp(hlData.camV ?? targetCamV, targetCamV, 0.09);
 
