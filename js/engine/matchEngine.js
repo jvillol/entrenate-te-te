@@ -1735,27 +1735,53 @@ export class MatchSimulator {
       }
     }
 
-    // Iniciador del ataque (pivot): el jugador que estaba en la zona o el marcador
+    // Iniciador del ataque (pivot): el jugador que estaba exactamente en la zona del balón o el marcador
     const pivot = manMarkingHero ? manMarkingHero.marker : (atkByProximity[0] || fieldAtk[0]);
+    const pivot2DInit = atk2D.find(p => p.player?.id === pivot.id) || { curX: liveBallX, curY: liveBallY };
 
-    // Pasador / Conductor: según la banda o canal por donde avanza el balón
+    // Pasador / Conductor: elegido orgánicamente según su posición real en el campo respecto al balón y la portería rival
     let passerCandidates = fieldAtk.filter(p => p.id !== pivot.id);
-    if (isFlankLeft) {
-      const flankPreferred = passerCandidates.filter(p => ["EI", "LI", "MI", "MCO"].includes(p.pos));
-      if (flankPreferred.length > 0) passerCandidates = flankPreferred;
-    } else if (isFlankRight) {
-      const flankPreferred = passerCandidates.filter(p => ["ED", "LD", "MD", "MCO"].includes(p.pos));
-      if (flankPreferred.length > 0) passerCandidates = flankPreferred;
-    }
-    const passer = passerCandidates.length > 0 ? passerCandidates[0] : (fieldAtk.find(p => p.id !== pivot.id) || fieldAtk[1] || pivot);
+    passerCandidates.sort((a, b) => {
+      const pA = atk2D.find(item => item.player?.id === a.id);
+      const pB = atk2D.find(item => item.player?.id === b.id);
+      const xA = pA?.curX ?? 50, yA = pA?.curY ?? 50;
+      const xB = pB?.curX ?? 50, yB = pB?.curY ?? 50;
+      // Priorizar jugadores que estén a distancia de pase realista (8-28m) y progresando hacia campo rival
+      const progA = isHome ? (xA - pivot2DInit.curX) : (pivot2DInit.curX - xA);
+      const progB = isHome ? (xB - pivot2DInit.curX) : (pivot2DInit.curX - xB);
+      const distA = Math.hypot(xA - liveBallX, yA - liveBallY);
+      const distB = Math.hypot(xB - liveBallX, yB - liveBallY);
+      const scoreA = -Math.abs(distA - 16) + (progA > -4 ? 10 : -8) + (isFlankLeft && yA < 42 ? 12 : 0) + (isFlankRight && yA > 58 ? 12 : 0);
+      const scoreB = -Math.abs(distB - 16) + (progB > -4 ? 10 : -8) + (isFlankLeft && yB < 42 ? 12 : 0) + (isFlankRight && yB > 58 ? 12 : 0);
+      return scoreB - scoreA;
+    });
+    const passer = passerCandidates[0] || (fieldAtk.find(p => p.id !== pivot.id) || fieldAtk[1] || pivot);
+    const passer2DInit = atk2D.find(p => p.player?.id === passer.id) || { curX: liveBallX, curY: liveBallY };
 
-    // Rematador: Delantero centro o jugador ofensivo libre
+    // Rematador: Jugador ofensivo mejor posicionado en vanguardia o atacando el área desde su coordenada real
     const shooterCandidates = fieldAtk.filter(p => p.id !== pivot.id && p.id !== passer.id);
-    const strikers = shooterCandidates.filter(p => ["DC", "EI", "ED", "MCO"].includes(p.pos));
-    const shooter = (strikers.length > 0 ? strikers[0] : (shooterCandidates[0] || fieldAtk[0]));
+    shooterCandidates.sort((a, b) => {
+      const pA = atk2D.find(item => item.player?.id === a.id);
+      const pB = atk2D.find(item => item.player?.id === b.id);
+      const xA = pA?.curX ?? 50, yA = pA?.curY ?? 50;
+      const xB = pB?.curX ?? 50, yB = pB?.curY ?? 50;
+      const goalDistA = Math.hypot((isHome ? 94 : 6) - xA, 50 - yA);
+      const goalDistB = Math.hypot((isHome ? 94 : 6) - xB, 50 - yB);
+      const roleBonusA = ["DC", "EI", "ED", "MCO"].includes(a.pos) ? 14 : 0;
+      const roleBonusB = ["DC", "EI", "ED", "MCO"].includes(b.pos) ? 14 : 0;
+      return (goalDistA - roleBonusA) - (goalDistB - roleBonusB);
+    });
+    const shooter = shooterCandidates[0] || fieldAtk[0];
 
-    // Apoyo en el área
+    // Apoyo real en la jugada (ordenados por cercanía al eje de ataque)
     const restAtk = fieldAtk.filter(p => p.id !== pivot.id && p.id !== passer.id && p.id !== shooter.id);
+    restAtk.sort((a, b) => {
+      const pA = atk2D.find(item => item.player?.id === a.id);
+      const pB = atk2D.find(item => item.player?.id === b.id);
+      const dA = Math.hypot((pA?.curX ?? 50) - passer2DInit.curX, (pA?.curY ?? 50) - passer2DInit.curY);
+      const dB = Math.hypot((pB?.curX ?? 50) - passer2DInit.curX, (pB?.curY ?? 50) - passer2DInit.curY);
+      return dA - dB;
+    });
     const supportAttacker = restAtk[0] || pivot;
     const atkBox1 = restAtk[1] || supportAttacker;
     const atkBox2 = restAtk[2] || pivot;
@@ -1800,31 +1826,38 @@ export class MatchSimulator {
     const fmtP = (p, role) => `${p.name} (#${p.number}${role?.tag ? ` · ${role.tag}` : ""})`;
     const fmtShort = (p) => `${p.name} (#${p.number})`;
 
-    // 4. COORDENADAS ORGÁNICAS SIN TELETRANSPORTE (NACIDAS DEL BALÓN EN VIVO)
-    // Coordenadas de progresión (midX, midY) avanzando naturalmente desde liveBall
+    // 4. COORDENADAS ORGÁNICAS SIN TELETRANSPORTE (NACIDAS DEL BALÓN Y JUGADORES EN VIVO)
+    const passerStartX = passerItem?.curX ?? liveBallX;
+    const passerStartY = passerItem?.curY ?? liveBallY;
+    const shooterStartX = shooterItem?.curX ?? (isHome ? 78 : 22);
+    const shooterStartY = shooterItem?.curY ?? 50;
+
+    // Coordenadas de progresión (midX, midY) avanzando naturalmente desde la posición real del pasador y del balón
     let midX;
     if (isHome) {
-      midX = Math.min(80, Math.max(62, liveBallX + 16 + Math.random() * 8));
+      midX = Math.min(84, Math.max(60, Math.max(liveBallX + 12, passerStartX + 8) + Math.random() * 6));
     } else {
-      midX = Math.max(20, Math.min(38, liveBallX - 16 - Math.random() * 8));
+      midX = Math.max(16, Math.min(40, Math.min(liveBallX - 12, passerStartX - 8) - Math.random() * 6));
     }
 
-    let midY = liveBallY;
+    let midY = (liveBallY * 0.45 + passerStartY * 0.55);
     if (isFlankLeft) {
-      midY = Math.max(14, Math.min(34, liveBallY + (Math.random() * 6 - 3)));
+      midY = Math.max(10, Math.min(34, midY + (Math.random() * 6 - 3)));
     } else if (isFlankRight) {
-      midY = Math.max(66, Math.min(86, liveBallY + (Math.random() * 6 - 3)));
+      midY = Math.max(66, Math.min(90, midY + (Math.random() * 6 - 3)));
     } else {
-      midY = 44 + Math.random() * 12;
+      midY = Math.max(26, Math.min(74, midY + (Math.random() * 10 - 5)));
     }
 
-    // Coordenadas de remate en el área rival (boxX, boxY)
-    const boxX = isHome ? (86 + Math.random() * 6) : (14 - Math.random() * 6);
-    const boxY = 42 + Math.random() * 16;
+    // Coordenadas de remate en el área rival (boxX, boxY) conectadas al desmarque real del delantero
+    const isLongShot = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
+    const boxX = isHome
+      ? (isLongShot ? (79 + Math.random() * 4) : (85.5 + Math.random() * 6.5))
+      : (isLongShot ? (21 - Math.random() * 4) : (14.5 - Math.random() * 6.5));
+    const boxY = Math.max(35, Math.min(65, shooterStartY * 0.38 + 50 * 0.62 + (Math.random() * 12 - 6)));
 
     // 5. DETERMINAR RESULTADO Y EFECTIVIDAD CON FACTOR CAMPO, CLIMA Y ENTRENAMIENTO
     const shooterSho = shooter.sho !== undefined ? shooter.sho : 75;
-    const isLongShot = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
     const weatherShotBonus = isLongShot ? (this.weather?.longShotBonus || 0) : ((this.weather?.longShotBonus || 0) * 0.45);
     const userFinishingBonus = (attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 3.5 : 0;
     const homeGroundShotBonus = isHome ? 0.2 : 0;
@@ -1960,9 +1993,13 @@ export class MatchSimulator {
     let chanceComment = `⚡ ¡Ocasión construida por ${atkTeam.shortName} (${situationalContext})!`;
     if (isCrowdRoaring) chanceComment = `🔥 ¡Aliento en la grada! ${chanceComment}`;
 
+    const defInst = isHome ? this.awayInstructions : this.homeInstructions;
+    const defMarkingMap = isHome ? this.awayManMarking : this.homeManMarking;
+
     const baseHighlightData = {
       type: "KEY_CHANCE",
       playPattern,
+      situationalContext,
       patternSeed,
       attackingSide,
       atkTeam,
@@ -1985,8 +2022,43 @@ export class MatchSimulator {
       outcome,
       targetCorner,
       wideDirection,
+      liveOrigin: { x: liveBallX, y: liveBallY },
       passStart: { x: midX, y: midY },
       passEnd: { x: boxX, y: boxY },
+      tacticalStyle: {
+        passing: teamInst?.inPossession?.passing || "mixed",
+        width: teamInst?.inPossession?.width || "balanced",
+        tempo: teamInst?.inTempo || "normal",
+        defLine: defInst?.outOfPossession?.defLine || "mid",
+        pressing: defInst?.outOfPossession?.pressing || "mid",
+        manMarking: defMarkingMap ? JSON.parse(JSON.stringify(defMarkingMap)) : {}
+      },
+      liveSnapshot: {
+        atk: atk2D.map(item => ({
+          id: item.player?.id,
+          name: item.player?.name,
+          number: item.number || item.player?.number || 10,
+          pos: item.player?.pos || "MC",
+          isKeeper: Boolean(item.isKeeper || item.player?.pos === "POR"),
+          curX: item.curX ?? 50,
+          curY: item.curY ?? 50,
+          pac: item.player?.pac ?? 75,
+          dri: item.player?.dri ?? 75,
+          pas: item.player?.pas ?? 75,
+          sho: item.player?.sho ?? 75
+        })),
+        def: def2D.map(item => ({
+          id: item.player?.id,
+          name: item.player?.name,
+          number: item.number || item.player?.number || 4,
+          pos: item.player?.pos || "DFC",
+          isKeeper: Boolean(item.isKeeper || item.player?.pos === "POR"),
+          curX: item.curX ?? 50,
+          curY: item.curY ?? 50,
+          def: item.player?.def ?? 75,
+          pac: item.player?.pac ?? 75
+        }))
+      },
       commentary: chanceComment,
       minute: this.minute,
       totalDuration: 15000
