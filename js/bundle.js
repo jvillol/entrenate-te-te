@@ -2126,6 +2126,8 @@ class MatchSimulator {
     this.onHighlightStart = options.onHighlightStart || (() => {});
     this.onHighlightPhase = options.onHighlightPhase || (() => {});
     this.onHighlightEnd = options.onHighlightEnd || (() => {});
+    this.onCommentary = options.onCommentary || (() => {});
+    this.commentaryCooldown = 0;
 
     this.userSide = options.userSide || "home";
     this.aiSide = this.userSide === "home" ? "away" : "home";
@@ -2216,7 +2218,9 @@ class MatchSimulator {
       desiredY: ym,
       aiState: isKeeper ? "GK" : "ANCHOR",
       decisionTimer: Math.random() * 0.45,
+      controlTimer: 0,
       tackleCooldown: 0,
+      speedMps: 0,
       animPhase: Math.random() * Math.PI * 2,
       facingX: side === "home" ? 1 : -1,
       facingZ: 0
@@ -5109,6 +5113,8 @@ class MatchSimulator {
       p.facingX = 1;
       p.facingZ = 0;
       p.decisionTimer = 0.25;
+      p.controlTimer = 0;
+      p.speedMps = 0;
     });
 
     this.away2D.forEach((p, idx) => {
@@ -5127,6 +5133,8 @@ class MatchSimulator {
       p.facingX = -1;
       p.facingZ = 0;
       p.decisionTimer = 0.25;
+      p.controlTimer = 0;
+      p.speedMps = 0;
     });
 
     const kickerList = concedingSide === "home" ? this.home2D : this.away2D;
@@ -5617,13 +5625,20 @@ class MatchSimulator {
     return Math.hypot(px - (ax + t * abx), py - (ay + t * aby));
   }
 
+  _emitCommentary(text, tag = "MATCH ENGINE", minGap = 1.4) {
+    if (!text || this.commentaryCooldown > 0) return;
+    this.commentaryCooldown = minGap;
+    if (this.onCommentary) this.onCommentary(text, tag);
+  }
+
   _syncEntityTo2D(p) {
     p.curX = (p.xm / 105) * 100;
     p.curY = (p.ym / 68) * 100;
     p.targetX = p.curX;
     p.targetY = p.curY;
     const speed = Math.hypot(p.vx, p.vy);
-    if (speed > 0.35) {
+    p.speedMps = speed;
+    if (speed > 0.45) {
       p.facingX = p.vx / speed;
       p.facingZ = p.vy / speed;
       p.animPhase = (p.animPhase || 0) + speed * 0.045;
@@ -5639,7 +5654,7 @@ class MatchSimulator {
   _syncBallTo2D() {
     this.ball.x = (this.ball.xm / 105) * 100;
     this.ball.y = (this.ball.ym / 68) * 100;
-    this.ball.z = Math.max(0, this.ball.zm * 2.2);
+    this.ball.z = Math.max(0, this.ball.zm * 2.75);
     this.ball.targetX = this.ball.x;
     this.ball.targetY = this.ball.y;
     this.ball.targetZ = this.ball.z;
@@ -5775,8 +5790,12 @@ class MatchSimulator {
 
   _launchBallPass(passer, receiver, team) {
     const dist = Math.hypot(receiver.xm - passer.xm, receiver.ym - passer.ym);
+    const lateralDelta = Math.abs(receiver.ym - passer.ym);
+    const isLoftedSwitch = dist > 22 || lateralDelta > 18;
     const passSkill = Number(passer.player?.pas || passer.player?.ovr || 70);
-    const passSpeed = Math.min(26.5, Math.max(12.5, 11.5 + dist * 0.42 + (passSkill - 65) * 0.08));
+    const passSpeed = isLoftedSwitch
+      ? Math.min(25.5, Math.max(13.5, 13.0 + dist * 0.34 + (passSkill - 65) * 0.06))
+      : Math.min(20.5, Math.max(11.5, 10.5 + dist * 0.42 + (passSkill - 65) * 0.06));
     const estFlight = Math.min(1.4, dist / passSpeed);
 
     // Predecir posición futura del receptor
@@ -5785,7 +5804,6 @@ class MatchSimulator {
 
     const dx = leadX - this.ball.xm;
     const dy = leadY - this.ball.ym;
-    const d = Math.hypot(dx, dy) || 1;
 
     // Ligera imprecisión realista según habilidad de pase y presión
     const inaccuracy = Math.max(0.015, (100 - passSkill) * 0.0012);
@@ -5803,10 +5821,23 @@ class MatchSimulator {
     this.ball.pickupCooldown = 0.14;
     this.ball.vx = Math.cos(angle) * passSpeed;
     this.ball.vy = Math.sin(angle) * passSpeed;
-    this.ball.vz = dist > 26 ? Math.min(7.5, dist * 0.16) : (dist > 14 ? 1.4 : 0.25);
+    // Pase raso rueda por el césped; cambio de orientación / centro levanta altura con gravedad
+    this.ball.vz = isLoftedSwitch ? Math.min(8.5, 3.2 + dist * 0.14) : 0.08;
 
     passer.aiState = "SUPPORT";
     passer.decisionTimer = 0.45;
+
+    const pName = passer.player?.name || "Jugador";
+    const rName = receiver.player?.name || "Compañero";
+    const attackDir = team === "home" ? 1 : -1;
+    const forwardGain = (receiver.xm - passer.xm) * attackDir;
+    if (isLoftedSwitch) {
+      this._emitCommentary(`${pName} cambia de orientación buscando a ${rName}`, "CAMBIO DE JUEGO", 1.5);
+    } else if (forwardGain > 5) {
+      this._emitCommentary(`${pName} busca bien los espacios con ${rName}`, "PASES", 1.5);
+    } else {
+      this._emitCommentary(`${pName} combina en corto con ${rName}`, "POSESIÓN", 2.0);
+    }
   }
 
   _launchBallShot(shooter, team) {
@@ -5964,6 +5995,8 @@ class MatchSimulator {
 
     // 4. Conducir hacia portería rival
     carrier.aiState = "DRIBBLE";
+    const cName = carrier.player?.name || "Jugador";
+    this._emitCommentary(`${cName} conduce el balón buscando líneas de pase...`, "CONDUCCIÓN", 2.2);
   }
 
   _updateTeamAI(team, mates, opps, allPlayers, dt) {
@@ -6000,6 +6033,14 @@ class MatchSimulator {
         const anchor = this._computeDynamicAnchor(p, team, true);
 
         if (p === carrierInTeam) {
+          if (p.controlTimer > 0) {
+            // Pausa de control orientado (0.3s) al recibir el balón antes de girar y decidir
+            p.controlTimer = Math.max(0, p.controlTimer - dt);
+            p.aiState = "CONTROL";
+            const pivotX = isHome ? p.xm + 2.5 : p.xm - 2.5;
+            this._steerPlayer(p, pivotX, p.ym, 0.22, dt, allPlayers);
+            continue;
+          }
           p.decisionTimer -= dt;
           if (p.decisionTimer <= 0) {
             // Evaluar cada 0.5s (o 0.28s si está muy presionado)
@@ -6137,10 +6178,12 @@ class MatchSimulator {
       this.ball.lastTouchPlayer = defender;
       this.ball.assistCandidate = null;
       this.ball.pickupCooldown = 0.2;
+      defender.controlTimer = 0.30;
       defender.decisionTimer = 0.35;
       if (defender.player) {
         defender.player.matchTackles = (defender.player.matchTackles || 0) + 1;
       }
+      this._emitCommentary(`¡Gran robo de ${defender.player?.name || "el defensa"} ante ${carrier.player?.name || "el rival"}!`, "ROBO", 1.2);
     } else if (this.foulCooldown <= 0 && Math.random() < 0.09) {
       // Falta física ocasional
       this.foulCooldown = 4.0;
@@ -6428,6 +6471,7 @@ class MatchSimulator {
           if (p.side !== b.passTeam || p === b.passTarget || ballSpeed < 12) {
             const interceptChance = p.side !== b.passTeam ? (ballSpeed > 18 ? 0.62 : 0.85) : 0.94;
             if (Math.random() < interceptChance) {
+              const wasIntercept = b.passTeam && p.side !== b.passTeam;
               b.carrier = p;
               b.passTarget = null;
               b.passTeam = null;
@@ -6435,7 +6479,11 @@ class MatchSimulator {
               b.lastTouchTeam = p.side;
               b.lastTouchPlayer = p;
               b.pickupCooldown = 0.15;
-              p.decisionTimer = p.side !== b.passTeam ? 0.25 : 0.35;
+              p.controlTimer = 0.30;
+              p.decisionTimer = Math.max(0.30, wasIntercept ? 0.32 : 0.38);
+              if (wasIntercept) {
+                this._emitCommentary(`${p.player?.name || "El defensa"} lee la jugada e intercepta el pase`, "INTERCEPCIÓN", 1.2);
+              }
               return;
             }
           }
@@ -6504,6 +6552,7 @@ class MatchSimulator {
 
     const dt = Math.min(0.05, Math.max(0.001, rawDt || 0.016));
     if (this.foulCooldown > 0) this.foulCooldown = Math.max(0, this.foulCooldown - dt);
+    if (this.commentaryCooldown > 0) this.commentaryCooldown = Math.max(0, this.commentaryCooldown - dt);
 
     const physScale = this.speed >= 4 ? 2.5 : (this.speed >= 2 ? 1.65 : 1.0);
     const simDt = dt * physScale;
@@ -10591,6 +10640,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       awayManMarking: !isUserHome ? (gameState.userTactics.manMarking || {}) : {},
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
+      onCommentary: (text, badge) => {
+        if (!currentHighlightData && !isKickoffInProgress) {
+          updateFMCommentary(text, badge || "MATCH ENGINE");
+        }
+      },
       onGoal: (goalData) => handleGoalSequence(goalData),
       onHalfTime: (htState) => handleHalfTimeSequence(htState),
       onSubstitution: (subData) => handleSubstitutionChyron(subData),
@@ -15558,6 +15612,58 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         // Escala global esbelta y visible en cámara de TV
         bodyGroup.scale.set(1.18, 1.18, 1.18);
 
+        // Etiqueta flotante con el nombre (visible solo en portador o receptor del pase)
+        const buildNameTagTexture = (rawName, teamSide) => {
+          const nc = document.createElement("canvas");
+          nc.width = 320;
+          nc.height = 76;
+          const ng = nc.getContext("2d");
+          const parts = String(rawName || "Jugador").trim().split(/\s+/);
+          const shortLabel = parts.length > 1 ? `${parts[0][0]}. ${parts.slice(1).join(" ")}` : parts[0];
+          const accent = teamSide === "home" ? (homeTeam.primaryColor || "#ef4444") : (awayTeam.primaryColor || "#3b82f6");
+
+          ng.fillStyle = "rgba(15, 23, 42, 0.88)";
+          ng.strokeStyle = accent;
+          ng.lineWidth = 4;
+          const rx = 10, ry = 10, rw = 300, rh = 56, rad = 16;
+          ng.beginPath();
+          ng.moveTo(rx + rad, ry);
+          ng.lineTo(rx + rw - rad, ry);
+          ng.quadraticCurveTo(rx + rw, ry, rx + rw, ry + rad);
+          ng.lineTo(rx + rw, ry + rh - rad);
+          ng.quadraticCurveTo(rx + rw, ry + rh, rx + rw - rad, ry + rh);
+          ng.lineTo(rx + rad, ry + rh);
+          ng.quadraticCurveTo(rx, ry + rh, rx, ry + rh - rad);
+          ng.lineTo(rx, ry + rad);
+          ng.quadraticCurveTo(rx, ry, rx + rad, ry);
+          ng.closePath();
+          ng.fill();
+          ng.stroke();
+
+          ng.fillStyle = "#ffffff";
+          ng.font = "bold 28px Inter, system-ui, sans-serif";
+          ng.textAlign = "center";
+          ng.textBaseline = "middle";
+          ng.fillText(shortLabel.slice(0, 18), 160, 39);
+
+          const tex = new THREE.CanvasTexture(nc);
+          tex.minFilter = THREE.LinearFilter;
+          return trackTex(tex);
+        };
+
+        const nameSpriteMat = trackMat(new THREE.SpriteMaterial({
+          map: buildNameTagTexture(pData.player?.name || `#${pData.number}`, side),
+          transparent: true,
+          depthTest: false,
+          depthWrite: false
+        }));
+        const nameSprite = new THREE.Sprite(nameSpriteMat);
+        nameSprite.position.set(0, 3.05, 0);
+        nameSprite.scale.set(3.4, 0.82, 1);
+        nameSprite.visible = false;
+        nameSprite.renderOrder = 20;
+        root.add(nameSprite);
+
         scene.add(root);
         return {
           root,
@@ -15568,6 +15674,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           leftArm,
           rightArm,
           carrierRing,
+          nameSprite,
+          nameSpriteMat,
+          buildNameTagTexture,
+          lastLabelName: pData.player?.name || `#${pData.number}`,
           jerseyMat,
           side,
           lastNumber: pData.number,
@@ -15718,9 +15828,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         // Posición 3D del balón
         const ballWX = simToWorldX(simulator.ball.x);
         const ballWZ = simToWorldZ(simulator.ball.y);
-        // Si el balón se desplaza rápido en un pase largo o centro, añadir parábola natural
+        // En simulación continua real, usar la altura física exacta (pases rasos ruedan; cambios/centros levantan vuelo)
         const distToTarget = Math.hypot((simulator.ball.targetX ?? simulator.ball.x) - simulator.ball.x, (simulator.ball.targetY ?? simulator.ball.y) - simulator.ball.y);
-        const autoArcY = (!currentHighlightData && distToTarget > 6.5) ? Math.min(2.6, (distToTarget - 6.5) * 0.14) : 0;
+        const autoArcY = (!simulator.useRealTime && !currentHighlightData && distToTarget > 6.5) ? Math.min(2.6, (distToTarget - 6.5) * 0.14) : 0;
         const ballWY = ballRadius + Math.max(simToWorldY(simulator.ball.z), autoArcY);
 
         const bvx = ballWX - prevBallWX;
@@ -15737,13 +15847,18 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         ballGroundShadow.scale.set(heightScale, heightScale, 1);
         ballShadowMat.opacity = Math.max(0.14, 0.48 * heightScale);
 
+        // Jugador focal: quien conduce o, en cuanto suelta el pase, el receptor objetivo
+        const focusPlayer = simulator.useRealTime
+          ? (simulator.ball.carrier || simulator.ball.passTarget || (minLiveDist < 4.5 ? closestLiveP : null))
+          : (minLiveDist < 5.8 ? closestLiveP : null);
+
         // Actualizar los 22 jugadores 3D (11 Locales + 11 Visitantes)
         const syncTeamModels = (simArr, modelsArr) => {
           simArr.forEach((p, idx) => {
             const m = modelsArr[idx];
             if (!m) return;
 
-            // Si hubo sustitución y cambió el dorsal, actualizar textura de camiseta
+            // Si hubo sustitución y cambió el dorsal o nombre, actualizar texturas
             if (p.number && p.number !== m.lastNumber) {
               m.lastNumber = p.number;
               const kit = m.side === "home" ? kits.home : kits.away;
@@ -15752,6 +15867,12 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               const numHex = m.isKeeper ? "#0f172a" : (kit.number || "#ffffff");
               m.jerseyMat.map = getJerseyTexture(jerseyHex, collarHex, numHex, p.number, m.isKeeper);
               m.jerseyMat.needsUpdate = true;
+            }
+            const curName = p.player?.name || `#${p.number}`;
+            if (m.nameSpriteMat && curName !== m.lastLabelName) {
+              m.lastLabelName = curName;
+              m.nameSpriteMat.map = m.buildNameTagTexture(curName, m.side);
+              m.nameSpriteMat.needsUpdate = true;
             }
 
             const wx = simToWorldX(p.curX);
@@ -15766,9 +15887,19 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
             m.root.position.set(wx, wy, wz);
 
-            // Orientación suave 360° (mira hacia donde corre, o hacia el balón si está parado)
+            // Orientación corporal suave (lerp del ángulo): mira hacia donde corre o hacia el balón si está perfilado/esperando
             let targetYaw = m.yaw;
-            if (speed > 0.018) {
+            if (simulator.useRealTime && p.facingX !== undefined && p.facingZ !== undefined) {
+              if ((p.speedMps || 0) > 0.45) {
+                targetYaw = Math.atan2(p.facingX, p.facingZ);
+              } else {
+                const dbx = ballWX - wx;
+                const dbz = ballWZ - wz;
+                if (Math.hypot(dbx, dbz) > 0.15) {
+                  targetYaw = Math.atan2(dbx, dbz);
+                }
+              }
+            } else if (speed > 0.018) {
               targetYaw = Math.atan2(vx, vz);
             } else {
               const dbx = ballWX - wx;
@@ -15778,13 +15909,16 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               }
             }
             const angleDiff = Math.atan2(Math.sin(targetYaw - m.yaw), Math.cos(targetYaw - m.yaw));
-            m.yaw += angleDiff * 0.24;
+            m.yaw += angleDiff * 0.14;
             m.bodyGroup.rotation.y = m.yaw;
 
-            // Aro indicador bajo el jugador que lleva el balón
-            const isCarrier = (p === closestLiveP && minLiveDist < 5.8);
-            m.carrierRing.visible = isCarrier;
-            if (isCarrier) {
+            // Aro indicador y etiqueta flotante solo sobre portador o receptor del pase
+            const isFocus = (p === focusPlayer);
+            m.carrierRing.visible = isFocus;
+            if (m.nameSprite) {
+              m.nameSprite.visible = isFocus;
+            }
+            if (isFocus) {
               const pulse = 1 + Math.sin(nowSec * 8) * 0.08;
               m.carrierRing.scale.set(pulse, pulse, 1);
             }
@@ -15895,21 +16029,21 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           targetLookY = 0.8;
           targetLookZ = ballWZ * 0.48;
         } else {
-          // "broadcast" (Por defecto): Cámara TV en Y: 28, Z: 42 con desplazamiento suave X/Z y zoom en áreas
-          targetCamX = ballWX * (0.78 + zoomFactor * 0.12);
-          targetCamY = 28 - zoomFactor * 5.2; // Baja suavemente de 28 hacia ~22.8 en el área
-          targetCamZ = (42 - zoomFactor * 6.5) + ballWZ * 0.25; // Se acerca de Z: 42 hacia ~35.5 y acompaña Z del balón
-          targetFov = 38 - zoomFactor * 4.2;  // Ligero zoom óptico al acercarse a las áreas
+          // "broadcast" (Por defecto): Cámara TV de análisis táctico (plano abierto 12-14+ jugadores)
+          targetCamX = ballWX * (0.68 + zoomFactor * 0.12);
+          targetCamY = 34 - zoomFactor * 4.5;
+          targetCamZ = (52 - zoomFactor * 6.0) + ballWZ * 0.20;
+          targetFov = 42 - zoomFactor * 3.5;
 
-          // Al acercarse al área, encuadra el área y la portería 3D atacada
-          const goalFocusX = ballWX >= 0 ? (PITCH_L / 2 - 1.5) : (-PITCH_L / 2 + 1.5);
-          targetLookX = ballWX * (1 - zoomFactor * 0.35) + goalFocusX * (zoomFactor * 0.35);
-          targetLookY = 0.85 + Math.min(1.5, (ballWY - ballRadius) * 0.25);
-          targetLookZ = ballWZ * 0.38 - 3.8 * (1 - zoomFactor * 0.45);
+          // Encuadrar líneas tácticas de defensa y mediocampo
+          const goalFocusX = ballWX >= 0 ? (PITCH_L / 2 - 2.0) : (-PITCH_L / 2 + 2.0);
+          targetLookX = ballWX * (1 - zoomFactor * 0.30) + goalFocusX * (zoomFactor * 0.30);
+          targetLookY = 0.8 + Math.min(1.2, (ballWY - ballRadius) * 0.22);
+          targetLookZ = ballWZ * 0.32 - 2.5 * (1 - zoomFactor * 0.45);
         }
 
-        // Interpolación suave (lerp) de posición, objetivo lookAt y FOV
-        const camLerp = currentHighlightData ? 0.15 : 0.12;
+        // Interpolación muy suave (factor 0.04) para evitar tirones en pases rápidos
+        const camLerp = currentHighlightData ? 0.14 : 0.04;
         camera.position.x += (targetCamX - camera.position.x) * camLerp;
         camera.position.y += (targetCamY - camera.position.y) * camLerp;
         camera.position.z += (targetCamZ - camera.position.z) * camLerp;
@@ -16013,8 +16147,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         }
       });
 
-      // Actualizar rótulo FM inferior cuando cambia el portador del balón
-      if (closestLiveP && minLiveDist < 5.0 && closestLiveP.player?.name) {
+      // Actualizar rótulo FM inferior cuando cambia el portador del balón (solo modo legacy; en tiempo real lo emite el motor)
+      if (!simulator.useRealTime && closestLiveP && minLiveDist < 5.0 && closestLiveP.player?.name) {
         if (lastCarrierPlayerId !== closestLiveP.player.id && !currentHighlightData && simulator.isRunning && !isKickoffInProgress) {
           lastCarrierPlayerId = closestLiveP.player.id;
           const pSide = closestLiveP.side === "home" ? (homeTeam.shortName || homeTeam.name) : (awayTeam.shortName || awayTeam.name);

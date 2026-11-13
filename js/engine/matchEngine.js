@@ -154,6 +154,8 @@ export class MatchSimulator {
     this.onHighlightStart = options.onHighlightStart || (() => {});
     this.onHighlightPhase = options.onHighlightPhase || (() => {});
     this.onHighlightEnd = options.onHighlightEnd || (() => {});
+    this.onCommentary = options.onCommentary || (() => {});
+    this.commentaryCooldown = 0;
 
     this.userSide = options.userSide || "home";
     this.aiSide = this.userSide === "home" ? "away" : "home";
@@ -244,7 +246,9 @@ export class MatchSimulator {
       desiredY: ym,
       aiState: isKeeper ? "GK" : "ANCHOR",
       decisionTimer: Math.random() * 0.45,
+      controlTimer: 0,
       tackleCooldown: 0,
+      speedMps: 0,
       animPhase: Math.random() * Math.PI * 2,
       facingX: side === "home" ? 1 : -1,
       facingZ: 0
@@ -3137,6 +3141,8 @@ export class MatchSimulator {
       p.facingX = 1;
       p.facingZ = 0;
       p.decisionTimer = 0.25;
+      p.controlTimer = 0;
+      p.speedMps = 0;
     });
 
     this.away2D.forEach((p, idx) => {
@@ -3155,6 +3161,8 @@ export class MatchSimulator {
       p.facingX = -1;
       p.facingZ = 0;
       p.decisionTimer = 0.25;
+      p.controlTimer = 0;
+      p.speedMps = 0;
     });
 
     const kickerList = concedingSide === "home" ? this.home2D : this.away2D;
@@ -3645,13 +3653,20 @@ export class MatchSimulator {
     return Math.hypot(px - (ax + t * abx), py - (ay + t * aby));
   }
 
+  _emitCommentary(text, tag = "MATCH ENGINE", minGap = 1.4) {
+    if (!text || this.commentaryCooldown > 0) return;
+    this.commentaryCooldown = minGap;
+    if (this.onCommentary) this.onCommentary(text, tag);
+  }
+
   _syncEntityTo2D(p) {
     p.curX = (p.xm / 105) * 100;
     p.curY = (p.ym / 68) * 100;
     p.targetX = p.curX;
     p.targetY = p.curY;
     const speed = Math.hypot(p.vx, p.vy);
-    if (speed > 0.35) {
+    p.speedMps = speed;
+    if (speed > 0.45) {
       p.facingX = p.vx / speed;
       p.facingZ = p.vy / speed;
       p.animPhase = (p.animPhase || 0) + speed * 0.045;
@@ -3667,7 +3682,7 @@ export class MatchSimulator {
   _syncBallTo2D() {
     this.ball.x = (this.ball.xm / 105) * 100;
     this.ball.y = (this.ball.ym / 68) * 100;
-    this.ball.z = Math.max(0, this.ball.zm * 2.2);
+    this.ball.z = Math.max(0, this.ball.zm * 2.75);
     this.ball.targetX = this.ball.x;
     this.ball.targetY = this.ball.y;
     this.ball.targetZ = this.ball.z;
@@ -3803,8 +3818,12 @@ export class MatchSimulator {
 
   _launchBallPass(passer, receiver, team) {
     const dist = Math.hypot(receiver.xm - passer.xm, receiver.ym - passer.ym);
+    const lateralDelta = Math.abs(receiver.ym - passer.ym);
+    const isLoftedSwitch = dist > 22 || lateralDelta > 18;
     const passSkill = Number(passer.player?.pas || passer.player?.ovr || 70);
-    const passSpeed = Math.min(26.5, Math.max(12.5, 11.5 + dist * 0.42 + (passSkill - 65) * 0.08));
+    const passSpeed = isLoftedSwitch
+      ? Math.min(25.5, Math.max(13.5, 13.0 + dist * 0.34 + (passSkill - 65) * 0.06))
+      : Math.min(20.5, Math.max(11.5, 10.5 + dist * 0.42 + (passSkill - 65) * 0.06));
     const estFlight = Math.min(1.4, dist / passSpeed);
 
     // Predecir posición futura del receptor
@@ -3813,7 +3832,6 @@ export class MatchSimulator {
 
     const dx = leadX - this.ball.xm;
     const dy = leadY - this.ball.ym;
-    const d = Math.hypot(dx, dy) || 1;
 
     // Ligera imprecisión realista según habilidad de pase y presión
     const inaccuracy = Math.max(0.015, (100 - passSkill) * 0.0012);
@@ -3831,10 +3849,23 @@ export class MatchSimulator {
     this.ball.pickupCooldown = 0.14;
     this.ball.vx = Math.cos(angle) * passSpeed;
     this.ball.vy = Math.sin(angle) * passSpeed;
-    this.ball.vz = dist > 26 ? Math.min(7.5, dist * 0.16) : (dist > 14 ? 1.4 : 0.25);
+    // Pase raso rueda por el césped; cambio de orientación / centro levanta altura con gravedad
+    this.ball.vz = isLoftedSwitch ? Math.min(8.5, 3.2 + dist * 0.14) : 0.08;
 
     passer.aiState = "SUPPORT";
     passer.decisionTimer = 0.45;
+
+    const pName = passer.player?.name || "Jugador";
+    const rName = receiver.player?.name || "Compañero";
+    const attackDir = team === "home" ? 1 : -1;
+    const forwardGain = (receiver.xm - passer.xm) * attackDir;
+    if (isLoftedSwitch) {
+      this._emitCommentary(`${pName} cambia de orientación buscando a ${rName}`, "CAMBIO DE JUEGO", 1.5);
+    } else if (forwardGain > 5) {
+      this._emitCommentary(`${pName} busca bien los espacios con ${rName}`, "PASES", 1.5);
+    } else {
+      this._emitCommentary(`${pName} combina en corto con ${rName}`, "POSESIÓN", 2.0);
+    }
   }
 
   _launchBallShot(shooter, team) {
@@ -3992,6 +4023,8 @@ export class MatchSimulator {
 
     // 4. Conducir hacia portería rival
     carrier.aiState = "DRIBBLE";
+    const cName = carrier.player?.name || "Jugador";
+    this._emitCommentary(`${cName} conduce el balón buscando líneas de pase...`, "CONDUCCIÓN", 2.2);
   }
 
   _updateTeamAI(team, mates, opps, allPlayers, dt) {
@@ -4028,6 +4061,14 @@ export class MatchSimulator {
         const anchor = this._computeDynamicAnchor(p, team, true);
 
         if (p === carrierInTeam) {
+          if (p.controlTimer > 0) {
+            // Pausa de control orientado (0.3s) al recibir el balón antes de girar y decidir
+            p.controlTimer = Math.max(0, p.controlTimer - dt);
+            p.aiState = "CONTROL";
+            const pivotX = isHome ? p.xm + 2.5 : p.xm - 2.5;
+            this._steerPlayer(p, pivotX, p.ym, 0.22, dt, allPlayers);
+            continue;
+          }
           p.decisionTimer -= dt;
           if (p.decisionTimer <= 0) {
             // Evaluar cada 0.5s (o 0.28s si está muy presionado)
@@ -4165,10 +4206,12 @@ export class MatchSimulator {
       this.ball.lastTouchPlayer = defender;
       this.ball.assistCandidate = null;
       this.ball.pickupCooldown = 0.2;
+      defender.controlTimer = 0.30;
       defender.decisionTimer = 0.35;
       if (defender.player) {
         defender.player.matchTackles = (defender.player.matchTackles || 0) + 1;
       }
+      this._emitCommentary(`¡Gran robo de ${defender.player?.name || "el defensa"} ante ${carrier.player?.name || "el rival"}!`, "ROBO", 1.2);
     } else if (this.foulCooldown <= 0 && Math.random() < 0.09) {
       // Falta física ocasional
       this.foulCooldown = 4.0;
@@ -4456,6 +4499,7 @@ export class MatchSimulator {
           if (p.side !== b.passTeam || p === b.passTarget || ballSpeed < 12) {
             const interceptChance = p.side !== b.passTeam ? (ballSpeed > 18 ? 0.62 : 0.85) : 0.94;
             if (Math.random() < interceptChance) {
+              const wasIntercept = b.passTeam && p.side !== b.passTeam;
               b.carrier = p;
               b.passTarget = null;
               b.passTeam = null;
@@ -4463,7 +4507,11 @@ export class MatchSimulator {
               b.lastTouchTeam = p.side;
               b.lastTouchPlayer = p;
               b.pickupCooldown = 0.15;
-              p.decisionTimer = p.side !== b.passTeam ? 0.25 : 0.35;
+              p.controlTimer = 0.30;
+              p.decisionTimer = Math.max(0.30, wasIntercept ? 0.32 : 0.38);
+              if (wasIntercept) {
+                this._emitCommentary(`${p.player?.name || "El defensa"} lee la jugada e intercepta el pase`, "INTERCEPCIÓN", 1.2);
+              }
               return;
             }
           }
@@ -4532,6 +4580,7 @@ export class MatchSimulator {
 
     const dt = Math.min(0.05, Math.max(0.001, rawDt || 0.016));
     if (this.foulCooldown > 0) this.foulCooldown = Math.max(0, this.foulCooldown - dt);
+    if (this.commentaryCooldown > 0) this.commentaryCooldown = Math.max(0, this.commentaryCooldown - dt);
 
     const physScale = this.speed >= 4 ? 2.5 : (this.speed >= 2 ? 1.65 : 1.0);
     const simDt = dt * physScale;
