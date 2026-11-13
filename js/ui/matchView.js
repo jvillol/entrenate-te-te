@@ -4543,6 +4543,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (!hlData.animStartTime) hlData.animStartTime = now;
       const elapsed = (now - hlData.animStartTime) / 1000;
 
+      // Córneres, faltas y penaltis en 3D: interpolar posiciones físicas reales del balón parado
+      if (hlData.isSetPiece) {
+        simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.14;
+        simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.14;
+        simulator.ball.z = (simulator.ball.z || 0) + ((simulator.ball.targetZ || 0) - (simulator.ball.z || 0)) * 0.14;
+        simulator.home2D.forEach(p => {
+          p.curX += (p.targetX - p.curX) * 0.14;
+          p.curY += (p.targetY - p.curY) * 0.14;
+          p.curZ = (p.curZ || 0) * 0.85;
+          p.hlPose = null;
+        });
+        simulator.away2D.forEach(p => {
+          p.curX += (p.targetX - p.curX) * 0.14;
+          p.curY += (p.targetY - p.curY) * 0.14;
+          p.curZ = (p.curZ || 0) * 0.85;
+          p.hlPose = null;
+        });
+        if (onlyUpdateState) return;
+      }
+
       const outcome = hlData.outcome || "GOAL";
       const targetCorner = hlData.targetCorner || "TOP_RIGHT";
       const wideDirection = hlData.wideDirection || (targetCorner.includes("LEFT") ? "LEFT" : "RIGHT");
@@ -7422,32 +7442,43 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           return;
         }
       } else {
-        // Tramos normales del partido: mostrar simulación táctica con fichas en 2D
+        // Tramos normales del partido: mostrar simulación táctica con fichas en 2D usando Utility AI
         if (canvas3d) canvas3d.style.display = "none";
         canvas.style.display = "block";
 
-        // Interpolación continua y suave del balón en el juego en vivo 2D
-        simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
-        simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.16;
-        if (simulator.ball.targetZ !== undefined) {
-          simulator.ball.z = (simulator.ball.z || 0) + (simulator.ball.targetZ - (simulator.ball.z || 0)) * 0.18;
-        } else {
-          simulator.ball.z = (simulator.ball.z || 0) * 0.85;
-        }
+        const nowTs = typeof performance !== "undefined" ? performance.now() : Date.now();
+        const rawDt = lastRealTimeTs !== null ? (nowTs - lastRealTimeTs) / 1000 : 0.016;
+        lastRealTimeTs = nowTs;
+        const dt = Math.min(0.05, Math.max(0.001, rawDt));
 
-        // Interpolación de posiciones de los 22 futbolistas en 2D
-        simulator.home2D.forEach(p => {
-          p.curX += (p.targetX - p.curX) * 0.14;
-          p.curY += (p.targetY - p.curY) * 0.14;
-          p.curZ = (p.curZ || 0) * 0.82;
-          p.hlPose = null;
-        });
-        simulator.away2D.forEach(p => {
-          p.curX += (p.targetX - p.curX) * 0.14;
-          p.curY += (p.targetY - p.curY) * 0.14;
-          p.curZ = (p.curZ || 0) * 0.82;
-          p.hlPose = null;
-        });
+        if (!isKickoffInProgress && typeof simulator.stepTactical2D === "function" && simulator.isRunning && !simulator.isSetPieceRunning) {
+          simulator.stepTactical2D(dt);
+          simulator.home2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
+          simulator.away2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
+        } else {
+          // Interpolación continua y suave del balón en el juego en vivo 2D
+          simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
+          simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.16;
+          if (simulator.ball.targetZ !== undefined) {
+            simulator.ball.z = (simulator.ball.z || 0) + (simulator.ball.targetZ - (simulator.ball.z || 0)) * 0.18;
+          } else {
+            simulator.ball.z = (simulator.ball.z || 0) * 0.85;
+          }
+
+          // Interpolación de posiciones de los 22 futbolistas en 2D
+          simulator.home2D.forEach(p => {
+            p.curX += (p.targetX - p.curX) * 0.14;
+            p.curY += (p.targetY - p.curY) * 0.14;
+            p.curZ = (p.curZ || 0) * 0.82;
+            p.hlPose = null;
+          });
+          simulator.away2D.forEach(p => {
+            p.curX += (p.targetX - p.curX) * 0.14;
+            p.curY += (p.targetY - p.curY) * 0.14;
+            p.curZ = (p.curZ || 0) * 0.82;
+            p.hlPose = null;
+          });
+        }
       }
 
       // Buscar al futbolista que conduce o disputa el balón
