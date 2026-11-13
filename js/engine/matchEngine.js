@@ -299,8 +299,12 @@ export class MatchSimulator {
       this.setPieceTimeouts.forEach(clearTimeout);
       this.setPieceTimeouts = [];
     }
+    const wasVisualActive = this.isHighlightRunning || this.isSetPieceRunning;
     this.isHighlightRunning = false;
     this.isSetPieceRunning = false;
+    if (wasVisualActive && this.onHighlightEnd) {
+      this.onHighlightEnd();
+    }
   }
 
   start() {
@@ -875,14 +879,21 @@ export class MatchSimulator {
     benchList.splice(benchIndex, 1);
     benchList.push(outPlayer);
 
+    const target2D = isHome ? this.home2D[pitchIndex] : this.away2D[pitchIndex];
     if (isHome) {
       this.homeSubsRemaining--;
       if (!isHalfTime) this.homeWindowsRemaining--;
-      this.home2D[pitchIndex].player = inPlayer;
     } else {
       this.awaySubsRemaining--;
       if (!isHalfTime) this.awayWindowsRemaining--;
-      this.away2D[pitchIndex].player = inPlayer;
+    }
+    if (target2D) {
+      const pac = Number(inPlayer.pac || inPlayer.ovr || 70);
+      const dri = Number(inPlayer.dri || inPlayer.ovr || 70);
+      target2D.player = inPlayer;
+      target2D.number = inPlayer.number || (pitchIndex + 1);
+      target2D.maxSpeed = target2D.isKeeper ? 5.8 + (pac - 50) * 0.025 : 6.4 + (pac - 50) * 0.045;
+      target2D.acceleration = target2D.isKeeper ? 13.5 : 15.0 + ((pac + dri) * 0.5 - 50) * 0.12;
     }
 
     this.triggerAlert("CAMBIO", `🔄 Cambio: entra ${inPlayer.name} por ${outPlayer.name}`, isHome ? "home" : "away");
@@ -2355,6 +2366,7 @@ export class MatchSimulator {
         const goalCompletion = () => {
           this.isHighlightRunning = false;
           this.speed = this.userSpeed;
+          this._sync2DToMeters();
           if (!this.isSkippingToEnd && this.onHighlightEnd) {
             this.onHighlightEnd({
               outcome: "GOAL",
@@ -2524,6 +2536,7 @@ export class MatchSimulator {
       this.highlightTimeouts = [];
     }
 
+    this._sync2DToMeters();
     if (this.onHighlightEnd) {
       this.onHighlightEnd({
         outcome,
@@ -3081,6 +3094,7 @@ export class MatchSimulator {
 
         // Reposicionar a los 22 futbolistas a sus posiciones dinámicas de juego
         this.update2DPositions();
+        this._sync2DToMeters();
 
         // Comprobar descanso reglamentario
         if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
@@ -3528,8 +3542,12 @@ export class MatchSimulator {
     this.halfTimeTriggered = true;
     this.isHalfTime = false;
     this.isSecondHalf = true;
+    const wasVisualActive = this.isHighlightRunning || this.isSetPieceRunning;
     this.isHighlightRunning = false;
     this.isSetPieceRunning = false;
+    if (wasVisualActive && this.onHighlightEnd) {
+      this.onHighlightEnd();
+    }
     this.pauseRequested = false;
 
     let safetyGuard = 0;
@@ -3549,8 +3567,12 @@ export class MatchSimulator {
     this.clearAllTimeouts();
     this.minute = this.maxMinutes;
     this.isRunning = false;
+    const wasVisualActive = this.isHighlightRunning || this.isSetPieceRunning;
     this.isHighlightRunning = false;
     this.isSetPieceRunning = false;
+    if (wasVisualActive && this.onHighlightEnd) {
+      this.onHighlightEnd();
+    }
     this.isFinished = true;
 
     // Bonus de valoración final por portería a cero (Clean Sheet) y victoria
@@ -3679,6 +3701,44 @@ export class MatchSimulator {
     if (!text || this.commentaryCooldown > 0) return;
     this.commentaryCooldown = minGap;
     if (this.onCommentary) this.onCommentary(text, tag);
+  }
+
+  _sync2DToMeters() {
+    const syncArr = (arr) => {
+      for (let i = 0; i < arr.length; i++) {
+        const p = arr[i];
+        p.xm = Math.max(0.4, Math.min(104.6, ((p.curX ?? 50) / 100) * 105));
+        p.ym = Math.max(0.4, Math.min(67.6, ((p.curY ?? 50) / 100) * 68));
+        p.vx = 0;
+        p.vy = 0;
+        p.speedMps = 0;
+        p.controlTimer = 0;
+      }
+    };
+    syncArr(this.home2D);
+    syncArr(this.away2D);
+
+    if (this.ball) {
+      this.ball.xm = Math.max(0.5, Math.min(104.5, ((this.ball.x ?? 50) / 100) * 105));
+      this.ball.ym = Math.max(0.5, Math.min(67.5, ((this.ball.y ?? 50) / 100) * 68));
+      this.ball.zm = Math.max(0, (this.ball.z ?? 0) / 2.75);
+      this.ball.vx = 0;
+      this.ball.vy = 0;
+      this.ball.vz = 0;
+      this.ball.passTarget = null;
+      this.ball.passTeam = null;
+      this.ball.shotTeam = null;
+      this.ball.shotMeta = null;
+      const possList = this.ball.possession === "away" ? this.away2D : this.home2D;
+      let nearest = null;
+      let minD = 999;
+      for (let i = 0; i < possList.length; i++) {
+        const d = Math.hypot(possList[i].xm - this.ball.xm, possList[i].ym - this.ball.ym);
+        if (d < minD) { minD = d; nearest = possList[i]; }
+      }
+      this.ball.carrier = nearest;
+      if (nearest) nearest.decisionTimer = 0.25;
+    }
   }
 
   _syncEntityTo2D(p) {
@@ -3956,21 +4016,23 @@ export class MatchSimulator {
     const shotSpeed = 23.0 + (sho - 60) * 0.16 + Math.random() * 3.5;
 
     const onTargetAim = aimY >= 30.34 && aimY <= 37.66;
-    if (isHome) {
-      this.stats.shots.home += 1;
-      if (onTargetAim) this.stats.shotsOnTarget.home += 1;
-    } else {
-      this.stats.shots.away += 1;
-      if (onTargetAim) this.stats.shotsOnTarget.away += 1;
-    }
-    if (shooter.player) {
-      shooter.player.matchShots = (shooter.player.matchShots || 0) + 1;
-    }
+    if (!this._tactical2DOnly) {
+      if (isHome) {
+        this.stats.shots.home += 1;
+        if (onTargetAim) this.stats.shotsOnTarget.home += 1;
+      } else {
+        this.stats.shots.away += 1;
+        if (onTargetAim) this.stats.shotsOnTarget.away += 1;
+      }
+      if (shooter.player) {
+        shooter.player.matchShots = (shooter.player.matchShots || 0) + 1;
+      }
 
-    const scorerName = shooter.player?.name || "Jugador";
-    const tName = isHome ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
-    if (this.onAlert) {
-      this.onAlert({ text: `⚡ ${scorerName} (${tName}) arma el disparo a puerta!` });
+      const scorerName = shooter.player?.name || "Jugador";
+      const tName = isHome ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
+      if (this.onAlert) {
+        this.onAlert({ text: `⚡ ${scorerName} (${tName}) arma el disparo a puerta!` });
+      }
     }
 
     this.ball.carrier = null;
@@ -4247,7 +4309,7 @@ export class MatchSimulator {
           this._steerPlayer(p, this.ball.xm + this.ball.vx * 0.18, this.ball.ym + this.ball.vy * 0.18, 0.96, dt, allPlayers);
         } else if (forwardIds.has(p)) {
           // Delanteros y extremos al límite de la línea defensiva rival; desmarque diagonal solo al levantar cabeza
-          const edgeX = isHome ? Math.min(anchor.x + 8, offsideLineX - 1.1) : Math.max(anchor.x - 8, offsideLineX + 1.1);
+          const edgeX = isHome ? Math.min(anchor.x + 4, offsideLineX - 1.1) : Math.max(anchor.x - 4, offsideLineX + 1.1);
           if (carrierReadyToPass) {
             p.aiState = "MAKE_RUN";
             const diagY = anchor.y + (anchor.y > 34 ? -6.5 : 6.5);
@@ -4335,13 +4397,13 @@ export class MatchSimulator {
       this.ball.lastTouchPlayer = defender;
       this.ball.assistCandidate = null;
       this.ball.pickupCooldown = 0.2;
-      defender.controlTimer = 0.30;
-      defender.decisionTimer = 0.35;
-      if (defender.player) {
+      defender.controlTimer = 0.30 + Math.random() * 0.20;
+      defender.decisionTimer = Math.max(defender.controlTimer, 0.35);
+      if (!this._tactical2DOnly && defender.player) {
         defender.player.matchTackles = (defender.player.matchTackles || 0) + 1;
       }
       this._emitCommentary(`¡Gran robo de ${defender.player?.name || "el defensa"} ante ${carrier.player?.name || "el rival"}!`, "ROBO", 1.2);
-    } else if (this.foulCooldown <= 0 && Math.random() < 0.09) {
+    } else if (!this._tactical2DOnly && this.foulCooldown <= 0 && Math.random() < 0.09) {
       // Falta física ocasional
       this.foulCooldown = 4.0;
       const attackingTeam = carrier.side;
@@ -4608,8 +4670,10 @@ export class MatchSimulator {
             const gkSkill = Number(p.player?.por || p.player?.ovr || 70);
             const saveProb = Math.max(0.45, Math.min(0.92, 0.66 + (gkSkill - 70) * 0.008));
             if (Math.random() < saveProb) {
-              if (p.player) p.player.matchSaves = (p.player.matchSaves || 0) + 1;
-              if (this.onAlert) this.onAlert({ text: `🧤 ¡Gran intervención de ${p.player?.name || "el portero"}!` });
+              if (!this._tactical2DOnly) {
+                if (p.player) p.player.matchSaves = (p.player.matchSaves || 0) + 1;
+                if (this.onAlert) this.onAlert({ text: `🧤 ¡Gran intervención de ${p.player?.name || "el portero"}!` });
+              }
               if (Math.random() < 0.55) {
                 // Atrapa el balón
                 b.carrier = p;
