@@ -6061,13 +6061,27 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     let threeEngine = null;
     let threeInitAttempted = false;
     let threeCdnLoading = false;
+    let canvas3d = null;
 
     function ensureThreeLoadedAndInit() {
       if (threeEngine || threeInitAttempted) return;
       if (typeof window !== "undefined" && window.THREE) {
         threeInitAttempted = true;
         try {
-          threeEngine = createThreeMatchEngine(canvas);
+          if (!canvas3d && canvas && canvas.parentElement) {
+            canvas3d = document.createElement("canvas");
+            canvas3d.id = "match-canvas-3d";
+            canvas3d.className = "w-full h-full block";
+            canvas3d.style.position = "absolute";
+            canvas3d.style.inset = "0";
+            canvas3d.style.width = "100%";
+            canvas3d.style.height = "100%";
+            canvas3d.style.pointerEvents = "none";
+            canvas3d.style.display = "none";
+            canvas3d.style.zIndex = "5";
+            canvas.parentElement.appendChild(canvas3d);
+          }
+          threeEngine = createThreeMatchEngine(canvas3d || canvas);
         } catch (err) {
           console.warn("Fallback a Canvas 2D:", err);
           threeEngine = null;
@@ -7386,24 +7400,18 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     function drawPitch() {
       if (!canvas) return;
 
-      const nowTs = typeof performance !== "undefined" ? performance.now() : Date.now();
-      const rawDt = lastRealTimeTs !== null ? (nowTs - lastRealTimeTs) / 1000 : 0.016;
-      lastRealTimeTs = nowTs;
-      const dt = Math.min(0.05, Math.max(0.001, rawDt));
-
-      // Activar modo de simulación continua en tiempo real (60 FPS)
-      if (typeof simulator.stepRealTime === "function") {
-        simulator.useRealTime = true;
-      }
-
-      // Inicializar motor 3D Three.js si está disponible
+      // Inicializar motor 3D Three.js si está disponible (para jugadas clave)
       ensureThreeLoadedAndInit();
 
-      // Si hay una jugada clave activa, actualizar la coreografía conectada en tiempo real
+      // Si hay una jugada clave activa (ataque relevante, ocasión, parada o acción defensiva), renderizar en 3D
       if (currentHighlightData) {
-        if (threeEngine) {
+        if (threeEngine && canvas3d) {
+          canvas3d.style.display = "block";
+          canvas.style.display = "none";
           drawFrontalHighlightScene(null, 800, 450, currentHighlightData, true);
         } else {
+          if (canvas3d) canvas3d.style.display = "none";
+          canvas.style.display = "block";
           if (!ctx) ctx = canvas.getContext("2d");
           resizeCanvas();
           drawFrontalHighlightScene(ctx, canvas.width, canvas.height, currentHighlightData, false);
@@ -7413,14 +7421,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           }
           return;
         }
-      } else if (typeof simulator.stepRealTime === "function") {
-        if (!isKickoffInProgress) {
-          simulator.stepRealTime(dt);
-        }
-        simulator.home2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
-        simulator.away2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
       } else {
-        // Interpolación continua y suave del balón en el juego en vivo
+        // Tramos normales del partido: mostrar simulación táctica con fichas en 2D
+        if (canvas3d) canvas3d.style.display = "none";
+        canvas.style.display = "block";
+
+        // Interpolación continua y suave del balón en el juego en vivo 2D
         simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
         simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.16;
         if (simulator.ball.targetZ !== undefined) {
@@ -7429,7 +7435,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           simulator.ball.z = (simulator.ball.z || 0) * 0.85;
         }
 
-        // Interpolación de posiciones de los 22 futbolistas
+        // Interpolación de posiciones de los 22 futbolistas en 2D
         simulator.home2D.forEach(p => {
           p.curX += (p.targetX - p.curX) * 0.14;
           p.curY += (p.targetY - p.curY) * 0.14;
@@ -7455,8 +7461,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
       });
 
-      // Actualizar rótulo FM inferior cuando cambia el portador del balón (solo modo legacy; en tiempo real lo emite el motor)
-      if (!simulator.useRealTime && closestLiveP && minLiveDist < 5.0 && closestLiveP.player?.name) {
+      // Actualizar rótulo FM inferior cuando cambia el portador del balón
+      if (closestLiveP && minLiveDist < 5.0 && closestLiveP.player?.name) {
         if (lastCarrierPlayerId !== closestLiveP.player.id && !currentHighlightData && simulator.isRunning && !isKickoffInProgress) {
           lastCarrierPlayerId = closestLiveP.player.id;
           const pSide = closestLiveP.side === "home" ? (homeTeam.shortName || homeTeam.name) : (awayTeam.shortName || awayTeam.name);
@@ -7464,8 +7470,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
       }
 
-      // Renderizar en 3D con Three.js (o fallback 2D si WebGL no está disponible)
-      if (threeEngine) {
+      // Renderizar 3D en jugadas clave; 2D con fichas en el resto del partido
+      if (currentHighlightData && threeEngine && canvas3d) {
         threeEngine.updateAndRender(closestLiveP, minLiveDist);
       } else {
         if (!ctx) ctx = canvas.getContext("2d");
