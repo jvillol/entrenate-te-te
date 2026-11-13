@@ -1961,6 +1961,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       onHighlightEnd: (endData) => handleHighlightEnd(endData),
       onSetPiece: (spInfo) => openSetPieceModal(spInfo),
       onInjury: (injData) => handleInjurySequence(injData),
+      onAssistantAdvice: (advice) => handleAssistantAdvice(advice),
+      onAssistantFeedback: (fb) => handleAssistantFeedback(fb),
       onFinish: handleLiveMatchEnd
     });
 
@@ -2071,6 +2073,71 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <div id="tactical-analysis-toast" class="hidden">
               <div id="tactical-analysis-icon"></div>
               <div id="tactical-analysis-text"></div>
+            </div>
+
+            <!-- Widget Flotante del Cuerpo Técnico / Segundo Entrenador (Live Coaching Staff FM) -->
+            <div id="live-assistant-card" class="absolute bottom-14 right-2 sm:right-3 max-w-[340px] sm:max-w-[360px] w-full bg-slate-950/95 backdrop-blur-md border border-amber-500/80 rounded-2xl p-3 shadow-2xl z-30 transition-all duration-300 opacity-0 translate-y-4 pointer-events-none ring-1 ring-amber-400/30">
+              <div class="flex items-start justify-between gap-2 mb-1.5">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-base font-black shadow border border-amber-300/50 flex-shrink-0">
+                    👔
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-1.5">
+                      <span id="ast-coach-name" class="text-[11px] font-black text-white tracking-tight">Segundo Entrenador</span>
+                      <span id="ast-urgency-badge" class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-amber-500/40">CONSEJO TÁCTICO</span>
+                    </div>
+                    <div class="text-[9px] text-slate-400 font-medium">Cuerpo Técnico en Directo</div>
+                  </div>
+                </div>
+                <button id="btn-ast-close" class="text-slate-400 hover:text-white text-xs p-1 rounded-lg transition cursor-pointer" title="Cerrar consejo">✕</button>
+              </div>
+
+              <!-- Diagnóstico -->
+              <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2 mb-2 text-slate-200">
+                <div class="text-[9px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                  <span>🔍 Diagnóstico en vivo</span>
+                </div>
+                <p id="ast-diagnosis" class="text-[10.5px] text-slate-300 leading-snug font-medium">
+                  El rival nos está ganando la espalda con envíos largos.
+                </p>
+              </div>
+
+              <!-- Recomendación -->
+              <div class="bg-amber-950/40 border border-amber-500/40 rounded-xl p-2 mb-2.5">
+                <div class="text-[9px] font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                  <span>💡 Propuesta del cuerpo técnico</span>
+                </div>
+                <p id="ast-recommendation" class="text-[11px] text-amber-100 font-bold leading-tight">
+                  Bajar bloque defensivo a 'Bajo' y repliegue rápido.
+                </p>
+              </div>
+
+              <!-- Botones de acción directa -->
+              <div class="flex items-center gap-2">
+                <button id="btn-ast-apply" class="flex-1 py-1.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-extrabold text-[11px] shadow-lg transition flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-400/40">
+                  <span>⚡ Aplicar ajuste</span>
+                </button>
+                <button id="btn-ast-ignore" class="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-bold text-[11px] border border-slate-700 transition cursor-pointer">
+                  <span>Ignorar</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Notificación de Feedback del Segundo Entrenador tras 10 min -->
+            <div id="live-assistant-feedback" class="absolute top-12 left-1/2 -translate-x-1/2 max-w-[360px] sm:max-w-[420px] w-full bg-slate-950/95 backdrop-blur-md border border-emerald-500/60 rounded-2xl p-2.5 shadow-2xl z-30 transition-all duration-300 opacity-0 -translate-y-4 pointer-events-none flex items-center gap-2.5">
+              <div id="ast-feedback-icon" class="w-8 h-8 rounded-xl flex items-center justify-center text-lg flex-shrink-0 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                ✅
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="text-[9.5px] font-black text-amber-400 uppercase tracking-wider">SEGUNDO ENTRENADOR · FEEDBACK</span>
+                  <span id="ast-feedback-minute" class="text-[9px] text-slate-400 font-mono font-bold">58'</span>
+                </div>
+                <p id="ast-feedback-text" class="text-[10.5px] text-slate-200 font-medium leading-snug">
+                  Míster, subir la presión ha surtido efecto, hemos recuperado el control.
+                </p>
+              </div>
             </div>
 
             <!-- Banner de Saque de Centro -->
@@ -3519,6 +3586,74 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           toast.classList.add("opacity-0", "translate-y-3", "pointer-events-none");
         }, 4500);
       }
+    }
+
+    let currentAssistantAdvice = null;
+    let assistantFeedbackTimeout = null;
+
+    function handleAssistantAdvice(advice) {
+      currentAssistantAdvice = advice;
+      const card = container.querySelector("#live-assistant-card");
+      if (!card) return;
+
+      const coachNameEl = card.querySelector("#ast-coach-name");
+      const badgeEl = card.querySelector("#ast-urgency-badge");
+      const diagEl = card.querySelector("#ast-diagnosis");
+      const recEl = card.querySelector("#ast-recommendation");
+
+      if (coachNameEl) coachNameEl.textContent = simulator.assistantCoachName || "Segundo Entrenador";
+      if (badgeEl) {
+        badgeEl.textContent = advice.urgency || "CONSEJO TÁCTICO";
+        if (advice.urgency === "URGENTE" || advice.urgency === "RIESGO DE EXPULSIÓN") {
+          badgeEl.className = "px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-red-500/40 animate-pulse";
+        } else if (advice.urgency === "ALERTA FÍSICA" || advice.urgency === "DESAJUSTE DEFENSIVO") {
+          badgeEl.className = "px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-amber-500/40";
+        } else {
+          badgeEl.className = "px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-sky-500/40";
+        }
+      }
+      if (diagEl) diagEl.textContent = advice.diagnosis;
+      if (recEl) recEl.textContent = advice.recommendation;
+
+      card.classList.remove("opacity-0", "translate-y-4", "pointer-events-none");
+      card.classList.add("opacity-100", "translate-y-0", "pointer-events-auto");
+
+      updateFMCommentary(`💡 ${simulator.assistantCoachName || 'Segundo Entrenador'}: ${advice.title}`, "CUERPO TÉCNICO", true);
+    }
+
+    function hideAssistantAdviceCard() {
+      const card = container.querySelector("#live-assistant-card");
+      if (card) {
+        card.classList.remove("opacity-100", "translate-y-0", "pointer-events-auto");
+        card.classList.add("opacity-0", "translate-y-4", "pointer-events-none");
+      }
+      currentAssistantAdvice = null;
+    }
+
+    function handleAssistantFeedback(fb) {
+      const fbCard = container.querySelector("#live-assistant-feedback");
+      if (!fbCard) return;
+
+      const iconEl = fbCard.querySelector("#ast-feedback-icon");
+      const minEl = fbCard.querySelector("#ast-feedback-minute");
+      const textEl = fbCard.querySelector("#ast-feedback-text");
+
+      if (iconEl) {
+        iconEl.textContent = fb.success ? "✅" : "⚠️";
+        iconEl.className = `w-8 h-8 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${fb.success ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`;
+      }
+      if (minEl) minEl.textContent = `${fb.minute}'`;
+      if (textEl) textEl.textContent = fb.text;
+
+      fbCard.className = `absolute top-12 left-1/2 -translate-x-1/2 max-w-[360px] sm:max-w-[420px] w-full bg-slate-950/95 backdrop-blur-md border ${fb.success ? 'border-emerald-500/70 shadow-emerald-950/40' : 'border-amber-500/70 shadow-amber-950/40'} rounded-2xl p-2.5 shadow-2xl z-30 transition-all duration-300 opacity-100 translate-y-0 pointer-events-auto flex items-center gap-2.5`;
+
+      updateFMCommentary(fb.text, fb.success ? "INFORME +" : "INFORME -", true);
+
+      if (assistantFeedbackTimeout) clearTimeout(assistantFeedbackTimeout);
+      assistantFeedbackTimeout = setTimeout(() => {
+        fbCard.classList.remove("opacity-100", "translate-y-0", "pointer-events-auto");
+        fbCard.classList.add("opacity-0", "-translate-y-4", "pointer-events-none");
+      }, 6500);
     }
 
     function handleGoalSequence(goalData) {
@@ -7669,6 +7804,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     function handleHalfTimeSequence(htState) {
+      hideAssistantAdviceCard();
       const modalHT = container.querySelector("#modal-halftime");
       const htBadge = container.querySelector("#ht-modal-badge");
       const htHScore = container.querySelector("#ht-home-score");
@@ -7942,6 +8078,74 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       simulator.setMentality(isUserHome ? "home" : "away", m.id);
       showMatchAlert({ text: `🎯 Táctica ajustada: ${m.label}` });
     };
+
+    // Botones del Asistente / Segundo Entrenador en Vivo
+    const btnAstApply = container.querySelector("#btn-ast-apply");
+    const btnAstIgnore = container.querySelector("#btn-ast-ignore");
+    const btnAstClose = container.querySelector("#btn-ast-close");
+
+    if (btnAstApply) {
+      btnAstApply.onclick = (e) => {
+        e.stopPropagation();
+        if (!currentAssistantAdvice) return;
+        const adv = currentAssistantAdvice;
+        const res = simulator.acceptAssistantAdvice(adv.id);
+        if (res.success) {
+          // Sincronizar gameState.userTactics
+          if (adv.action.type === "TACTIC_PRESET") {
+            const ch = adv.action.changes || {};
+            if (ch.mentality) {
+              gameState.userTactics.mentality = ch.mentality;
+              const newIdx = mentalities.findIndex(m => m.id === ch.mentality);
+              if (newIdx !== -1) {
+                curMentIndex = newIdx;
+                if (mentLabel) mentLabel.textContent = mentalities[newIdx].label;
+              }
+            }
+            if (!gameState.userTactics.instructions) gameState.userTactics.instructions = getDefaultTacticalInstructions();
+            const inst = gameState.userTactics.instructions;
+            if (ch.defensiveLine) inst.outOfPossession.defensiveLine = ch.defensiveLine;
+            if (ch.pressing) inst.outOfPossession.pressing = ch.pressing;
+            if (ch.width) inst.inPossession.width = ch.width;
+            if (ch.tempo) inst.inPossession.tempo = ch.tempo;
+            if (ch.passingStyle) inst.inPossession.passingStyle = ch.passingStyle;
+            if (ch.transitionLoss) inst.inTransition.loss = ch.transitionLoss;
+            if (ch.transitionWin) inst.inTransition.win = ch.transitionWin;
+          } else if (adv.action.type === "SUBSTITUTION") {
+            const outId = adv.action.playerOutId;
+            const inId = adv.action.playerInId;
+            if (Array.isArray(gameState.userTactics.lineup) && Array.isArray(gameState.userTactics.bench)) {
+              const outIdx = gameState.userTactics.lineup.indexOf(outId);
+              const inIdx = gameState.userTactics.bench.indexOf(inId);
+              if (outIdx !== -1 && inIdx !== -1) {
+                gameState.userTactics.lineup[outIdx] = inId;
+                gameState.userTactics.bench[inIdx] = outId;
+              }
+            }
+          }
+          SaveManager.saveGame(gameState);
+          showMatchAlert({ text: `📋 ¡Ajuste táctico aplicado: ${adv.title}!` });
+          hideAssistantAdviceCard();
+        }
+      };
+    }
+
+    if (btnAstIgnore) {
+      btnAstIgnore.onclick = (e) => {
+        e.stopPropagation();
+        simulator.dismissAssistantAdvice();
+        hideAssistantAdviceCard();
+        showMatchAlert({ text: "Manteniendo el plan táctico actual" });
+      };
+    }
+
+    if (btnAstClose) {
+      btnAstClose.onclick = (e) => {
+        e.stopPropagation();
+        simulator.dismissAssistantAdvice();
+        hideAssistantAdviceCard();
+      };
+    }
 
     // Modal de Cambios en Vivo y Descanso
     const modalSubs = container.querySelector("#modal-live-subs");
@@ -9610,6 +9814,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     }
 
     function handleLiveMatchEnd(result) {
+      hideAssistantAdviceCard();
       clearAllMatchUiTimeouts();
       // Sincronizar estados finales de energía, goles, asistencias, notas, MVP, minutos y lesiones de ambos equipos con gameState
       const syncTeamPlayers = (simPlayers, realTeam) => {

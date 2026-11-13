@@ -2153,6 +2153,15 @@ class MatchSimulator {
     // Mejora 6: Clima dinámico del partido con efecto real en el césped y tácticas
     this.weather = this.resolveWeather(options.weather);
 
+    // Asistente / Segundo Entrenador en Vivo (Live Coaching Staff FM)
+    this.assistantCoachName = options.assistantName || (this.userSide === "home" ? (this.homeTeam.assistantName || "Segundo Entrenador") : (this.awayTeam.assistantName || "Segundo Entrenador"));
+    this.nextAssistantCheckMinute = 12 + Math.floor(Math.random() * 4);
+    this.lastAssistantAdviceMinute = -99;
+    this.currentPendingAdvice = null;
+    this.activeAssistantAdvice = null;
+    this.onAssistantAdvice = options.onAssistantAdvice || (() => {});
+    this.onAssistantFeedback = options.onAssistantFeedback || (() => {});
+
     this.hasCustomOnSetPiece = typeof options.onSetPiece === "function";
     this.onSetPiece = options.onSetPiece || (() => {});
     this.isSetPieceRunning = false;
@@ -3304,6 +3313,24 @@ class MatchSimulator {
       this.activeShout = null;
     }
 
+    // Expiración y feedback del consejo del Segundo Entrenador / Cuerpo Técnico
+    if (this.activeAssistantAdvice) {
+      if (this.minute >= this.activeAssistantAdvice.feedbackMinute && !this.activeAssistantAdvice.feedbackDelivered) {
+        this.activeAssistantAdvice.feedbackDelivered = true;
+        this._deliverAssistantFeedback(this.activeAssistantAdvice);
+      }
+      if (this.minute >= this.activeAssistantAdvice.expiresAtMinute) {
+        this.activeAssistantAdvice = null;
+      }
+    }
+
+    // Comprobación periódica de análisis del Segundo Entrenador (cada 12-15 minutos)
+    if (!this.isSkippingToEnd && !this.isFinished && !this.isHalfTime && !this.isHighlightRunning && !this.isSetPieceRunning) {
+      if (this.minute >= this.nextAssistantCheckMinute && !this.currentPendingAdvice) {
+        this._checkAssistantCoaching();
+      }
+    }
+
     const userDrainTalkMod = (this.activeTeamTalk ? this.activeTeamTalk.drainMod : 1.0) * (this.activeShout ? this.activeShout.drainMod : 1.0) * (this.weeklyTraining === "recovery" ? 0.93 : 1.0);
     const homeTalkDrain = (this.userSide === "home" ? userDrainTalkMod : 1.0) * weatherHalfDrain;
     const awayTalkDrain = (this.userSide === "away" ? userDrainTalkMod : 1.0) * weatherHalfDrain * 1.002; // Factor campo sutil: el visitante acusa levemente el viaje (+0.2%)
@@ -3371,8 +3398,17 @@ class MatchSimulator {
     else if (this.awayInstructions?.inPossession?.tempo === "slow") awayAtkBonus -= 0.08;
 
     // Modificador de bloque defensivo rival
-    const homeDefBonus = this.homeInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.homeInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
-    const awayDefBonus = this.awayInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.awayInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
+    let homeDefBonus = this.homeInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.homeInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
+    let awayDefBonus = this.awayInstructions?.outOfPossession?.defensiveLine === "low" ? 0.12 : (this.awayInstructions?.outOfPossession?.defensiveLine === "high" ? -0.06 : 0);
+
+    // Bono de solidez defensiva del asistente (+15%)
+    if (this.activeAssistantAdvice && this.activeAssistantAdvice.isGoodReading) {
+      const cat = this.activeAssistantAdvice.category;
+      if (cat === "DEFENSIVE" || cat === "COUNTER" || cat === "HOLD_LEAD") {
+        if (this.userSide === "home") homeDefBonus += 0.15;
+        else awayDefBonus += 0.15;
+      }
+    }
 
     // Factor Campo: El equipo local cuenta con un sutil empuje ambiental base (+0.2 ATA / +0.2 DEF)
     const homeAtk = (this.calcTeamPower(this.homePlayersOnPitch, "atk", "home") + 0.2) * (homeMod.atk + homeAtkBonus);
@@ -3469,6 +3505,24 @@ class MatchSimulator {
         else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.70;
         else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.75;
       }
+
+      if (this.activeAssistantAdvice) {
+        const isUserHome = this.userSide === "home";
+        const cat = this.activeAssistantAdvice.category;
+        const isGood = this.activeAssistantAdvice.isGoodReading;
+        if (isGood) {
+          if (cat === "OFFENSIVE" || cat === "HIGH_PRESS" || cat === "WIDE_PLAY") {
+            homeChanceMult *= (isUserHome ? 1.15 : 1.0);
+          } else if (cat === "DEFENSIVE" || cat === "COUNTER" || cat === "HOLD_LEAD") {
+            homeChanceMult *= (!isUserHome ? 0.85 : 1.0);
+          } else if (cat === "SUBSTITUTION") {
+            homeChanceMult *= (isUserHome ? 1.10 : 0.90);
+          }
+        } else {
+          // Lectura errónea del asistente: el rival encuentra huecos (+10% peligro)
+          homeChanceMult *= (!isUserHome ? 1.10 : 1.0);
+        }
+      }
       const attackScore = (homeAtk / (homeAtk + awayDef)) * homeChanceMult;
       if (chanceRoll < attackScore) {
         this.executeKeyHighlight("home", () => {
@@ -3523,6 +3577,24 @@ class MatchSimulator {
         if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.20;
         else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.70;
         else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.75;
+      }
+
+      if (this.activeAssistantAdvice) {
+        const isUserAway = this.userSide === "away";
+        const cat = this.activeAssistantAdvice.category;
+        const isGood = this.activeAssistantAdvice.isGoodReading;
+        if (isGood) {
+          if (cat === "OFFENSIVE" || cat === "HIGH_PRESS" || cat === "WIDE_PLAY") {
+            awayChanceMult *= (isUserAway ? 1.15 : 1.0);
+          } else if (cat === "DEFENSIVE" || cat === "COUNTER" || cat === "HOLD_LEAD") {
+            awayChanceMult *= (!isUserAway ? 0.85 : 1.0);
+          } else if (cat === "SUBSTITUTION") {
+            awayChanceMult *= (isUserAway ? 1.10 : 0.90);
+          }
+        } else {
+          // Lectura errónea del asistente: el rival encuentra huecos (+10% peligro)
+          awayChanceMult *= (!isUserAway ? 1.10 : 1.0);
+        }
       }
       const attackScore = (awayAtk / (awayAtk + homeDef)) * awayChanceMult;
       if (chanceRoll < attackScore) {
@@ -5718,11 +5790,402 @@ class MatchSimulator {
       weeklyTraining: this.weeklyTraining,
       weather: this.weather,
       currentMvp: this.computeMVP(),
+      activeAssistantAdvice: this.activeAssistantAdvice,
+      currentPendingAdvice: this.currentPendingAdvice,
+      assistantCoachName: this.assistantCoachName,
       isRunning: this.isRunning,
       isHalfTime: this.isHalfTime,
       isSecondHalf: this.isSecondHalf,
       isFinished: this.isFinished
     };
+  }
+
+  // =========================================================================
+  // SISTEMA DE ASISTENTE / CUERPO TÉCNICO EN VIVO (Live Coaching Staff FM)
+  // =========================================================================
+
+  _checkAssistantCoaching() {
+    if (this.isSkippingToEnd || this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return;
+    if (this.currentPendingAdvice) return;
+
+    const userSide = this.userSide;
+    const oppSide = userSide === "home" ? "away" : "home";
+    const userTeam = userSide === "home" ? this.homeTeam : this.awayTeam;
+    const oppTeam = userSide === "home" ? this.awayTeam : this.homeTeam;
+    const userScore = userSide === "home" ? this.homeScore : this.awayScore;
+    const oppScore = userSide === "home" ? this.awayScore : this.homeScore;
+    const userShots = this.stats.shots[userSide] || 0;
+    const oppShots = this.stats.shots[oppSide] || 0;
+    const userOnTarget = this.stats.shotsOnTarget[userSide] || 0;
+    const oppOnTarget = this.stats.shotsOnTarget[oppSide] || 0;
+    const userPoss = this.stats.possession[userSide] || 50;
+    const oppPoss = this.stats.possession[oppSide] || 50;
+    const userPitch = userSide === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
+    const userBench = userSide === "home" ? this.homeBench : this.awayBench;
+    const userInst = userSide === "home" ? this.homeInstructions : this.awayInstructions;
+    const oppInst = oppSide === "home" ? this.homeInstructions : this.awayInstructions;
+    const userMentality = userSide === "home" ? this.homeMentality : this.awayMentality;
+    const oppMentality = oppSide === "home" ? this.homeMentality : this.awayMentality;
+    const userSubsRemaining = userSide === "home" ? this.homeSubsRemaining : this.awaySubsRemaining;
+    const userWindowsRemaining = userSide === "home" ? this.homeWindowsRemaining : this.awayWindowsRemaining;
+
+    let advice = null;
+
+    // 1. REGLA MINUTO 70+: Marcador apretado o necesidad de remontar
+    if (this.minute >= 70) {
+      if (userScore - oppScore === 1 && userMentality !== "defensive" && userMentality !== "very_defensive") {
+        advice = {
+          id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+          urgency: "AJUSTE FINAL",
+          category: "HOLD_LEAD",
+          title: "Cerrar el partido y asegurar la victoria",
+          diagnosis: `Vamos ganando por la mínima (${userScore}-${oppScore}) a falta de pocos minutos. El ${oppTeam.name} va a volcarse a la desesperada con balones al área.`,
+          recommendation: `Recomendación: Bajar bloque a 'Bajo', pausar el ritmo y cambiar mentalidad a 'Defensiva' para amarrar los 3 puntos.`,
+          action: {
+            type: "TACTIC_PRESET",
+            changes: {
+              mentality: "defensive",
+              defensiveLine: "low",
+              tempo: "slow"
+            }
+          },
+          isGoodReading: Math.random() < 0.75
+        };
+      } else if (userScore < oppScore && userMentality !== "very_offensive") {
+        advice = {
+          id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+          urgency: "URGENTE",
+          category: "OFFENSIVE",
+          title: "Ir con todo arriba",
+          diagnosis: `Vamos perdiendo (${userScore}-${oppScore}) y se acaba el tiempo. Necesitamos volcar efectivos en campo rival y asumir riesgos inmediatos.`,
+          recommendation: `Recomendación: Cambiar a mentalidad 'Al Ataque', adelantar la defensa y ordenar presión asfixiante.`,
+          action: {
+            type: "TACTIC_PRESET",
+            changes: {
+              mentality: "very_offensive",
+              defensiveLine: "high",
+              pressing: "high",
+              tempo: "fast"
+            }
+          },
+          isGoodReading: Math.random() < 0.75
+        };
+      }
+    }
+
+    // 2. REGLA INDIVIDUAL: Fatiga extrema (<50%), tarjeta amarilla o bajo rendimiento (<6.3)
+    if (!advice && userSubsRemaining > 0 && userWindowsRemaining > 0) {
+      const tiredP = userPitch.filter(p => p.pos !== "POR").sort((a, b) => (a.energy || 100) - (b.energy || 100))[0];
+      const yellowP = userPitch.find(p => p.pos !== "POR" && (p.yellowCards > 0 || p.hasYellow));
+      const lowRatingP = userPitch.filter(p => p.pos !== "POR" && p.matchRating && p.matchRating < 6.3 && (p.matchMinutes || 0) >= 30).sort((a, b) => a.matchRating - b.matchRating)[0];
+
+      if (tiredP && (tiredP.energy || 100) < 50) {
+        const candidate = userBench.filter(b => !b.injury && (!b.suspension || b.suspension.roundsLeft <= 0) && (b.energy || 100) >= 65 && !b.subbedOut)
+          .sort((a, b) => {
+            const affA = getPositionAffinity(a, tiredP.pos);
+            const affB = getPositionAffinity(b, tiredP.pos);
+            if (affB !== affA) return affB - affA;
+            return (b.ovr || 70) - (a.ovr || 70);
+          })[0];
+        if (candidate && getPositionAffinity(candidate, tiredP.pos) >= 0.75) {
+          advice = {
+            id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+            urgency: "ALERTA FÍSICA",
+            category: "SUBSTITUTION",
+            title: `Fatiga crítica de ${tiredP.name}`,
+            diagnosis: `${tiredP.name} (${tiredP.pos}) está al ${Math.round(tiredP.energy || 100)}% de energía y perdiendo todos los duelos individuales por agotamiento.`,
+            recommendation: `Recomendación: Sustituir a ${tiredP.name} por ${candidate.name} (${candidate.pos}, OVR ${candidate.ovr}) para meter piernas frescas.`,
+            action: {
+              type: "SUBSTITUTION",
+              playerOutId: tiredP.id,
+              playerInId: candidate.id,
+              playerOutName: tiredP.name,
+              playerInName: candidate.name
+            },
+            isGoodReading: Math.random() < 0.75
+          };
+        }
+      } else if (yellowP && this.minute >= 35) {
+        const candidate = userBench.filter(b => !b.injury && (!b.suspension || b.suspension.roundsLeft <= 0) && !b.subbedOut)
+          .sort((a, b) => {
+            const affA = getPositionAffinity(a, yellowP.pos);
+            const affB = getPositionAffinity(b, yellowP.pos);
+            if (affB !== affA) return affB - affA;
+            return (b.ovr || 70) - (a.ovr || 70);
+          })[0];
+        if (candidate && getPositionAffinity(candidate, yellowP.pos) >= 0.75) {
+          advice = {
+            id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+            urgency: "RIESGO DE EXPULSIÓN",
+            category: "SUBSTITUTION",
+            title: `Peligro de roja para ${yellowP.name}`,
+            diagnosis: `${yellowP.name} tiene tarjeta amarilla y está sufriendo al corte. Un segundo error nos dejaría con 10 futbolistas.`,
+            recommendation: `Recomendación: Dar entrada a ${candidate.name} (${candidate.pos}) para proteger la zona sin riesgo de expulsión.`,
+            action: {
+              type: "SUBSTITUTION",
+              playerOutId: yellowP.id,
+              playerInId: candidate.id,
+              playerOutName: yellowP.name,
+              playerInName: candidate.name
+            },
+            isGoodReading: Math.random() < 0.75
+          };
+        }
+      } else if (lowRatingP && this.minute >= 40) {
+        const candidate = userBench.filter(b => !b.injury && (!b.suspension || b.suspension.roundsLeft <= 0) && !b.subbedOut)
+          .sort((a, b) => {
+            const affA = getPositionAffinity(a, lowRatingP.pos);
+            const affB = getPositionAffinity(b, lowRatingP.pos);
+            if (affB !== affA) return affB - affA;
+            return (b.ovr || 70) - (a.ovr || 70);
+          })[0];
+        if (candidate && getPositionAffinity(candidate, lowRatingP.pos) >= 0.75) {
+          advice = {
+            id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+            urgency: "BAJO RENDIMIENTO",
+            category: "SUBSTITUTION",
+            title: `Desconexión de ${lowRatingP.name}`,
+            diagnosis: `${lowRatingP.name} (${lowRatingP.pos}) está muy impreciso (nota ${(lowRatingP.matchRating || 6.0).toFixed(1)}) y no logra generar ventajas.`,
+            recommendation: `Recomendación: Dar entrada a ${candidate.name} para revitalizar el juego y cambiar la dinámica.`,
+            action: {
+              type: "SUBSTITUTION",
+              playerOutId: lowRatingP.id,
+              playerInId: candidate.id,
+              playerOutName: lowRatingP.name,
+              playerInName: candidate.name
+            },
+            isGoodReading: Math.random() < 0.75
+          };
+        }
+      }
+    }
+
+    // 3. REGLA DOMINIO / ASEDIO RIVAL: Si el rival genera mucho peligro o juega muy ofensivo
+    if (!advice && (oppShots > userShots + 1 || oppPoss > 53 || oppMentality === "offensive" || oppMentality === "very_offensive")) {
+      if (userInst?.outOfPossession?.defensiveLine === "high") {
+        advice = {
+          id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+          urgency: "DESAJUSTE DEFENSIVO",
+          category: "DEFENSIVE",
+          title: "Asedio rival a nuestra espalda",
+          diagnosis: `El ${oppTeam.name} nos está ganando la espalda con pases en profundidad sobre nuestra línea adelantada.`,
+          recommendation: `Recomendación: Bajar el bloque defensivo a 'Bajo' y ordenar repliegue rápido tras pérdida.`,
+          action: {
+            type: "TACTIC_PRESET",
+            changes: {
+              defensiveLine: "low",
+              transitionLoss: "regroup"
+            }
+          },
+          isGoodReading: Math.random() < 0.75
+        };
+      } else if (userInst?.inTransition?.win !== "counter") {
+        advice = {
+          id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+          urgency: "OPORTUNIDAD TÁCTICA",
+          category: "COUNTER",
+          title: "Jugar al Contraataque",
+          diagnosis: `El ${oppTeam.name} está volcado en nuestro campo dejando enormes autopistas libres a la espalda de sus centrales.`,
+          recommendation: `Recomendación: Activar 'Contraatacar' al recuperar, acelerar el tempo y buscar transiciones verticales al espacio.`,
+          action: {
+            type: "TACTIC_PRESET",
+            changes: {
+              transitionWin: "counter",
+              passingStyle: "direct",
+              tempo: "fast"
+            }
+          },
+          isGoodReading: Math.random() < 0.75
+        };
+      } else {
+        advice = {
+          id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+          urgency: "AJUSTE DEFENSIVO",
+          category: "DEFENSIVE",
+          title: "Juntar líneas en bloque compacto",
+          diagnosis: `Hay demasiada separación entre nuestra zaga y la medular, facilitando que el ${oppTeam.name} reciba solo entre líneas.`,
+          recommendation: `Recomendación: Juntar líneas pasando a 'Bloque Medio' y contención en zona para cerrar pasillos interiores.`,
+          action: {
+            type: "TACTIC_PRESET",
+            changes: {
+              defensiveLine: "mid",
+              pressing: "low",
+              width: "balanced"
+            }
+          },
+          isGoodReading: Math.random() < 0.75
+        };
+      }
+    }
+
+    // 4. REGLA RIVAL ENCERRADO ATRÁS: Mucha posesión pero pocas ocasiones
+    if (!advice && (userPoss >= 52 || oppInst?.outOfPossession?.defensiveLine === "low") && userOnTarget <= 2) {
+      if (userInst?.outOfPossession?.pressing !== "high") {
+        advice = {
+          id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+          urgency: "ASFIXIA RIVAL",
+          category: "HIGH_PRESS",
+          title: "Subir la presión alta",
+          diagnosis: `El ${oppTeam.name} está encerrado en su área pero los dejamos respirar y sacar el balón sin agobio.`,
+          recommendation: `Recomendación: Subir la presión a 'Asfixiante / Alta' para forzar pérdidas en su propio balcón del área.`,
+          action: {
+            type: "TACTIC_PRESET",
+            changes: {
+              pressing: "high",
+              defensiveLine: "high",
+              transitionLoss: "counterpress"
+            }
+          },
+          isGoodReading: Math.random() < 0.75
+        };
+      } else if (userInst?.inPossession?.width !== "wide") {
+        advice = {
+          id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+          urgency: "DESATASCAR ATAQUE",
+          category: "WIDE_PLAY",
+          title: "Abrir el campo por las bandas",
+          diagnosis: `Estamos chocando contra un muro por el centro. El rival acumula muchos defensas en el carril interior.`,
+          recommendation: `Recomendación: Abrir el ataque 'Por Bandas' para que extremos y laterales doblen por fuera y pongan centros.`,
+          action: {
+            type: "TACTIC_PRESET",
+            changes: {
+              width: "wide"
+            }
+          },
+          isGoodReading: Math.random() < 0.75
+        };
+      } else {
+        advice = {
+          id: "adv_" + this.minute + "_" + Math.floor(Math.random() * 1000),
+          urgency: "PRESIÓN OFENSIVA",
+          category: "OFFENSIVE",
+          title: "Adelantar la línea defensiva",
+          diagnosis: `Maduramos la jugada demasiado lejos del área rival, permitiendo que el ${oppTeam.name} bascule sin sufrir.`,
+          recommendation: `Recomendación: Adelantar la 'Línea Alta' y subir el tempo para meter al rival dentro de su portería.`,
+          action: {
+            type: "TACTIC_PRESET",
+            changes: {
+              defensiveLine: "high",
+              tempo: "fast"
+            }
+          },
+          isGoodReading: Math.random() < 0.75
+        };
+      }
+    }
+
+    if (advice) {
+      this.currentPendingAdvice = advice;
+      this.lastAssistantAdviceMinute = this.minute;
+      this.nextAssistantCheckMinute = this.minute + 13 + Math.floor(Math.random() * 4);
+      if (this.onAssistantAdvice) {
+        this.onAssistantAdvice(advice);
+      }
+    }
+  }
+
+  acceptAssistantAdvice(adviceId) {
+    if (!this.currentPendingAdvice || (adviceId && this.currentPendingAdvice.id !== adviceId)) {
+      return { success: false, reason: "No hay consejo activo para aplicar" };
+    }
+    const advice = this.currentPendingAdvice;
+    this.currentPendingAdvice = null;
+
+    // Aplicar las modificaciones tácticas o sustitución
+    if (advice.action.type === "TACTIC_PRESET") {
+      const ch = advice.action.changes || {};
+      if (ch.mentality) {
+        this.setMentality(this.userSide, ch.mentality);
+      }
+      const inst = this.userSide === "home" ? this.homeInstructions : this.awayInstructions;
+      if (ch.defensiveLine) inst.outOfPossession.defensiveLine = ch.defensiveLine;
+      if (ch.pressing) inst.outOfPossession.pressing = ch.pressing;
+      if (ch.width) inst.inPossession.width = ch.width;
+      if (ch.tempo) inst.inPossession.tempo = ch.tempo;
+      if (ch.passingStyle) inst.inPossession.passingStyle = ch.passingStyle;
+      if (ch.transitionLoss) inst.inTransition.loss = ch.transitionLoss;
+      if (ch.transitionWin) inst.inTransition.win = ch.transitionWin;
+      this.setTacticalInstructions(this.userSide, inst);
+    } else if (advice.action.type === "SUBSTITUTION") {
+      const res = this.makeSubstitution(this.userSide, advice.action.playerOutId, advice.action.playerInId, false);
+      if (res.success && !this.isSkippingToEnd && this.hasCustomOnSub) {
+        this.pause();
+        this.onSubstitution({
+          teamSide: this.userSide,
+          playerIn: res.inPlayer,
+          playerOut: res.outPlayer,
+          minute: this.minute,
+          remainingSubs: this.userSide === "home" ? this.homeSubsRemaining : this.awaySubsRemaining
+        });
+      }
+    }
+
+    // Activar impacto real en el partido (durante 20 minutos con feedback a los 10 minutos)
+    this.activeAssistantAdvice = {
+      id: advice.id,
+      category: advice.category,
+      isGoodReading: advice.isGoodReading,
+      appliedAtMinute: this.minute,
+      feedbackMinute: this.minute + 10,
+      expiresAtMinute: this.minute + 20,
+      feedbackDelivered: false,
+      diagnosis: advice.diagnosis,
+      recommendation: advice.recommendation,
+      title: advice.title,
+      playerOutName: advice.action?.playerOutName,
+      playerInName: advice.action?.playerInName
+    };
+
+    this.triggerAlert("CUERPO TÉCNICO", `📋 Ajuste táctico aplicado: ${advice.title}`, this.userSide, 3200);
+    return { success: true, advice: this.activeAssistantAdvice };
+  }
+
+  dismissAssistantAdvice() {
+    this.currentPendingAdvice = null;
+    this.nextAssistantCheckMinute = this.minute + 12 + Math.floor(Math.random() * 4);
+    return { success: true };
+  }
+
+  _deliverAssistantFeedback(adv) {
+    let feedbackText = "";
+    const oppTeam = this.userSide === "home" ? this.awayTeam : this.homeTeam;
+
+    if (adv.isGoodReading) {
+      if (adv.category === "HIGH_PRESS") {
+        feedbackText = `Míster, subir la presión ha surtido efecto: hemos recuperado el control del balón y el rival está embotellado.`;
+      } else if (adv.category === "WIDE_PLAY") {
+        feedbackText = `Míster, abrir el campo por bandas ha funcionado: estamos doblando por fuera y generando peligro constante.`;
+      } else if (adv.category === "DEFENSIVE" || adv.category === "HOLD_LEAD") {
+        feedbackText = `Míster, el repliegue defensivo nos ha dado solidez atrás: el ${oppTeam.name} ya no encuentra huecos fáciles.`;
+      } else if (adv.category === "COUNTER") {
+        feedbackText = `Míster, jugar al contraataque está saliendo bien: salimos rápido con espacios y los sorprendemos descolocados.`;
+      } else if (adv.category === "SUBSTITUTION") {
+        feedbackText = `Míster, la sustitución de ${adv.playerOutName || 'jugador'} por ${adv.playerInName || 'suplente'} ha revitalizado al equipo de inmediato.`;
+      } else {
+        feedbackText = `Míster, el ajuste táctico ha surtido efecto: el equipo tiene mucho mejor control y solidez.`;
+      }
+    } else {
+      if (adv.category === "DEFENSIVE" || adv.category === "HOLD_LEAD") {
+        feedbackText = `Míster, ajustar la defensa nos ha dejado demasiado hundidos: el rival está apretando y colgando balones peligrosos.`;
+      } else if (adv.category === "HIGH_PRESS" || adv.category === "OFFENSIVE") {
+        feedbackText = `Míster, adelantar tanto las líneas nos está costando la espalda: el rival encuentra pasillos al contragolpe.`;
+      } else if (adv.category === "WIDE_PLAY") {
+        feedbackText = `Míster, volcarnos a bandas ha dejado desprotegido el centro del campo y estamos sufriendo en la transición.`;
+      } else {
+        feedbackText = `Míster, el ajuste táctico no ha salido como esperábamos: el rival se ha adaptado rápido y nos está creando peligro.`;
+      }
+    }
+
+    if (this.onAssistantFeedback) {
+      this.onAssistantFeedback({
+        success: adv.isGoodReading,
+        text: feedbackText,
+        minute: this.minute,
+        category: adv.category
+      });
+    }
+
+    this.triggerAlert(adv.isGoodReading ? "ANÁLISIS POSITIVO" : "AVISO TÁCTICO", feedbackText, "neutral", 4000);
   }
 
   // =========================================================================
@@ -11028,6 +11491,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       onHighlightEnd: (endData) => handleHighlightEnd(endData),
       onSetPiece: (spInfo) => openSetPieceModal(spInfo),
       onInjury: (injData) => handleInjurySequence(injData),
+      onAssistantAdvice: (advice) => handleAssistantAdvice(advice),
+      onAssistantFeedback: (fb) => handleAssistantFeedback(fb),
       onFinish: handleLiveMatchEnd
     });
 
@@ -11138,6 +11603,71 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             <div id="tactical-analysis-toast" class="hidden">
               <div id="tactical-analysis-icon"></div>
               <div id="tactical-analysis-text"></div>
+            </div>
+
+            <!-- Widget Flotante del Cuerpo Técnico / Segundo Entrenador (Live Coaching Staff FM) -->
+            <div id="live-assistant-card" class="absolute bottom-14 right-2 sm:right-3 max-w-[340px] sm:max-w-[360px] w-full bg-slate-950/95 backdrop-blur-md border border-amber-500/80 rounded-2xl p-3 shadow-2xl z-30 transition-all duration-300 opacity-0 translate-y-4 pointer-events-none ring-1 ring-amber-400/30">
+              <div class="flex items-start justify-between gap-2 mb-1.5">
+                <div class="flex items-center gap-2">
+                  <div class="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-base font-black shadow border border-amber-300/50 flex-shrink-0">
+                    👔
+                  </div>
+                  <div>
+                    <div class="flex items-center gap-1.5">
+                      <span id="ast-coach-name" class="text-[11px] font-black text-white tracking-tight">Segundo Entrenador</span>
+                      <span id="ast-urgency-badge" class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-amber-500/40">CONSEJO TÁCTICO</span>
+                    </div>
+                    <div class="text-[9px] text-slate-400 font-medium">Cuerpo Técnico en Directo</div>
+                  </div>
+                </div>
+                <button id="btn-ast-close" class="text-slate-400 hover:text-white text-xs p-1 rounded-lg transition cursor-pointer" title="Cerrar consejo">✕</button>
+              </div>
+
+              <!-- Diagnóstico -->
+              <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-2 mb-2 text-slate-200">
+                <div class="text-[9px] font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                  <span>🔍 Diagnóstico en vivo</span>
+                </div>
+                <p id="ast-diagnosis" class="text-[10.5px] text-slate-300 leading-snug font-medium">
+                  El rival nos está ganando la espalda con envíos largos.
+                </p>
+              </div>
+
+              <!-- Recomendación -->
+              <div class="bg-amber-950/40 border border-amber-500/40 rounded-xl p-2 mb-2.5">
+                <div class="text-[9px] font-bold text-amber-300 uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                  <span>💡 Propuesta del cuerpo técnico</span>
+                </div>
+                <p id="ast-recommendation" class="text-[11px] text-amber-100 font-bold leading-tight">
+                  Bajar bloque defensivo a 'Bajo' y repliegue rápido.
+                </p>
+              </div>
+
+              <!-- Botones de acción directa -->
+              <div class="flex items-center gap-2">
+                <button id="btn-ast-apply" class="flex-1 py-1.5 px-3 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 active:scale-95 text-white font-extrabold text-[11px] shadow-lg transition flex items-center justify-center gap-1.5 cursor-pointer border border-emerald-400/40">
+                  <span>⚡ Aplicar ajuste</span>
+                </button>
+                <button id="btn-ast-ignore" class="py-1.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-300 font-bold text-[11px] border border-slate-700 transition cursor-pointer">
+                  <span>Ignorar</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Notificación de Feedback del Segundo Entrenador tras 10 min -->
+            <div id="live-assistant-feedback" class="absolute top-12 left-1/2 -translate-x-1/2 max-w-[360px] sm:max-w-[420px] w-full bg-slate-950/95 backdrop-blur-md border border-emerald-500/60 rounded-2xl p-2.5 shadow-2xl z-30 transition-all duration-300 opacity-0 -translate-y-4 pointer-events-none flex items-center gap-2.5">
+              <div id="ast-feedback-icon" class="w-8 h-8 rounded-xl flex items-center justify-center text-lg flex-shrink-0 bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                ✅
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="text-[9.5px] font-black text-amber-400 uppercase tracking-wider">SEGUNDO ENTRENADOR · FEEDBACK</span>
+                  <span id="ast-feedback-minute" class="text-[9px] text-slate-400 font-mono font-bold">58'</span>
+                </div>
+                <p id="ast-feedback-text" class="text-[10.5px] text-slate-200 font-medium leading-snug">
+                  Míster, subir la presión ha surtido efecto, hemos recuperado el control.
+                </p>
+              </div>
             </div>
 
             <!-- Banner de Saque de Centro -->
@@ -12586,6 +13116,74 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           toast.classList.add("opacity-0", "translate-y-3", "pointer-events-none");
         }, 4500);
       }
+    }
+
+    let currentAssistantAdvice = null;
+    let assistantFeedbackTimeout = null;
+
+    function handleAssistantAdvice(advice) {
+      currentAssistantAdvice = advice;
+      const card = container.querySelector("#live-assistant-card");
+      if (!card) return;
+
+      const coachNameEl = card.querySelector("#ast-coach-name");
+      const badgeEl = card.querySelector("#ast-urgency-badge");
+      const diagEl = card.querySelector("#ast-diagnosis");
+      const recEl = card.querySelector("#ast-recommendation");
+
+      if (coachNameEl) coachNameEl.textContent = simulator.assistantCoachName || "Segundo Entrenador";
+      if (badgeEl) {
+        badgeEl.textContent = advice.urgency || "CONSEJO TÁCTICO";
+        if (advice.urgency === "URGENTE" || advice.urgency === "RIESGO DE EXPULSIÓN") {
+          badgeEl.className = "px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-red-500/40 animate-pulse";
+        } else if (advice.urgency === "ALERTA FÍSICA" || advice.urgency === "DESAJUSTE DEFENSIVO") {
+          badgeEl.className = "px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-amber-500/40";
+        } else {
+          badgeEl.className = "px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-sky-500/40";
+        }
+      }
+      if (diagEl) diagEl.textContent = advice.diagnosis;
+      if (recEl) recEl.textContent = advice.recommendation;
+
+      card.classList.remove("opacity-0", "translate-y-4", "pointer-events-none");
+      card.classList.add("opacity-100", "translate-y-0", "pointer-events-auto");
+
+      updateFMCommentary(`💡 ${simulator.assistantCoachName || 'Segundo Entrenador'}: ${advice.title}`, "CUERPO TÉCNICO", true);
+    }
+
+    function hideAssistantAdviceCard() {
+      const card = container.querySelector("#live-assistant-card");
+      if (card) {
+        card.classList.remove("opacity-100", "translate-y-0", "pointer-events-auto");
+        card.classList.add("opacity-0", "translate-y-4", "pointer-events-none");
+      }
+      currentAssistantAdvice = null;
+    }
+
+    function handleAssistantFeedback(fb) {
+      const fbCard = container.querySelector("#live-assistant-feedback");
+      if (!fbCard) return;
+
+      const iconEl = fbCard.querySelector("#ast-feedback-icon");
+      const minEl = fbCard.querySelector("#ast-feedback-minute");
+      const textEl = fbCard.querySelector("#ast-feedback-text");
+
+      if (iconEl) {
+        iconEl.textContent = fb.success ? "✅" : "⚠️";
+        iconEl.className = `w-8 h-8 rounded-xl flex items-center justify-center text-lg flex-shrink-0 ${fb.success ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'}`;
+      }
+      if (minEl) minEl.textContent = `${fb.minute}'`;
+      if (textEl) textEl.textContent = fb.text;
+
+      fbCard.className = `absolute top-12 left-1/2 -translate-x-1/2 max-w-[360px] sm:max-w-[420px] w-full bg-slate-950/95 backdrop-blur-md border ${fb.success ? 'border-emerald-500/70 shadow-emerald-950/40' : 'border-amber-500/70 shadow-amber-950/40'} rounded-2xl p-2.5 shadow-2xl z-30 transition-all duration-300 opacity-100 translate-y-0 pointer-events-auto flex items-center gap-2.5`;
+
+      updateFMCommentary(fb.text, fb.success ? "INFORME +" : "INFORME -", true);
+
+      if (assistantFeedbackTimeout) clearTimeout(assistantFeedbackTimeout);
+      assistantFeedbackTimeout = setTimeout(() => {
+        fbCard.classList.remove("opacity-100", "translate-y-0", "pointer-events-auto");
+        fbCard.classList.add("opacity-0", "-translate-y-4", "pointer-events-none");
+      }, 6500);
     }
 
     function handleGoalSequence(goalData) {
@@ -16736,6 +17334,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     }
 
     function handleHalfTimeSequence(htState) {
+      hideAssistantAdviceCard();
       const modalHT = container.querySelector("#modal-halftime");
       const htBadge = container.querySelector("#ht-modal-badge");
       const htHScore = container.querySelector("#ht-home-score");
@@ -17009,6 +17608,74 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       simulator.setMentality(isUserHome ? "home" : "away", m.id);
       showMatchAlert({ text: `🎯 Táctica ajustada: ${m.label}` });
     };
+
+    // Botones del Asistente / Segundo Entrenador en Vivo
+    const btnAstApply = container.querySelector("#btn-ast-apply");
+    const btnAstIgnore = container.querySelector("#btn-ast-ignore");
+    const btnAstClose = container.querySelector("#btn-ast-close");
+
+    if (btnAstApply) {
+      btnAstApply.onclick = (e) => {
+        e.stopPropagation();
+        if (!currentAssistantAdvice) return;
+        const adv = currentAssistantAdvice;
+        const res = simulator.acceptAssistantAdvice(adv.id);
+        if (res.success) {
+          // Sincronizar gameState.userTactics
+          if (adv.action.type === "TACTIC_PRESET") {
+            const ch = adv.action.changes || {};
+            if (ch.mentality) {
+              gameState.userTactics.mentality = ch.mentality;
+              const newIdx = mentalities.findIndex(m => m.id === ch.mentality);
+              if (newIdx !== -1) {
+                curMentIndex = newIdx;
+                if (mentLabel) mentLabel.textContent = mentalities[newIdx].label;
+              }
+            }
+            if (!gameState.userTactics.instructions) gameState.userTactics.instructions = getDefaultTacticalInstructions();
+            const inst = gameState.userTactics.instructions;
+            if (ch.defensiveLine) inst.outOfPossession.defensiveLine = ch.defensiveLine;
+            if (ch.pressing) inst.outOfPossession.pressing = ch.pressing;
+            if (ch.width) inst.inPossession.width = ch.width;
+            if (ch.tempo) inst.inPossession.tempo = ch.tempo;
+            if (ch.passingStyle) inst.inPossession.passingStyle = ch.passingStyle;
+            if (ch.transitionLoss) inst.inTransition.loss = ch.transitionLoss;
+            if (ch.transitionWin) inst.inTransition.win = ch.transitionWin;
+          } else if (adv.action.type === "SUBSTITUTION") {
+            const outId = adv.action.playerOutId;
+            const inId = adv.action.playerInId;
+            if (Array.isArray(gameState.userTactics.lineup) && Array.isArray(gameState.userTactics.bench)) {
+              const outIdx = gameState.userTactics.lineup.indexOf(outId);
+              const inIdx = gameState.userTactics.bench.indexOf(inId);
+              if (outIdx !== -1 && inIdx !== -1) {
+                gameState.userTactics.lineup[outIdx] = inId;
+                gameState.userTactics.bench[inIdx] = outId;
+              }
+            }
+          }
+          SaveManager.saveGame(gameState);
+          showMatchAlert({ text: `📋 ¡Ajuste táctico aplicado: ${adv.title}!` });
+          hideAssistantAdviceCard();
+        }
+      };
+    }
+
+    if (btnAstIgnore) {
+      btnAstIgnore.onclick = (e) => {
+        e.stopPropagation();
+        simulator.dismissAssistantAdvice();
+        hideAssistantAdviceCard();
+        showMatchAlert({ text: "Manteniendo el plan táctico actual" });
+      };
+    }
+
+    if (btnAstClose) {
+      btnAstClose.onclick = (e) => {
+        e.stopPropagation();
+        simulator.dismissAssistantAdvice();
+        hideAssistantAdviceCard();
+      };
+    }
 
     // Modal de Cambios en Vivo y Descanso
     const modalSubs = container.querySelector("#modal-live-subs");
@@ -18677,6 +19344,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     }
 
     function handleLiveMatchEnd(result) {
+      hideAssistantAdviceCard();
       clearAllMatchUiTimeouts();
       // Sincronizar estados finales de energía, goles, asistencias, notas, MVP, minutos y lesiones de ambos equipos con gameState
       const syncTeamPlayers = (simPlayers, realTeam) => {
