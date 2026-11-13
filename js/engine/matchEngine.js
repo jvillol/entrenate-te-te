@@ -3792,7 +3792,7 @@ export class MatchSimulator {
     else if (defLine === "muy_baja") lineShift = -9.5;
 
     // En posesión: el bloque se estira y sube; sin posesión: se junta y repliega
-    const possStretchX = inPossession ? 7.5 : -6.5;
+    const possStretchX = inPossession ? 10.5 : -6.5;
     const widthSetting = inst?.inPossession?.width || "normal";
     let widthScale = inPossession ? 1.12 : 0.78;
     if (inPossession) {
@@ -3910,7 +3910,7 @@ export class MatchSimulator {
     const scorerName = shooter.player?.name || "Jugador";
     const tName = isHome ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
     if (this.onAlert) {
-      this.onAlert(`${scorerName} (${tName}) arma el disparo a puerta!`);
+      this.onAlert({ text: `⚡ ${scorerName} (${tName}) arma el disparo a puerta!` });
     }
 
     this.ball.carrier = null;
@@ -3944,10 +3944,10 @@ export class MatchSimulator {
     const passingStyle = inst?.inPossession?.passingStyle || "mixto";
 
     // 1. ¿Puede tirar a puerta?
-    const angleOk = Math.abs(carrier.ym - 34) < 20 || distToGoal < 17;
-    const maxShotRange = carrier.isKeeper ? 0 : (inst?.inPossession?.shootOnSight ? 29.5 : 26.0);
+    const angleOk = Math.abs(carrier.ym - 34) < 21 || distToGoal < 18;
+    const maxShotRange = carrier.isKeeper ? 0 : (inst?.inPossession?.shootOnSight ? 30.0 : 27.5);
     if (!carrier.isKeeper && distToGoal < maxShotRange && angleOk) {
-      const shootUrgency = distToGoal < 15 ? 0.90 : (distToGoal < 20 ? 0.65 : 0.38);
+      const shootUrgency = distToGoal < 16 ? 0.94 : (distToGoal < 22 ? 0.72 : 0.45);
       if (Math.random() < shootUrgency) {
         this._launchBallShot(carrier, team);
         return;
@@ -4021,6 +4021,17 @@ export class MatchSimulator {
       return;
     }
 
+    // Salvaguarda anti-atasco: si es portero o está muy encerrado sin pase limpio, buscar pase largo/seguro
+    if (carrier.isKeeper || (!canDribbleComfortably && nearestAnyOpp < 2.2)) {
+      const outfieldMates = mates.filter(m => m !== carrier && !m.isKeeper);
+      if (outfieldMates.length > 0) {
+        outfieldMates.sort((a, b) => ((b.xm - a.xm) * attackDir));
+        const fallbackMate = carrier.isKeeper ? outfieldMates[0] : outfieldMates[outfieldMates.length - 1];
+        this._launchBallPass(carrier, fallbackMate, team);
+        return;
+      }
+    }
+
     // 4. Conducir hacia portería rival
     carrier.aiState = "DRIBBLE";
     const cName = carrier.player?.name || "Jugador";
@@ -4056,9 +4067,29 @@ export class MatchSimulator {
         });
       }
 
+      // Si el balón está suelto sin receptor asignado en este equipo, el más cercano va a recogerlo
+      let looseChaser = null;
+      if (!carrierInTeam && (!this.ball.passTarget || this.ball.passTarget.side !== team)) {
+        let bestD = 999;
+        for (let i = 0; i < mates.length; i++) {
+          if (mates[i].isKeeper) continue;
+          const d = Math.hypot(mates[i].xm - this.ball.xm, mates[i].ym - this.ball.ym);
+          if (d < bestD) {
+            bestD = d;
+            looseChaser = mates[i];
+          }
+        }
+      }
+
       for (let i = 0; i < mates.length; i++) {
         const p = mates[i];
         const anchor = this._computeDynamicAnchor(p, team, true);
+
+        if (p === looseChaser) {
+          p.aiState = "RECEIVE";
+          this._steerPlayer(p, this.ball.xm + this.ball.vx * 0.15, this.ball.ym + this.ball.vy * 0.15, 0.98, dt, allPlayers);
+          continue;
+        }
 
         if (p === carrierInTeam) {
           if (p.controlTimer > 0) {
@@ -4221,7 +4252,7 @@ export class MatchSimulator {
 
       const defName = defender.player?.name || "Defensa";
       if (this.onAlert) {
-        this.onAlert(`Falta de ${defName} sobre ${carrier.player?.name || "el atacante"}.`);
+        this.onAlert({ text: `⚠️ Falta de ${defName} sobre ${carrier.player?.name || "el atacante"}.` });
       }
 
       // Tarjeta amarilla ocasional (14% de las faltas)
@@ -4305,16 +4336,22 @@ export class MatchSimulator {
     });
 
     const concedingSide = isHome ? "away" : "home";
+    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
     this.resetKickoff(concedingSide);
 
     if (this.onGoal) {
       this.onGoal({
         minute: min,
         scoringSide,
+        concedingSide,
+        atkTeam,
+        shooter: scorerObj || { name: scorerName },
         scorer: scorerName,
         assist: assistName,
+        score: `${this.homeScore} - ${this.awayScore}`,
         homeScore: this.homeScore,
         awayScore: this.awayScore,
+        isSkipped: false,
         state: this.getState()
       });
     }
@@ -4403,6 +4440,10 @@ export class MatchSimulator {
     const damp = b.zm < 0.25 ? Math.exp(-1.15 * dt) : Math.exp(-0.22 * dt);
     b.vx *= damp;
     b.vy *= damp;
+    if (b.zm === 0 && Math.hypot(b.vx, b.vy) < 0.25) {
+      b.passTeam = null;
+      b.shotTeam = null;
+    }
 
     // Comprobar porterías y líneas de fondo
     const inGoalMouthY = b.ym >= 30.34 && b.ym <= 37.66 && b.zm <= 2.48;
@@ -4462,7 +4503,7 @@ export class MatchSimulator {
             const saveProb = Math.max(0.45, Math.min(0.92, 0.66 + (gkSkill - 70) * 0.008));
             if (Math.random() < saveProb) {
               if (p.player) p.player.matchSaves = (p.player.matchSaves || 0) + 1;
-              if (this.onAlert) this.onAlert(`¡Gran intervención de ${p.player?.name || "el portero"}!`);
+              if (this.onAlert) this.onAlert({ text: `🧤 ¡Gran intervención de ${p.player?.name || "el portero"}!` });
               if (Math.random() < 0.55) {
                 // Atrapa el balón
                 b.carrier = p;
@@ -4554,8 +4595,10 @@ export class MatchSimulator {
       if (this.userSide !== "away") this.checkAISubstitutions("away");
     }
 
-    // Descanso (minuto 45)
-    if (m === 45 && !this.isSecondHalf) {
+    // Descanso (al alcanzar halfTimeMinute, p.ej. 45+descuento)
+    const htMin = this.halfTimeMinute || 45;
+    if (m >= htMin && !this.halfTimeTriggered && !this.isSecondHalf) {
+      this.halfTimeTriggered = true;
       this.isHalfTime = true;
       this.isRunning = false;
       if (this.onHalfTime) this.onHalfTime(this.getState());
@@ -4565,10 +4608,7 @@ export class MatchSimulator {
 
     // Final del partido (minuto 90+)
     if (m >= this.maxMinutes) {
-      this.isFinished = true;
-      this.isRunning = false;
-      if (this.onTick) this.onTick(this.getState());
-      if (this.onFinish) this.onFinish(this.getResult());
+      this.finish();
     }
   }
 

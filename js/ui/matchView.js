@@ -3532,9 +3532,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const elScore = container.querySelector("#goal-score-display");
       const elMinute = container.querySelector("#goal-minute-display");
 
-      if (elScorer) elScorer.textContent = `${goalData.shooter.name}`;
-      if (elScore) elScore.textContent = goalData.score;
-      if (elMinute) elMinute.textContent = `Minuto ${goalData.minute}' · ${goalData.atkTeam.name}`;
+      if (elScorer) elScorer.textContent = `${goalData.shooter?.name || goalData.scorer || "Jugador"}`;
+      if (elScore) elScore.textContent = goalData.score || `${goalData.homeScore ?? 0} - ${goalData.awayScore ?? 0}`;
+      if (elMinute) elMinute.textContent = `Minuto ${goalData.minute}' · ${goalData.atkTeam?.name || ""}`;
 
       if (elGoalOverlay) {
         elGoalOverlay.classList.remove("opacity-0", "pointer-events-none", "scale-95");
@@ -7033,7 +7033,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         return trackTex(tex);
       }
 
-      const ballRadius = 0.44;
+      const ballRadius = 0.25;
       const ballGeo = trackGeo(new THREE.SphereGeometry(ballRadius, 24, 24));
       const ballMat = trackMat(new THREE.MeshStandardMaterial({
         map: buildBallTexture(),
@@ -7047,7 +7047,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       scene.add(ballMesh);
 
       // Sombra de contacto directa bajo el balón para máxima claridad visual de altura
-      const ballShadowGeo = trackGeo(new THREE.CircleGeometry(0.52, 20));
+      const ballShadowGeo = trackGeo(new THREE.CircleGeometry(0.30, 20));
       const ballShadowMat = trackMat(new THREE.MeshBasicMaterial({
         color: 0x020617,
         transparent: true,
@@ -7742,7 +7742,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const box = container.querySelector("#match-alert-box");
       const content = container.querySelector("#match-alert-content");
       if (!box || !content) return;
-      content.textContent = alert.text;
+      const msgText = typeof alert === "string" ? alert : (alert?.text || "");
+      if (!msgText) return;
+      content.textContent = msgText;
       box.classList.remove("opacity-0", "-translate-y-2");
       box.classList.add("opacity-100", "translate-y-0");
 
