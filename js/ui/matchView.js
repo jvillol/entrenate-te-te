@@ -2020,14 +2020,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             <!-- Canvas 3D -->
             <canvas id="match-canvas" class="w-full h-full block cursor-pointer" title="Toca para cambiar de cámara"></canvas>
 
-            <!-- Badge de Vista 2D para simulación normal y Selector de Modo Jugadas Clave -->
+            <!-- Badge de Cámara 3D TV y Selector de Modo Jugadas Clave -->
             <div class="absolute top-2 right-2 flex items-center gap-1.5 z-20">
               <button id="btn-toggle-hl-mode" class="flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-lg border border-amber-500/70 text-[9px] font-bold shadow-lg text-amber-400 active:scale-95 transition cursor-pointer" title="Elegir ver o pasar automáticamente las jugadas clave">
                 <span id="btn-toggle-hl-icon">🎬</span>
                 <span id="btn-toggle-hl-text">Jugadas: VER</span>
               </button>
-              <div class="flex items-center bg-slate-950/85 backdrop-blur-md px-2 py-1 rounded-lg border border-slate-700/80 text-[9px] font-bold shadow-lg text-emerald-400">
-                <span>⚽ 2D</span>
+              <div id="camera-mode-badge" class="flex items-center bg-slate-950/85 backdrop-blur-md px-2 py-1 rounded-lg border border-emerald-500/50 text-[9px] font-bold shadow-lg text-emerald-400 pointer-events-none">
+                <span>🎥 3D TV</span>
               </div>
             </div>
 
@@ -2580,9 +2580,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       </div>
     `;
 
-    // Canvas Setup
+    // Canvas Setup (WebGL 3D Three.js primario con fallback 2D)
     const canvas = container.querySelector("#match-canvas");
-    const ctx = canvas ? canvas.getContext("2d") : null;
+    let ctx = null;
 
     function resizeCanvas() {
       if (!canvas) return;
@@ -2595,7 +2595,6 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         canvas.height = targetH;
       }
     }
-    resizeCanvas();
 
     // ==========================================
     // MOTOR GRÁFICO 3D ESTILO FOOTBALL MANAGER 26 (UNITY ENGINE)
@@ -4534,7 +4533,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       ctx.restore();
     }
 
-    function drawFrontalHighlightScene(ctx, w, h, hlData) {
+    function drawFrontalHighlightScene(ctx, w, h, hlData, onlyUpdateState = false) {
       const now = performance.now();
       if (!hlData.animStartTime) hlData.animStartTime = now;
       const elapsed = (now - hlData.animStartTime) / 1000;
@@ -4556,6 +4555,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         return c * c * (3 - 2 * c);
       };
       const smoothstep = smooth01;
+      const vPostRight = 30.34;
+      const vPostLeft = 37.66;
 
       // Seguimiento suave de cámara broadcast conectado a la posición real del balón (manteniendo siempre la portería encuadrada)
       if (hlData.camU === undefined) {
@@ -4569,6 +4570,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       }
       const p3d = (u, v, z = 0) => projectEA3D(u, v, z, w, h, hlData.camU || 0, hlData.camV || 34);
 
+      let pFrontL_bot = { x: 0, y: 0 };
+      let drawGoalFrontFrame = () => {};
+      if (!onlyUpdateState && ctx) {
       // 1. FONDO DE GRADAS EN PERSPECTIVA DIAGONAL (FIEL A LA IMAGEN DE REFERENCIA)
       ctx.fillStyle = "#18181b";
       ctx.fillRect(0, 0, w, h);
@@ -4972,13 +4976,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       ctx.fill();
 
       // 5. PORTERÍA 3D CON CAJA DE RED PROFUNDA (u = 0, v = 30.34..37.66, z = 0..2.44)
-      const vPostRight = 30.34; // Poste derecho (más cercano al córner superior)
-      const vPostLeft = 37.66;  // Poste izquierdo (más cercano al primer plano inferior-izquierdo)
       const goalDepthU = -2.15; // Profundidad hacia atrás de la red
 
       const pFrontR_bot = p3d(0, vPostRight, 0);
       const pFrontR_top = p3d(0, vPostRight, 2.44);
-      const pFrontL_bot = p3d(0, vPostLeft, 0);
+      pFrontL_bot = p3d(0, vPostLeft, 0);
       const pFrontL_top = p3d(0, vPostLeft, 2.44);
 
       const isGoalScored = outcome === "GOAL" && elapsed >= 12.5;
@@ -5056,7 +5058,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       drawNetQuadMesh(pBackL_top, pBackR_top, pFrontR_top, pFrontL_top, 20, 6, 0.38);
 
       // Función que dibuja el marco frontal blanco brillante (postes y larguero) y el lateral izquierdo de la red
-      const drawGoalFrontFrame = () => {
+      drawGoalFrontFrame = () => {
         drawNetQuadMesh(pBackL_top, pFrontL_top, pFrontL_bot, pBackL_bot, 7, 10, 0.42);
 
         // Postes y larguero cilíndricos blancos con volumen
@@ -5080,18 +5082,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
         ctx.stroke();
       };
+      } // Fin de if (!onlyUpdateState && ctx)
 
-      // 6. SIMULACIÓN DINÁMICA CONECTADA EN TIEMPO REAL CON LOS 22 JUGADORES DEL CAMPO 2D
+      // 6. SIMULACIÓN DINÁMICA CONECTADA EN TIEMPO REAL CON LOS 22 JUGADORES DEL CAMPO
       // - u = distancia a línea de gol (0 = portería, 11 = penalti, 16.5 = frontal área, 34..36 = medular)
       // - v = posición lateral (0 = banda lejana sup-dcha, 34 = centro portería, 55..60 = banda cercana inf-izq)
       const isHomeAtk = isHome;
       const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 0.58, 1.5, 34.0);
       const to3DV = (y2d) => clamp(5.0 + (y2d / 100) * 52.0, 4.5, 57.5);
       const to2DX = (u3d) => {
-        const progX = clamp(u3d / 0.58, 1.5, 98.5);
+        const progX = clamp(u3d / 0.58, -3.5, 103.5);
         return isHomeAtk ? (100 - progX) : progX;
       };
-      const to2DY = (v3d) => clamp(((v3d - 5.0) / 52.0) * 100, 3.0, 97.0);
+      const to2DY = (v3d) => clamp(((v3d - 5.0) / 52.0) * 100, -4.0, 104.0);
 
       const playPattern = hlData.playPattern || "TIKI_TAKA_CENTRAL";
       const seed = hlData.patternSeed !== undefined ? hlData.patternSeed : 0.5;
@@ -5673,6 +5676,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               if (matchP) {
                 matchP.curX = to2DX(n.u);
                 matchP.curY = to2DY(n.v);
+                matchP.curZ = n.z || 0;
+                matchP.hlPose = n.pose;
+                matchP.hlSpeed = n.speed;
               }
             });
           }
@@ -5682,15 +5688,35 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               if (matchP) {
                 matchP.curX = to2DX(n.u);
                 matchP.curY = to2DY(n.v);
+                matchP.curZ = n.z || 0;
+                matchP.hlPose = n.pose;
+                matchP.hlSpeed = n.speed;
               }
             });
+            const gkP = liveDefArr.find(p => p.isKeeper);
+            if (gkP) {
+              gkP.curX = to2DX(gkU);
+              gkP.curY = to2DY(gkV);
+              gkP.curZ = gkZ || 0;
+              gkP.hlPose = gkPose;
+            }
           }
-          if (simulator.ball && elapsed < 11.5) {
+          if (simulator.ball) {
             simulator.ball.x = to2DX(ballU);
             simulator.ball.y = to2DY(ballV);
+            simulator.ball.z = ballZ * 2.4;
+            simulator.ball.targetX = simulator.ball.x;
+            simulator.ball.targetY = simulator.ball.y;
+            simulator.ball.targetZ = simulator.ball.z;
+          }
+          if (outcome === "GOAL" && elapsed >= 12.45 && elapsed <= 12.95) {
+            if (isHomeAtk) netRippleA = 1.0;
+            else netRippleH = 1.0;
           }
         }
       }
+
+      if (onlyUpdateState || !ctx) return;
 
       // 7. CONSTRUCCIÓN Y ORDENACIÓN POR PROFUNDIDAD (PAINTER'S ALGORITHM) DE LOS 22 JUGADORES 3D
       const createEnt = (id, u, v, z, kit, num, pose, facing, opts = {}) => {
@@ -6024,29 +6050,1296 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       ctx.restore();
     }
 
-    function drawPitch() {
-      if (!ctx || !canvas) return;
-      resizeCanvas();
-      const w = canvas.width;
-      const h = canvas.height;
+    // ==========================================
+    // MOTOR GRÁFICO 3D REALISTA CON THREE.JS (WEBGL)
+    // ==========================================
+    let threeEngine = null;
+    let threeInitAttempted = false;
+    let threeCdnLoading = false;
 
-      // Si hay una jugada clave activa, dibujamos la cámara frontal cinemática 3D (unos 15 segundos)
-      if (currentHighlightData) {
-        drawFrontalHighlightScene(ctx, w, h, currentHighlightData);
-        drawWeatherOverlay(ctx, w, h, matchWeather.id);
-        if (!simulator.isFinished) {
-          requestAnimationFrame(drawPitch);
+    function ensureThreeLoadedAndInit() {
+      if (threeEngine || threeInitAttempted) return;
+      if (typeof window !== "undefined" && window.THREE) {
+        threeInitAttempted = true;
+        try {
+          threeEngine = createThreeMatchEngine(canvas);
+        } catch (err) {
+          console.warn("Fallback a Canvas 2D:", err);
+          threeEngine = null;
         }
         return;
       }
+      if (!threeCdnLoading && typeof document !== "undefined") {
+        threeCdnLoading = true;
+        const script = document.createElement("script");
+        script.src = "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js";
+        script.async = true;
+        script.onload = () => {
+          threeCdnLoading = false;
+        };
+        script.onerror = () => {
+          threeCdnLoading = false;
+          threeInitAttempted = true;
+        };
+        document.head.appendChild(script);
+      }
+    }
 
-      // SIMULACIÓN GENERAL EN 2D (CAMPO CENITAL CON FICHAS CIRCULARES Y SIN NOMBRES)
-      const pDim = drawPitch2D(ctx, w, h);
-      const { padX, padY, pitchW, pitchH, dpr } = pDim;
+    function createThreeMatchEngine(targetCanvas) {
+      if (!targetCanvas || !window.THREE) return null;
+      const THREE = window.THREE;
 
-      // Interpolación continua y suave del balón
-      simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
-      simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.16;
+      const PITCH_L = 105; // Eje X: -52.5 (Portería Local) a +52.5 (Portería Visitante)
+      const PITCH_W = 68;  // Eje Z: -34 (Banda superior/fondo) a +34 (Banda inferior/cámara)
+
+      const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+      const simToWorldX = (sx) => ((sx - 50) / 100) * PITCH_L;
+      const simToWorldZ = (sy) => ((sy - 50) / 100) * PITCH_W;
+      const simToWorldY = (sz) => Math.max(0, (sz || 0) * 0.36);
+
+      const renderer = new THREE.WebGLRenderer({
+        canvas: targetCanvas,
+        antialias: true,
+        alpha: false,
+        powerPreference: "high-performance"
+      });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      if (THREE.sRGBEncoding !== undefined) {
+        renderer.outputEncoding = THREE.sRGBEncoding;
+      }
+
+      const scene = new THREE.Scene();
+      const skyColorHex = matchWeather.id === "night" ? 0x050b16 : (matchWeather.id === "rain" ? 0x0f172a : 0x0b172a);
+      scene.background = new THREE.Color(skyColorHex);
+      scene.fog = new THREE.FogExp2(skyColorHex, 0.0024);
+
+      // 1. CÁMARA ESTILO RETRANSMISIÓN TV (PerspectiveCamera en lateral largo Y: 28, Z: 42)
+      const rect0 = targetCanvas.getBoundingClientRect();
+      const initAspect = (rect0.width > 0 && rect0.height > 0) ? (rect0.width / rect0.height) : (16 / 9);
+      const camera = new THREE.PerspectiveCamera(38, initAspect, 1.0, 320);
+      camera.position.set(0, 28, 42);
+      const camLookCurrent = new THREE.Vector3(0, 0.6, -1.5);
+      camera.lookAt(camLookCurrent);
+
+      // 2. ILUMINACIÓN Y SOMBRAS SUAVES (AmbientLight + DirectionalLight con shadowMap)
+      const ambientIntensity = matchWeather.id === "sunny" ? 0.68 : (matchWeather.id === "rain" ? 0.56 : 0.62);
+      const ambientLight = new THREE.AmbientLight(0xffffff, ambientIntensity);
+      scene.add(ambientLight);
+
+      const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x14532d, 0.34);
+      hemiLight.position.set(0, 60, 0);
+      scene.add(hemiLight);
+
+      const sunColor = matchWeather.id === "sunny" ? 0xfffbeb : (matchWeather.id === "rain" ? 0xe2e8f0 : 0xf8fafc);
+      const dirLight = new THREE.DirectionalLight(sunColor, matchWeather.id === "sunny" ? 1.24 : 1.15);
+      dirLight.position.set(32, 62, 38);
+      dirLight.castShadow = true;
+      dirLight.shadow.mapSize.width = 2048;
+      dirLight.shadow.mapSize.height = 2048;
+      dirLight.shadow.camera.near = 10;
+      dirLight.shadow.camera.far = 155;
+      dirLight.shadow.camera.left = -64;
+      dirLight.shadow.camera.right = 64;
+      dirLight.shadow.camera.top = 46;
+      dirLight.shadow.camera.bottom = -46;
+      dirLight.shadow.bias = -0.0005;
+      scene.add(dirLight);
+
+      // Luz de relleno suave desde el costado opuesto del estadio
+      const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.28);
+      fillLight.position.set(-36, 42, -35);
+      scene.add(fillLight);
+
+      const disposableTextures = [];
+      const disposableGeometries = [];
+      const disposableMaterials = [];
+      const trackTex = (t) => {
+        if (t) {
+          if (THREE.sRGBEncoding !== undefined) t.encoding = THREE.sRGBEncoding;
+          disposableTextures.push(t);
+        }
+        return t;
+      };
+      const trackGeo = (g) => { if (g) disposableGeometries.push(g); return g; };
+      const trackMat = (m) => { if (m) disposableMaterials.push(m); return m; };
+
+      // 3. CAMPO DE FÚTBOL PROFESIONAL (Textura procedural en Canvas con franjas de dos tonos de verde y líneas de cal)
+      const APRON_X = 8; // Margen por cada fondo (total ancho X = 121)
+      const APRON_Z = 6; // Margen por cada banda (total ancho Z = 80)
+      const TOTAL_W = PITCH_L + APRON_X * 2;
+      const TOTAL_H = PITCH_W + APRON_Z * 2;
+
+      function buildPitchCanvasTexture() {
+        const cw = 2048;
+        const ch = Math.round(cw * (TOTAL_H / TOTAL_W)); // ~1354
+        const c = document.createElement("canvas");
+        c.width = cw;
+        c.height = ch;
+        const g = c.getContext("2d");
+
+        const m2pxX = (m) => ((m + TOTAL_W / 2) / TOTAL_W) * cw;
+        const m2pxZ = (m) => ((m + TOTAL_H / 2) / TOTAL_H) * ch;
+        const scaleX = cw / TOTAL_W;
+        const scaleZ = ch / TOTAL_H;
+
+        // Césped perimetral exterior (moqueta/desahogo)
+        g.fillStyle = "#195826";
+        g.fillRect(0, 0, cw, ch);
+
+        const x0 = m2pxX(-PITCH_L / 2);
+        const z0 = m2pxZ(-PITCH_W / 2);
+        const pw = PITCH_L * scaleX;
+        const ph = PITCH_W * scaleZ;
+
+        // 18 Franjas verticales alternas de dos tonos de verde profesional
+        const numStripes = 18;
+        const stripeW = pw / numStripes;
+        for (let i = 0; i < numStripes; i++) {
+          g.fillStyle = (i % 2 === 0) ? "#216e30" : "#2b823a";
+          g.fillRect(x0 + i * stripeW, z0, stripeW + 0.8, ph);
+        }
+
+        // Pasadas horizontales sutiles de cortacésped (efecto damero suave de estadio élite)
+        const hStripes = 12;
+        const hStripeH = ph / hStripes;
+        for (let j = 0; j < hStripes; j++) {
+          if (j % 2 === 0) {
+            g.fillStyle = "rgba(255, 255, 255, 0.028)";
+            g.fillRect(x0, z0 + j * hStripeH, pw, hStripeH);
+          }
+        }
+
+        // Micro-grano orgánico de hierba
+        for (let n = 0; n < 4500; n++) {
+          const rx = Math.random() * cw;
+          const rz = Math.random() * ch;
+          g.fillStyle = (n % 2 === 0) ? "rgba(255,255,255,0.03)" : "rgba(0,20,5,0.04)";
+          g.fillRect(rx, rz, 2, 2);
+        }
+
+        // LÍNEAS DE CAL BLANCAS BIEN DEFINIDAS
+        g.strokeStyle = "rgba(255, 255, 255, 0.96)";
+        g.fillStyle = "#ffffff";
+        g.lineWidth = Math.max(4.5, 0.24 * scaleX);
+        g.lineJoin = "round";
+        g.lineCap = "round";
+
+        // Bandas y líneas de fondo
+        g.strokeRect(x0, z0, pw, ph);
+
+        // Línea de medio campo
+        const midX = m2pxX(0);
+        const midZ = m2pxZ(0);
+        g.beginPath();
+        g.moveTo(midX, z0);
+        g.lineTo(midX, z0 + ph);
+        g.stroke();
+
+        // Círculo central (radio 9.15m) y punto central
+        g.beginPath();
+        g.ellipse(midX, midZ, 9.15 * scaleX, 9.15 * scaleZ, 0, 0, Math.PI * 2);
+        g.stroke();
+
+        g.beginPath();
+        g.arc(midX, midZ, 0.48 * scaleX, 0, Math.PI * 2);
+        g.fill();
+
+        // Áreas grandes (16.5m x 40.32m) y áreas pequeñas (5.5m x 18.32m) en ambos lados
+        const penW = 16.5 * scaleX;
+        const penH = 40.32 * scaleZ;
+        const penTopZ = m2pxZ(-40.32 / 2);
+        g.strokeRect(x0, penTopZ, penW, penH);
+        g.strokeRect(x0 + pw - penW, penTopZ, penW, penH);
+
+        const sixW = 5.5 * scaleX;
+        const sixH = 18.32 * scaleZ;
+        const sixTopZ = m2pxZ(-18.32 / 2);
+        g.strokeRect(x0, sixTopZ, sixW, sixH);
+        g.strokeRect(x0 + pw - sixW, sixTopZ, sixW, sixH);
+
+        // Puntos de penalti (a 11m de cada línea de gol)
+        const penSpotLeftX = m2pxX(-PITCH_L / 2 + 11.0);
+        const penSpotRightX = m2pxX(PITCH_L / 2 - 11.0);
+        g.beginPath();
+        g.arc(penSpotLeftX, midZ, 0.44 * scaleX, 0, Math.PI * 2);
+        g.arc(penSpotRightX, midZ, 0.44 * scaleX, 0, Math.PI * 2);
+        g.fill();
+
+        // Semicírculos de área (radio 9.15m desde el punto de penalti, fuera del área de 16.5m)
+        const dAngle = Math.acos((16.5 - 11.0) / 9.15); // ~0.926 rad
+        g.beginPath();
+        g.ellipse(penSpotLeftX, midZ, 9.15 * scaleX, 9.15 * scaleZ, 0, -dAngle, dAngle);
+        g.stroke();
+
+        g.beginPath();
+        g.ellipse(penSpotRightX, midZ, 9.15 * scaleX, 9.15 * scaleZ, 0, Math.PI - dAngle, Math.PI + dAngle);
+        g.stroke();
+
+        // 4 Arcos de córner (radio 1.0m)
+        const cR = 1.15 * scaleX;
+        g.beginPath(); g.arc(x0, z0, cR, 0, Math.PI * 0.5); g.stroke();
+        g.beginPath(); g.arc(x0 + pw, z0, cR, Math.PI * 0.5, Math.PI); g.stroke();
+        g.beginPath(); g.arc(x0 + pw, z0 + ph, cR, Math.PI, Math.PI * 1.5); g.stroke();
+        g.beginPath(); g.arc(x0, z0 + ph, cR, Math.PI * 1.5, Math.PI * 2); g.stroke();
+
+        // Líneas discontinuas del área técnica junto a la banda inferior
+        g.strokeStyle = "rgba(255, 255, 255, 0.55)";
+        g.lineWidth = Math.max(2, 0.14 * scaleX);
+        g.strokeRect(m2pxX(-22), m2pxZ(PITCH_W / 2 + 1.0), 14 * scaleX, 3.2 * scaleZ);
+        g.strokeRect(m2pxX(8), m2pxZ(PITCH_W / 2 + 1.0), 14 * scaleX, 3.2 * scaleZ);
+
+        const tex = new THREE.CanvasTexture(c);
+        tex.anisotropy = renderer.capabilities.getMaxAnisotropy ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 4;
+        tex.needsUpdate = true;
+        return trackTex(tex);
+      }
+
+      const pitchGeo = trackGeo(new THREE.PlaneGeometry(TOTAL_W, TOTAL_H));
+      const pitchMat = trackMat(new THREE.MeshStandardMaterial({
+        map: buildPitchCanvasTexture(),
+        roughness: 0.88,
+        metalness: 0.02
+      }));
+      const pitchMesh = new THREE.Mesh(pitchGeo, pitchMat);
+      pitchMesh.rotation.x = -Math.PI / 2;
+      pitchMesh.receiveShadow = true;
+      scene.add(pitchMesh);
+
+      // Suelo oscuro exterior bajo las gradas para sellar cualquier hueco
+      const outerGroundGeo = trackGeo(new THREE.PlaneGeometry(240, 180));
+      const outerGroundMat = trackMat(new THREE.MeshLambertMaterial({ color: 0x090d16 }));
+      const outerGround = new THREE.Mesh(outerGroundGeo, outerGroundMat);
+      outerGround.rotation.x = -Math.PI / 2;
+      outerGround.position.y = -0.05;
+      scene.add(outerGround);
+
+      // 4. BANDERINES DE CÓRNER 3D
+      const cornerFlags = [];
+      const poleGeo = trackGeo(new THREE.CylinderGeometry(0.055, 0.055, 1.55, 8));
+      const poleMat = trackMat(new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 }));
+      const flagGeo = trackGeo(new THREE.PlaneGeometry(0.62, 0.40, 3, 1));
+      const flagMat = trackMat(new THREE.MeshStandardMaterial({
+        color: 0xef4444,
+        emissive: 0x450a0a,
+        side: THREE.DoubleSide,
+        roughness: 0.5
+      }));
+
+      [
+        [-PITCH_L / 2, -PITCH_W / 2],
+        [PITCH_L / 2, -PITCH_W / 2],
+        [-PITCH_L / 2, PITCH_W / 2],
+        [PITCH_L / 2, PITCH_W / 2]
+      ].forEach(([cx, cz]) => {
+        const fg = new THREE.Group();
+        fg.position.set(cx, 0, cz);
+        const pole = new THREE.Mesh(poleGeo, poleMat);
+        pole.position.y = 0.775;
+        pole.castShadow = true;
+        fg.add(pole);
+
+        const cloth = new THREE.Mesh(flagGeo, flagMat);
+        cloth.position.set(0.31, 1.32, 0);
+        fg.add(cloth);
+        scene.add(fg);
+        cornerFlags.push(cloth);
+      });
+
+      // 5. PORTERÍAS 3D PROFESIONALES CON REDES
+      function buildNetTexture() {
+        const nc = document.createElement("canvas");
+        nc.width = 128;
+        nc.height = 128;
+        const ng = nc.getContext("2d");
+        ng.clearRect(0, 0, 128, 128);
+        ng.strokeStyle = "rgba(248, 250, 252, 0.78)";
+        ng.lineWidth = 2.2;
+        const step = 16;
+        for (let i = 0; i <= 128; i += step) {
+          ng.beginPath();
+          ng.moveTo(i, 0); ng.lineTo(i, 128);
+          ng.moveTo(0, i); ng.lineTo(128, i);
+          ng.stroke();
+        }
+        const tex = new THREE.CanvasTexture(nc);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+        tex.repeat.set(6, 3);
+        return trackTex(tex);
+      }
+
+      const netTex = buildNetTexture();
+      const netMat = trackMat(new THREE.MeshBasicMaterial({
+        map: netTex,
+        transparent: true,
+        opacity: 0.75,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      }));
+      const postMat = trackMat(new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        roughness: 0.22,
+        metalness: 0.18
+      }));
+      const stanchionMat = trackMat(new THREE.MeshStandardMaterial({
+        color: 0x64748b,
+        roughness: 0.45,
+        metalness: 0.5
+      }));
+
+      function createGoal3D(goalX, dirSign) {
+        // dirSign = -1 para portería local (se extiende hacia -X), +1 para visitante (se extiende hacia +X)
+        const gGroup = new THREE.Group();
+        gGroup.position.set(goalX, 0, 0);
+
+        const goalW = 7.32;
+        const halfW = goalW / 2; // 3.66m
+        const goalH = 2.44;
+        const depth = 2.25;
+        const postR = 0.085;
+
+        const vPostGeo = trackGeo(new THREE.CylinderGeometry(postR, postR, goalH, 16));
+        const hBarGeo = trackGeo(new THREE.CylinderGeometry(postR, postR, goalW + postR * 2, 16));
+
+        // Dos postes verticales
+        const postNear = new THREE.Mesh(vPostGeo, postMat);
+        postNear.position.set(0, goalH / 2, halfW);
+        postNear.castShadow = true;
+        gGroup.add(postNear);
+
+        const postFar = new THREE.Mesh(vPostGeo, postMat);
+        postFar.position.set(0, goalH / 2, -halfW);
+        postFar.castShadow = true;
+        gGroup.add(postFar);
+
+        // Larguero horizontal
+        const crossbar = new THREE.Mesh(hBarGeo, postMat);
+        crossbar.rotation.x = Math.PI / 2;
+        crossbar.position.set(0, goalH, 0);
+        crossbar.castShadow = true;
+        gGroup.add(crossbar);
+
+        // Soportes traseros y base de red
+        const backFrameGeo = trackGeo(new THREE.CylinderGeometry(0.045, 0.045, goalW, 10));
+        const backBotBar = new THREE.Mesh(backFrameGeo, stanchionMat);
+        backBotBar.rotation.x = Math.PI / 2;
+        backBotBar.position.set(dirSign * depth, 0.05, 0);
+        gGroup.add(backBotBar);
+
+        const backTopBar = new THREE.Mesh(backFrameGeo, stanchionMat);
+        backTopBar.rotation.x = Math.PI / 2;
+        backTopBar.position.set(dirSign * (depth * 0.85), goalH * 0.96, 0);
+        gGroup.add(backTopBar);
+
+        const sideBotGeo = trackGeo(new THREE.CylinderGeometry(0.045, 0.045, depth, 8));
+        [-halfW, halfW].forEach(zSide => {
+          const sb = new THREE.Mesh(sideBotGeo, stanchionMat);
+          sb.rotation.z = Math.PI / 2;
+          sb.position.set(dirSign * (depth / 2), 0.05, zSide);
+          gGroup.add(sb);
+        });
+
+        // Contenedor de mallas de red (permite deformación por impacto de gol)
+        const netGroup = new THREE.Group();
+
+        // Red trasera
+        const backNetGeo = trackGeo(new THREE.PlaneGeometry(goalW, goalH, 8, 4));
+        const backNet = new THREE.Mesh(backNetGeo, netMat);
+        backNet.rotation.y = Math.PI / 2;
+        backNet.position.set(dirSign * depth, goalH / 2, 0);
+        netGroup.add(backNet);
+
+        // Red superior (techo)
+        const topNetGeo = trackGeo(new THREE.PlaneGeometry(depth, goalW));
+        const topNet = new THREE.Mesh(topNetGeo, netMat);
+        topNet.rotation.x = Math.PI / 2;
+        topNet.position.set(dirSign * (depth / 2), goalH, 0);
+        netGroup.add(topNet);
+
+        // Redes laterales (izquierda y derecha)
+        const sideNetGeo = trackGeo(new THREE.PlaneGeometry(depth, goalH));
+        const sideNear = new THREE.Mesh(sideNetGeo, netMat);
+        sideNear.position.set(dirSign * (depth / 2), goalH / 2, halfW);
+        netGroup.add(sideNear);
+
+        const sideFar = new THREE.Mesh(sideNetGeo, netMat);
+        sideFar.position.set(dirSign * (depth / 2), goalH / 2, -halfW);
+        netGroup.add(sideFar);
+
+        gGroup.add(netGroup);
+        scene.add(gGroup);
+        return { gGroup, netGroup, dirSign };
+      }
+
+      const homeGoal3D = createGoal3D(-PITCH_L / 2, -1);
+      const awayGoal3D = createGoal3D(PITCH_L / 2, 1);
+
+      // 6. ESTADIO Y AMBIENTE: VALLAS PUBLICITARIAS PERIMETRALES Y GRADAS OSCURAS CON PÚBLICO MOTEADO
+      function buildAdboardTexture() {
+        const ac = document.createElement("canvas");
+        ac.width = 2048;
+        ac.height = 128;
+        const ag = ac.getContext("2d");
+
+        const sponsors = [
+          { bg: "#0f172a", fg: "#38bdf8", accent: "#0284c7", text: "⚽ LALIGA EA SPORTS" },
+          { bg: homeTeam.primaryColor || "#dc2626", fg: "#ffffff", accent: "#fbbf24", text: `🏟️ ${(homeTeam.name || "LOCAL").toUpperCase()}` },
+          { bg: "#f8fafc", fg: "#1e1b4b", accent: "#e11d48", text: "FOOTBALL MANAGER 3D" },
+          { bg: "#064e3b", fg: "#6ee7b7", accent: "#10b981", text: "⚡ ENTRENATE TE TE" },
+          { bg: awayTeam.primaryColor || "#2563eb", fg: "#ffffff", accent: "#38bdf8", text: `🛡️ ${(awayTeam.name || "VISITANTE").toUpperCase()}` },
+          { bg: "#18181b", fg: "#facc15", accent: "#f59e0b", text: "★ MATCH ENGINE TV ★" }
+        ];
+
+        const segW = ac.width / sponsors.length;
+        sponsors.forEach((sp, i) => {
+          const sx = i * segW;
+          ag.fillStyle = sp.bg;
+          ag.fillRect(sx, 0, segW, ac.height);
+
+          // Franja diagonal decorativa estilo Premier/LaLiga
+          ag.fillStyle = sp.accent;
+          ag.beginPath();
+          ag.moveTo(sx, 0);
+          ag.lineTo(sx + 28, 0);
+          ag.lineTo(sx + 10, ac.height);
+          ag.lineTo(sx, ac.height);
+          ag.closePath();
+          ag.fill();
+
+          // Borde superior LED brillante
+          ag.fillStyle = "rgba(255,255,255,0.28)";
+          ag.fillRect(sx, 0, segW, 6);
+
+          ag.font = "900 44px 'Arial Black', Impact, sans-serif";
+          ag.textAlign = "center";
+          ag.textBaseline = "middle";
+          ag.fillStyle = sp.fg;
+          ag.fillText(sp.text, sx + segW / 2 + 8, ac.height / 2 + 2, segW - 36);
+        });
+
+        const tex = new THREE.CanvasTexture(ac);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        return trackTex(tex);
+      }
+
+      const adTex = buildAdboardTexture();
+      const adMat = trackMat(new THREE.MeshStandardMaterial({
+        map: adTex,
+        roughness: 0.4,
+        metalness: 0.1,
+        emissive: 0x111827,
+        emissiveIntensity: 0.25
+      }));
+
+      // Vallas LED en banda lejana (Z = -36.8), banda cercana (Z = +36.8) y ambos fondos (X = ±56.5)
+      const adH = 1.05;
+      const farAdGeo = trackGeo(new THREE.BoxGeometry(PITCH_L + 7.6, adH, 0.25));
+      const farAd = new THREE.Mesh(farAdGeo, adMat);
+      farAd.position.set(0, adH / 2, -PITCH_W / 2 - 2.9);
+      farAd.castShadow = true;
+      scene.add(farAd);
+
+      const nearAd = new THREE.Mesh(farAdGeo, adMat);
+      nearAd.position.set(0, adH / 2, PITCH_W / 2 + 3.4);
+      scene.add(nearAd);
+
+      const endAdGeo = trackGeo(new THREE.BoxGeometry(0.25, adH, PITCH_W + 6.3));
+      const leftAd = new THREE.Mesh(endAdGeo, adMat);
+      leftAd.position.set(-PITCH_L / 2 - 3.8, adH / 2, 0);
+      leftAd.castShadow = true;
+      scene.add(leftAd);
+
+      const rightAd = new THREE.Mesh(endAdGeo, adMat);
+      rightAd.position.set(PITCH_L / 2 + 3.8, adH / 2, 0);
+      rightAd.castShadow = true;
+      scene.add(rightAd);
+
+      // Banquillos técnicos (Local y Visitante) en la banda
+      const dugoutGeo = trackGeo(new THREE.BoxGeometry(10.5, 2.1, 1.8));
+      const dugoutMat = trackMat(new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.5, metalness: 0.3 }));
+      [-15, 15].forEach(bx => {
+        const bench = new THREE.Mesh(dugoutGeo, dugoutMat);
+        bench.position.set(bx, 1.05, -PITCH_W / 2 - 4.3);
+        bench.castShadow = true;
+        scene.add(bench);
+      });
+
+      // GRADAS OSCURAS ESCALONADAS CON PÚBLICO MOTEADO AL FONDO (Estilo Football Manager)
+      function buildCrowdStandTexture() {
+        const sc = document.createElement("canvas");
+        sc.width = 1024;
+        sc.height = 512;
+        const sg = sc.getContext("2d");
+
+        // Hormigón oscuro de las gradas
+        sg.fillStyle = "#0f172a";
+        sg.fillRect(0, 0, sc.width, sc.height);
+
+        const rows = 26;
+        const rowH = sc.height / rows;
+        const homeCol = homeTeam.primaryColor || "#dc2626";
+        const awayCol = awayTeam.primaryColor || "#2563eb";
+        const palette = [
+          homeCol, homeCol, homeCol,
+          awayCol,
+          "#e2e8f0", "#cbd5e1", "#334155", "#475569", "#1e293b", "#f59e0b", "#94a3b8"
+        ];
+
+        for (let r = 0; r < rows; r++) {
+          const ry = r * rowH;
+          sg.fillStyle = (r % 2 === 0) ? "#0f172a" : "#162033";
+          sg.fillRect(0, ry, sc.width, rowH);
+
+          // Línea de escalón de hormigón
+          sg.fillStyle = "rgba(148, 163, 184, 0.12)";
+          sg.fillRect(0, ry, sc.width, 2);
+
+          // Público moteado en cada fila
+          const cols = 150;
+          const colW = sc.width / cols;
+          for (let c = 0; c < cols; c++) {
+            // Pasillos de escaleras amarillas cada 25 columnas
+            if (c % 25 === 12 || c % 25 === 13) {
+              sg.fillStyle = (c % 25 === 12) ? "#475569" : "#eab308";
+              sg.fillRect(c * colW, ry, colW * 0.9, rowH * 0.8);
+              continue;
+            }
+            const seed = (r * 73 + c * 31) % 100;
+            if (seed < 14) continue; // Hueco de butaca oscura
+
+            const col = palette[(r * 17 + c * 23) % palette.length];
+            const px = c * colW + (r % 2) * 2;
+            const py = ry + rowH * 0.52;
+
+            // Torso moteado
+            sg.fillStyle = col;
+            sg.fillRect(px - 2.4, py - 2.2, 4.8, 5.2);
+
+            // Cabeza del espectador
+            sg.fillStyle = (seed % 3 === 0) ? "#d6a27a" : "#f1c27d";
+            sg.beginPath();
+            sg.arc(px, py - 3.8, 1.9, 0, Math.PI * 2);
+            sg.fill();
+          }
+        }
+
+        const tex = new THREE.CanvasTexture(sc);
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        return trackTex(tex);
+      }
+
+      const crowdTex = buildCrowdStandTexture();
+      const standMat = trackMat(new THREE.MeshStandardMaterial({
+        map: crowdTex,
+        roughness: 0.92,
+        metalness: 0.05
+      }));
+      const concreteMat = trackMat(new THREE.MeshStandardMaterial({
+        color: 0x0f172a,
+        roughness: 0.9,
+        metalness: 0.1
+      }));
+      const roofMat = trackMat(new THREE.MeshStandardMaterial({
+        color: 0x1e293b,
+        roughness: 0.7,
+        metalness: 0.35
+      }));
+
+      // Función para crear una tribuna escalonada completa en cualquiera de los 4 costados
+      function createStadiumStand(width, distFromCenter, rotY) {
+        const stGroup = new THREE.Group();
+        stGroup.rotation.y = rotY;
+
+        // Muro bajo de primera fila (podium)
+        const wallGeo = trackGeo(new THREE.BoxGeometry(width, 2.2, 1.5));
+        const wallMesh = new THREE.Mesh(wallGeo, concreteMat);
+        wallMesh.position.set(0, 1.1, -distFromCenter);
+        stGroup.add(wallMesh);
+
+        // Rampa principal de grada baja y alta con público moteado
+        const tierSlopeGeo = trackGeo(new THREE.PlaneGeometry(width, 26));
+        const tierSlope = new THREE.Mesh(tierSlopeGeo, standMat);
+        tierSlope.rotation.x = Math.PI * 0.31; // Inclinación hacia el césped
+        tierSlope.position.set(0, 9.2, -distFromCenter - 10.5);
+        stGroup.add(tierSlope);
+
+        // Cierre trasero oscuro y marquesina superior (evita ver vacío detrás de las bandas)
+        const backWallGeo = trackGeo(new THREE.BoxGeometry(width + 16, 22, 3));
+        const backWall = new THREE.Mesh(backWallGeo, concreteMat);
+        backWall.position.set(0, 11, -distFromCenter - 21.5);
+        stGroup.add(backWall);
+
+        const roofGeo = trackGeo(new THREE.BoxGeometry(width + 16, 1.0, 16));
+        const roof = new THREE.Mesh(roofGeo, roofMat);
+        roof.position.set(0, 21.8, -distFromCenter - 14.5);
+        stGroup.add(roof);
+
+        scene.add(stGroup);
+      }
+
+      // 4 Gradas perimetrales (Norte/Fondo, Sur/Cámara, Oeste/Gol Local, Este/Gol Visitante)
+      createStadiumStand(PITCH_L + 36, PITCH_W / 2 + 5.8, 0);               // Tribuna Norte (frente a la cámara TV)
+      createStadiumStand(PITCH_L + 36, PITCH_W / 2 + 8.5, Math.PI);         // Tribuna Sur (detrás de cámara)
+      createStadiumStand(PITCH_W + 36, PITCH_L / 2 + 6.5, Math.PI / 2);     // Fondo Oeste (Portería Local)
+      createStadiumStand(PITCH_W + 36, PITCH_L / 2 + 6.5, -Math.PI / 2);    // Fondo Este (Portería Visitante)
+
+      // 4 Torres de iluminación en las esquinas del estadio
+      const towerPoleGeo = trackGeo(new THREE.CylinderGeometry(0.6, 0.9, 34, 8));
+      const towerHeadGeo = trackGeo(new THREE.BoxGeometry(6.5, 3.2, 1.2));
+      const towerGlowMat = trackMat(new THREE.MeshBasicMaterial({ color: 0xfefce8 }));
+      [
+        [-PITCH_L / 2 - 14, -PITCH_W / 2 - 12, 0.6],
+        [PITCH_L / 2 + 14, -PITCH_W / 2 - 12, -0.6],
+        [-PITCH_L / 2 - 14, PITCH_W / 2 + 14, 2.5],
+        [PITCH_L / 2 + 14, PITCH_W / 2 + 14, -2.5]
+      ].forEach(([tx, tz, ry]) => {
+        const tGroup = new THREE.Group();
+        tGroup.position.set(tx, 0, tz);
+        tGroup.rotation.y = ry;
+        const pole = new THREE.Mesh(towerPoleGeo, roofMat);
+        pole.position.y = 17;
+        tGroup.add(pole);
+        const head = new THREE.Mesh(towerHeadGeo, towerGlowMat);
+        head.position.set(0, 33.5, 0);
+        head.rotation.x = 0.35;
+        tGroup.add(head);
+        scene.add(tGroup);
+      });
+
+      // 7. MODELADO 3D ARTICULADO DE LOS 22 JUGADORES Y EL BALÓN
+      const jerseyTexCache = new Map();
+
+      function getJerseyTexture(jerseyHex, collarHex, numHex, number, isKeeper) {
+        const key = `${jerseyHex}_${collarHex}_${numHex}_${number}_${isKeeper ? 1 : 0}`;
+        if (jerseyTexCache.has(key)) return jerseyTexCache.get(key);
+
+        const jc = document.createElement("canvas");
+        jc.width = 256;
+        jc.height = 256;
+        const jg = jc.getContext("2d");
+
+        // Fondo de la camiseta
+        jg.fillStyle = jerseyHex || "#ef4444";
+        jg.fillRect(0, 0, 256, 256);
+
+        // Sombreado lateral de pliegues
+        const grad = jg.createLinearGradient(0, 0, 256, 0);
+        grad.addColorStop(0, "rgba(0,0,0,0.18)");
+        grad.addColorStop(0.25, "rgba(255,255,255,0.08)");
+        grad.addColorStop(0.5, "rgba(0,0,0,0.12)");
+        grad.addColorStop(0.75, "rgba(255,255,255,0.08)");
+        grad.addColorStop(1, "rgba(0,0,0,0.18)");
+        jg.fillStyle = grad;
+        jg.fillRect(0, 0, 256, 256);
+
+        // Cuello superior y ribete inferior
+        jg.fillStyle = collarHex || "#ffffff";
+        jg.fillRect(0, 0, 256, 18);
+
+        // Dorsal grande nítido para la espalda y pecho
+        jg.font = "900 112px 'Arial Black', Impact, sans-serif";
+        jg.textAlign = "center";
+        jg.textBaseline = "middle";
+        jg.lineWidth = 8;
+        jg.strokeStyle = "rgba(15, 23, 42, 0.75)";
+        jg.strokeText(`${number || 9}`, 128, 138);
+        jg.fillStyle = numHex || "#ffffff";
+        jg.fillText(`${number || 9}`, 128, 138);
+
+        const tex = new THREE.CanvasTexture(jc);
+        tex.needsUpdate = true;
+        trackTex(tex);
+        jerseyTexCache.set(key, tex);
+        return tex;
+      }
+
+      // Geometrías compartidas para los 22 futbolistas 3D (altura realista ~2.15m en escala TV para visibilidad perfecta)
+      const sharedTorsoGeo = trackGeo(new THREE.BoxGeometry(0.68, 0.78, 0.38));
+      const sharedShortsGeo = trackGeo(new THREE.BoxGeometry(0.64, 0.34, 0.36));
+      const sharedHeadGeo = trackGeo(new THREE.SphereGeometry(0.24, 14, 14));
+      const sharedHairGeo = trackGeo(new THREE.SphereGeometry(0.25, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.58));
+      const sharedThighGeo = trackGeo(new THREE.CylinderGeometry(0.125, 0.105, 0.42, 10));
+      const sharedSockGeo = trackGeo(new THREE.CylinderGeometry(0.105, 0.082, 0.44, 10));
+      const sharedBootGeo = trackGeo(new THREE.BoxGeometry(0.18, 0.12, 0.34));
+      const sharedSleeveGeo = trackGeo(new THREE.CylinderGeometry(0.11, 0.095, 0.30, 8));
+      const sharedForearmGeo = trackGeo(new THREE.CylinderGeometry(0.088, 0.072, 0.34, 8));
+      const sharedHandGeo = trackGeo(new THREE.SphereGeometry(0.085, 8, 8));
+      const sharedCarrierRingGeo = trackGeo(new THREE.RingGeometry(0.68, 0.92, 24));
+      const sharedShadowDiscGeo = trackGeo(new THREE.CircleGeometry(0.55, 16));
+
+      const skinTones = [0xf5cba7, 0xe0ac69, 0xd2996c, 0x8d5524, 0xf1c27d];
+      const hairColors = [0x1c1917, 0x3f2305, 0x713f12, 0x0f172a, 0x92400e];
+      const bootColors = [0x111827, 0xf97316, 0x38bdf8, 0xfacc15, 0xec4899];
+
+      const shadowDiscMat = trackMat(new THREE.MeshBasicMaterial({
+        color: 0x021206,
+        transparent: true,
+        opacity: 0.36,
+        depthWrite: false
+      }));
+      const carrierRingMat = trackMat(new THREE.MeshBasicMaterial({
+        color: 0xfbbf24,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.92
+      }));
+
+      function createPlayer3DModel(side, pData, index) {
+        const root = new THREE.Group();
+        const bodyGroup = new THREE.Group();
+        root.add(bodyGroup);
+
+        const kit = side === "home" ? kits.home : kits.away;
+        const isGK = Boolean(pData.isKeeper);
+        const jerseyHex = isGK ? (kit.keeper || "#10b981") : (kit.jersey || (side === "home" ? homeTeam.primaryColor : awayTeam.primaryColor) || "#ef4444");
+        const shortsHex = isGK ? (kit.keeper || "#065f46") : (kit.shorts || "#ffffff");
+        const socksHex = isGK ? (kit.keeper || "#10b981") : (kit.socks || jerseyHex);
+        const collarHex = isGK ? "#ffffff" : (kit.collar || "#ffffff");
+        const numHex = isGK ? "#0f172a" : (kit.number || "#ffffff");
+
+        const seed = (pData.number || (index + 1)) * 17 + (side === "home" ? 3 : 11);
+        const skinCol = skinTones[seed % skinTones.length];
+        const hairCol = hairColors[(seed * 3) % hairColors.length];
+        const bootCol = bootColors[(seed * 7) % bootColors.length];
+
+        const jerseyMat = trackMat(new THREE.MeshStandardMaterial({
+          map: getJerseyTexture(jerseyHex, collarHex, numHex, pData.number || (index + 1), isGK),
+          roughness: 0.62,
+          metalness: 0.05
+        }));
+        const solidJerseyMat = trackMat(new THREE.MeshStandardMaterial({ color: jerseyHex, roughness: 0.65 }));
+        const shortsMat = trackMat(new THREE.MeshStandardMaterial({ color: shortsHex, roughness: 0.7 }));
+        const socksMat = trackMat(new THREE.MeshStandardMaterial({ color: socksHex, roughness: 0.7 }));
+        const skinMat = trackMat(new THREE.MeshStandardMaterial({ color: skinCol, roughness: 0.65 }));
+        const hairMat = trackMat(new THREE.MeshStandardMaterial({ color: hairCol, roughness: 0.85 }));
+        const bootMat = trackMat(new THREE.MeshStandardMaterial({ color: bootCol, roughness: 0.4, metalness: 0.15 }));
+        const gloveMat = trackMat(new THREE.MeshStandardMaterial({ color: isGK ? 0xd9f99d : skinCol, roughness: 0.5 }));
+
+        // Sombra de oclusión de contacto en el césped + Aro de jugador activo
+        const contactShadow = new THREE.Mesh(sharedShadowDiscGeo, shadowDiscMat);
+        contactShadow.rotation.x = -Math.PI / 2;
+        contactShadow.position.y = 0.02;
+        root.add(contactShadow);
+
+        const carrierRing = new THREE.Mesh(sharedCarrierRingGeo, carrierRingMat);
+        carrierRing.rotation.x = -Math.PI / 2;
+        carrierRing.position.y = 0.035;
+        carrierRing.visible = false;
+        root.add(carrierRing);
+
+        // Torso con dorsal
+        const torso = new THREE.Mesh(sharedTorsoGeo, jerseyMat);
+        torso.position.y = 1.32;
+        torso.castShadow = true;
+        torso.receiveShadow = true;
+        bodyGroup.add(torso);
+
+        // Pantalón corto (pelvis)
+        const shorts = new THREE.Mesh(sharedShortsGeo, shortsMat);
+        shorts.position.y = 0.84;
+        shorts.castShadow = true;
+        bodyGroup.add(shorts);
+
+        // Cabeza y pelo
+        const headGroup = new THREE.Group();
+        headGroup.position.set(0, 1.92, 0);
+        const headMesh = new THREE.Mesh(sharedHeadGeo, skinMat);
+        headMesh.castShadow = true;
+        headGroup.add(headMesh);
+
+        const hairMesh = new THREE.Mesh(sharedHairGeo, hairMat);
+        hairMesh.rotation.x = -0.18;
+        hairMesh.position.y = 0.02;
+        hairMesh.castShadow = true;
+        headGroup.add(hairMesh);
+        bodyGroup.add(headGroup);
+
+        // Piernas articuladas (Izquierda y Derecha)
+        function buildLeg(offsetX) {
+          const legPivot = new THREE.Group();
+          legPivot.position.set(offsetX, 0.78, 0);
+
+          const thigh = new THREE.Mesh(sharedThighGeo, skinMat);
+          thigh.position.y = -0.20;
+          thigh.castShadow = true;
+          legPivot.add(thigh);
+
+          const sock = new THREE.Mesh(sharedSockGeo, socksMat);
+          sock.position.y = -0.54;
+          sock.castShadow = true;
+          legPivot.add(sock);
+
+          const boot = new THREE.Mesh(sharedBootGeo, bootMat);
+          boot.position.set(0, -0.74, 0.06);
+          boot.castShadow = true;
+          legPivot.add(boot);
+
+          bodyGroup.add(legPivot);
+          return legPivot;
+        }
+
+        const leftLeg = buildLeg(-0.18);
+        const rightLeg = buildLeg(0.18);
+
+        // Brazos articulados (Izquierdo y Derecho)
+        function buildArm(offsetX) {
+          const armPivot = new THREE.Group();
+          armPivot.position.set(offsetX, 1.62, 0);
+
+          const sleeve = new THREE.Mesh(sharedSleeveGeo, solidJerseyMat);
+          sleeve.position.y = -0.14;
+          sleeve.castShadow = true;
+          armPivot.add(sleeve);
+
+          const forearm = new THREE.Mesh(sharedForearmGeo, isGK ? solidJerseyMat : skinMat);
+          forearm.position.y = -0.40;
+          forearm.castShadow = true;
+          armPivot.add(forearm);
+
+          const hand = new THREE.Mesh(sharedHandGeo, gloveMat);
+          hand.position.y = -0.58;
+          hand.castShadow = true;
+          armPivot.add(hand);
+
+          bodyGroup.add(armPivot);
+          return armPivot;
+        }
+
+        const leftArm = buildArm(-0.43);
+        const rightArm = buildArm(0.43);
+
+        // Escala global esbelta y visible en cámara de TV
+        bodyGroup.scale.set(1.18, 1.18, 1.18);
+
+        scene.add(root);
+        return {
+          root,
+          bodyGroup,
+          torso,
+          leftLeg,
+          rightLeg,
+          leftArm,
+          rightArm,
+          carrierRing,
+          jerseyMat,
+          side,
+          lastNumber: pData.number,
+          isKeeper: isGK,
+          yaw: side === "home" ? Math.PI / 2 : -Math.PI / 2,
+          stridePhase: index * 1.3,
+          prevX: simToWorldX(pData.curX ?? 50),
+          prevZ: simToWorldZ(pData.curY ?? 50)
+        };
+      }
+
+      const homeModels = simulator.home2D.map((p, i) => createPlayer3DModel("home", p, i));
+      const awayModels = simulator.away2D.map((p, i) => createPlayer3DModel("away", p, i));
+
+      // Balón 3D esférico con textura de pentágonos y sombra proyectada
+      function buildBallTexture() {
+        const bc = document.createElement("canvas");
+        bc.width = 256;
+        bc.height = 128;
+        const bg = bc.getContext("2d");
+        bg.fillStyle = "#ffffff";
+        bg.fillRect(0, 0, 256, 128);
+
+        // Pentágonos clásicos y detalles geométricos de balón oficial
+        bg.fillStyle = "#0f172a";
+        const spots = [
+          [32, 32], [96, 28], [160, 32], [224, 28],
+          [64, 64], [128, 64], [192, 64],
+          [32, 98], [96, 100], [160, 98], [224, 100]
+        ];
+        spots.forEach(([sx, sy]) => {
+          bg.beginPath();
+          bg.arc(sx, sy, 12, 0, Math.PI * 2);
+          bg.fill();
+        });
+        bg.strokeStyle = "#334155";
+        bg.lineWidth = 2.5;
+        for (let i = 0; i < spots.length - 1; i++) {
+          bg.beginPath();
+          bg.moveTo(spots[i][0], spots[i][1]);
+          bg.lineTo(spots[i + 1][0], spots[i + 1][1]);
+          bg.stroke();
+        }
+        const tex = new THREE.CanvasTexture(bc);
+        return trackTex(tex);
+      }
+
+      const ballRadius = 0.44;
+      const ballGeo = trackGeo(new THREE.SphereGeometry(ballRadius, 24, 24));
+      const ballMat = trackMat(new THREE.MeshStandardMaterial({
+        map: buildBallTexture(),
+        roughness: 0.32,
+        metalness: 0.08
+      }));
+      const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+      ballMesh.castShadow = true;
+      ballMesh.receiveShadow = true;
+      ballMesh.position.set(0, ballRadius, 0);
+      scene.add(ballMesh);
+
+      // Sombra de contacto directa bajo el balón para máxima claridad visual de altura
+      const ballShadowGeo = trackGeo(new THREE.CircleGeometry(0.52, 20));
+      const ballShadowMat = trackMat(new THREE.MeshBasicMaterial({
+        color: 0x020617,
+        transparent: true,
+        opacity: 0.48,
+        depthWrite: false
+      }));
+      const ballGroundShadow = new THREE.Mesh(ballShadowGeo, ballShadowMat);
+      ballGroundShadow.rotation.x = -Math.PI / 2;
+      ballGroundShadow.position.set(0, 0.025, 0);
+      scene.add(ballGroundShadow);
+
+      // Partículas 3D de lluvia si el clima del partido es lluvioso
+      let rainSystem = null;
+      if (matchWeather.id === "rain") {
+        const rainCount = 900;
+        const rainGeo = trackGeo(new THREE.BufferGeometry());
+        const positions = new Float32Array(rainCount * 3);
+        for (let i = 0; i < rainCount; i++) {
+          positions[i * 3] = (Math.random() - 0.5) * 130;
+          positions[i * 3 + 1] = Math.random() * 38;
+          positions[i * 3 + 2] = (Math.random() - 0.5) * 85;
+        }
+        rainGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+        const rainMat = trackMat(new THREE.PointsMaterial({
+          color: 0xbae6fd,
+          size: 0.28,
+          transparent: true,
+          opacity: 0.52
+        }));
+        rainSystem = new THREE.Points(rainGeo, rainMat);
+        scene.add(rainSystem);
+      }
+
+      // Interacción al tocar el canvas: alternar ángulo de cámara 3D manteniendo TV Broadcast por defecto
+      const camBadgeEl = container.querySelector("#camera-mode-badge");
+      targetCanvas.onclick = () => {
+        if (cameraMode === "broadcast") {
+          cameraMode = "action";
+          if (camBadgeEl) camBadgeEl.innerHTML = `<span>🎥 3D ZOOM</span>`;
+        } else if (cameraMode === "action") {
+          cameraMode = "tactical";
+          if (camBadgeEl) camBadgeEl.innerHTML = `<span>🎥 3D TÁCTICA</span>`;
+        } else {
+          cameraMode = "broadcast";
+          if (camBadgeEl) camBadgeEl.innerHTML = `<span>🎥 3D TV</span>`;
+        }
+      };
+
+      let prevBallWX = 0;
+      let prevBallWZ = 0;
+
+      function updateAndRender(closestLiveP, minLiveDist) {
+        const rect = targetCanvas.getBoundingClientRect();
+        const w = rect.width > 0 ? rect.width : 480;
+        const h = rect.height > 0 ? rect.height : 290;
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        if (targetCanvas.width !== Math.round(w * dpr) || targetCanvas.height !== Math.round(h * dpr)) {
+          renderer.setSize(w, h, false);
+          camera.aspect = w / h;
+          camera.updateProjectionMatrix();
+        }
+
+        const nowSec = performance.now() * 0.001;
+
+        // Ondulación suave de banderines de córner y marquesina LED
+        cornerFlags.forEach((fl, idx) => {
+          fl.rotation.y = Math.sin(nowSec * 4.5 + idx) * 0.18;
+        });
+
+        // Deformación elástica de las redes de portería tras un gol
+        if (netRippleH > 0.005) {
+          netRippleH *= 0.92;
+          const wave = Math.sin(nowSec * 24) * netRippleH * 0.22;
+          homeGoal3D.netGroup.scale.set(1 + netRippleH * 0.25 + wave, 1, 1 + wave * 0.4);
+        } else {
+          homeGoal3D.netGroup.scale.set(1, 1, 1);
+        }
+        if (netRippleA > 0.005) {
+          netRippleA *= 0.92;
+          const wave = Math.sin(nowSec * 24) * netRippleA * 0.22;
+          awayGoal3D.netGroup.scale.set(1 + netRippleA * 0.25 + wave, 1, 1 + wave * 0.4);
+        } else {
+          awayGoal3D.netGroup.scale.set(1, 1, 1);
+        }
+
+        // Posición 3D del balón
+        const ballWX = simToWorldX(simulator.ball.x);
+        const ballWZ = simToWorldZ(simulator.ball.y);
+        // Si el balón se desplaza rápido en un pase largo o centro, añadir parábola natural
+        const distToTarget = Math.hypot((simulator.ball.targetX ?? simulator.ball.x) - simulator.ball.x, (simulator.ball.targetY ?? simulator.ball.y) - simulator.ball.y);
+        const autoArcY = (!currentHighlightData && distToTarget > 6.5) ? Math.min(2.6, (distToTarget - 6.5) * 0.14) : 0;
+        const ballWY = ballRadius + Math.max(simToWorldY(simulator.ball.z), autoArcY);
+
+        const bvx = ballWX - prevBallWX;
+        const bvz = ballWZ - prevBallWZ;
+        prevBallWX = ballWX;
+        prevBallWZ = ballWZ;
+
+        ballMesh.position.set(ballWX, ballWY, ballWZ);
+        ballMesh.rotation.z -= bvx * 1.6;
+        ballMesh.rotation.x += bvz * 1.6;
+
+        ballGroundShadow.position.set(ballWX, 0.025, ballWZ);
+        const heightScale = Math.max(0.45, 1 - (ballWY - ballRadius) * 0.12);
+        ballGroundShadow.scale.set(heightScale, heightScale, 1);
+        ballShadowMat.opacity = Math.max(0.14, 0.48 * heightScale);
+
+        // Actualizar los 22 jugadores 3D (11 Locales + 11 Visitantes)
+        const syncTeamModels = (simArr, modelsArr) => {
+          simArr.forEach((p, idx) => {
+            const m = modelsArr[idx];
+            if (!m) return;
+
+            // Si hubo sustitución y cambió el dorsal, actualizar textura de camiseta
+            if (p.number && p.number !== m.lastNumber) {
+              m.lastNumber = p.number;
+              const kit = m.side === "home" ? kits.home : kits.away;
+              const jerseyHex = m.isKeeper ? (kit.keeper || "#10b981") : (kit.jersey || (m.side === "home" ? homeTeam.primaryColor : awayTeam.primaryColor) || "#ef4444");
+              const collarHex = m.isKeeper ? "#ffffff" : (kit.collar || "#ffffff");
+              const numHex = m.isKeeper ? "#0f172a" : (kit.number || "#ffffff");
+              m.jerseyMat.map = getJerseyTexture(jerseyHex, collarHex, numHex, p.number, m.isKeeper);
+              m.jerseyMat.needsUpdate = true;
+            }
+
+            const wx = simToWorldX(p.curX);
+            const wz = simToWorldZ(p.curY);
+            const wy = Math.max(0, (p.curZ || 0) * 1.15);
+
+            const vx = wx - m.prevX;
+            const vz = wz - m.prevZ;
+            const speed = Math.hypot(vx, vz);
+            m.prevX = wx;
+            m.prevZ = wz;
+
+            m.root.position.set(wx, wy, wz);
+
+            // Orientación suave 360° (mira hacia donde corre, o hacia el balón si está parado)
+            let targetYaw = m.yaw;
+            if (speed > 0.018) {
+              targetYaw = Math.atan2(vx, vz);
+            } else {
+              const dbx = ballWX - wx;
+              const dbz = ballWZ - wz;
+              if (Math.hypot(dbx, dbz) > 0.2) {
+                targetYaw = Math.atan2(dbx, dbz);
+              }
+            }
+            const angleDiff = Math.atan2(Math.sin(targetYaw - m.yaw), Math.cos(targetYaw - m.yaw));
+            m.yaw += angleDiff * 0.24;
+            m.bodyGroup.rotation.y = m.yaw;
+
+            // Aro indicador bajo el jugador que lleva el balón
+            const isCarrier = (p === closestLiveP && minLiveDist < 5.8);
+            m.carrierRing.visible = isCarrier;
+            if (isCarrier) {
+              const pulse = 1 + Math.sin(nowSec * 8) * 0.08;
+              m.carrierRing.scale.set(pulse, pulse, 1);
+            }
+
+            // Animación biomecánica de piernas, brazos y torso
+            const hlPose = currentHighlightData ? p.hlPose : null;
+            m.bodyGroup.rotation.z = 0;
+            m.bodyGroup.rotation.x = 0;
+
+            if (hlPose === "DIVE_LEFT" || hlPose === "DIVE_RIGHT") {
+              const dir = hlPose === "DIVE_LEFT" ? 1 : -1;
+              m.bodyGroup.rotation.z = dir * 1.18;
+              m.leftArm.rotation.x = -2.5;
+              m.rightArm.rotation.x = -2.5;
+              m.leftLeg.rotation.x = 0.25;
+              m.rightLeg.rotation.x = -0.25;
+            } else if (hlPose === "SLIDE_BLOCK") {
+              m.bodyGroup.rotation.x = -0.75;
+              m.leftLeg.rotation.x = -1.1;
+              m.rightLeg.rotation.x = 0.4;
+              m.leftArm.rotation.x = -0.6;
+              m.rightArm.rotation.x = 0.6;
+            } else if (hlPose === "WINDUP_SHOT") {
+              m.bodyGroup.rotation.x = 0.14;
+              m.leftLeg.rotation.x = -0.25;
+              m.rightLeg.rotation.x = 0.95; // Pierna derecha armada atrás para disparar
+              m.leftArm.rotation.x = -0.65;
+              m.rightArm.rotation.x = 0.75;
+            } else if (hlPose === "SHOT_FOLLOW_THROUGH" || hlPose === "PASS_DELIVERY") {
+              m.bodyGroup.rotation.x = -0.12;
+              m.leftLeg.rotation.x = 0.35;
+              m.rightLeg.rotation.x = -1.05; // Pierna de golpeo lanzada adelante
+              m.leftArm.rotation.x = 0.65;
+              m.rightArm.rotation.x = -0.75;
+            } else if (hlPose === "CELEBRATE_JUMP") {
+              m.bodyGroup.position.y = Math.abs(Math.sin(nowSec * 10 + idx)) * 0.35;
+              m.leftArm.rotation.x = -2.6;
+              m.rightArm.rotation.x = -2.6;
+              m.leftLeg.rotation.x = 0.2;
+              m.rightLeg.rotation.x = -0.2;
+            } else {
+              const effectiveSpeed = clamp(speed * 13.5, 0, 1.35);
+              if (effectiveSpeed > 0.08) {
+                m.stridePhase += 0.22 + effectiveSpeed * 0.26;
+                const amp = Math.min(0.88, 0.28 + effectiveSpeed * 0.48);
+                const s = Math.sin(m.stridePhase);
+                const c = Math.cos(m.stridePhase);
+                m.leftLeg.rotation.x = s * amp;
+                m.rightLeg.rotation.x = -s * amp;
+                m.leftArm.rotation.x = -s * amp * 0.75;
+                m.rightArm.rotation.x = s * amp * 0.75;
+                m.bodyGroup.position.y = Math.abs(c) * 0.08;
+                m.bodyGroup.rotation.x = Math.min(0.18, effectiveSpeed * 0.11);
+              } else {
+                // Postura de alerta respirando suavemente
+                m.leftLeg.rotation.x *= 0.8;
+                m.rightLeg.rotation.x *= 0.8;
+                m.leftArm.rotation.x = Math.sin(nowSec * 2.5 + idx) * 0.06;
+                m.rightArm.rotation.x = -Math.sin(nowSec * 2.5 + idx) * 0.06;
+                m.bodyGroup.position.y = 0;
+              }
+            }
+          });
+        };
+
+        syncTeamModels(simulator.home2D, homeModels);
+        syncTeamModels(simulator.away2D, awayModels);
+
+        // Actualizar lluvia 3D si está activa
+        if (rainSystem) {
+          const posAttr = rainSystem.geometry.attributes.position;
+          for (let i = 0; i < posAttr.count; i++) {
+            let py = posAttr.getY(i) - 1.15;
+            let px = posAttr.getX(i) - 0.18;
+            if (py < 0) {
+              py = 36;
+              px = (Math.random() - 0.5) * 130;
+            }
+            posAttr.setXYZ(i, px, py, posAttr.getZ(i));
+          }
+          posAttr.needsUpdate = true;
+        }
+
+        // CÁMARA ESTILO RETRANSMISIÓN TV CON INTERPOLACIÓN SUAVE (LERP) Y ZOOM EN LAS ÁREAS
+        // Posición base lateral largo a media altura: Y: 28, Z: 42 mirando hacia el centro/balón
+        const absBallX = Math.abs(ballWX);
+        const areaProximity = Math.max(0, Math.min(1, (absBallX - 22) / 28)); // 0 en centro, -> 1 al acercarse al área
+        const highlightBoost = currentHighlightData ? 0.55 : 0;
+        const zoomFactor = Math.min(1, areaProximity + highlightBoost);
+
+        let targetCamX, targetCamY, targetCamZ, targetFov;
+        let targetLookX, targetLookY, targetLookZ;
+
+        if (cameraMode === "tactical") {
+          targetCamX = ballWX * 0.38;
+          targetCamY = 44;
+          targetCamZ = 50 + ballWZ * 0.12;
+          targetFov = 40;
+          targetLookX = ballWX * 0.55;
+          targetLookY = 0.4;
+          targetLookZ = ballWZ * 0.25;
+        } else if (cameraMode === "action") {
+          targetCamX = ballWX * 0.82;
+          targetCamY = 20 - zoomFactor * 2.5;
+          targetCamZ = 31 + ballWZ * 0.32 - zoomFactor * 3.5;
+          targetFov = 33 - zoomFactor * 2.5;
+          targetLookX = ballWX * 0.94;
+          targetLookY = 0.8;
+          targetLookZ = ballWZ * 0.48;
+        } else {
+          // "broadcast" (Por defecto): Cámara TV en Y: 28, Z: 42 con desplazamiento suave X/Z y zoom en áreas
+          targetCamX = ballWX * (0.78 + zoomFactor * 0.12);
+          targetCamY = 28 - zoomFactor * 5.2; // Baja suavemente de 28 hacia ~22.8 en el área
+          targetCamZ = (42 - zoomFactor * 6.5) + ballWZ * 0.25; // Se acerca de Z: 42 hacia ~35.5 y acompaña Z del balón
+          targetFov = 38 - zoomFactor * 4.2;  // Ligero zoom óptico al acercarse a las áreas
+
+          // Al acercarse al área, encuadra el área y la portería 3D atacada
+          const goalFocusX = ballWX >= 0 ? (PITCH_L / 2 - 1.5) : (-PITCH_L / 2 + 1.5);
+          targetLookX = ballWX * (1 - zoomFactor * 0.35) + goalFocusX * (zoomFactor * 0.35);
+          targetLookY = 0.85 + Math.min(1.5, (ballWY - ballRadius) * 0.25);
+          targetLookZ = ballWZ * 0.38 - 3.8 * (1 - zoomFactor * 0.45);
+        }
+
+        // Interpolación suave (lerp) de posición, objetivo lookAt y FOV
+        const camLerp = currentHighlightData ? 0.15 : 0.12;
+        camera.position.x += (targetCamX - camera.position.x) * camLerp;
+        camera.position.y += (targetCamY - camera.position.y) * camLerp;
+        camera.position.z += (targetCamZ - camera.position.z) * camLerp;
+
+        camLookCurrent.x += (targetLookX - camLookCurrent.x) * (camLerp * 1.25);
+        camLookCurrent.y += (targetLookY - camLookCurrent.y) * (camLerp * 1.25);
+        camLookCurrent.z += (targetLookZ - camLookCurrent.z) * (camLerp * 1.25);
+        camera.lookAt(camLookCurrent);
+
+        if (Math.abs(camera.fov - targetFov) > 0.05) {
+          camera.fov += (targetFov - camera.fov) * camLerp;
+          camera.updateProjectionMatrix();
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      function dispose() {
+        try {
+          disposableTextures.forEach(t => t.dispose && t.dispose());
+          disposableGeometries.forEach(g => g.dispose && g.dispose());
+          disposableMaterials.forEach(m => m.dispose && m.dispose());
+          renderer.dispose();
+        } catch (e) {}
+      }
+
+      return { updateAndRender, dispose };
+    }
+
+    function drawPitch() {
+      if (!canvas) return;
+
+      // Inicializar motor 3D Three.js si está disponible
+      ensureThreeLoadedAndInit();
+
+      // Si hay una jugada clave activa, actualizar la coreografía conectada en tiempo real
+      if (currentHighlightData) {
+        if (threeEngine) {
+          drawFrontalHighlightScene(null, 800, 450, currentHighlightData, true);
+        } else {
+          if (!ctx) ctx = canvas.getContext("2d");
+          resizeCanvas();
+          drawFrontalHighlightScene(ctx, canvas.width, canvas.height, currentHighlightData, false);
+          drawWeatherOverlay(ctx, canvas.width, canvas.height, matchWeather.id);
+          if (!simulator.isFinished) {
+            requestAnimationFrame(drawPitch);
+          }
+          return;
+        }
+      } else {
+        // Interpolación continua y suave del balón en el juego en vivo
+        simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
+        simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.16;
+        if (simulator.ball.targetZ !== undefined) {
+          simulator.ball.z = (simulator.ball.z || 0) + (simulator.ball.targetZ - (simulator.ball.z || 0)) * 0.18;
+        } else {
+          simulator.ball.z = (simulator.ball.z || 0) * 0.85;
+        }
+
+        // Interpolación de posiciones de los 22 futbolistas
+        simulator.home2D.forEach(p => {
+          p.curX += (p.targetX - p.curX) * 0.14;
+          p.curY += (p.targetY - p.curY) * 0.14;
+          p.curZ = (p.curZ || 0) * 0.82;
+          p.hlPose = null;
+        });
+        simulator.away2D.forEach(p => {
+          p.curX += (p.targetX - p.curX) * 0.14;
+          p.curY += (p.targetY - p.curY) * 0.14;
+          p.curZ = (p.curZ || 0) * 0.82;
+          p.hlPose = null;
+        });
+      }
 
       // Buscar al futbolista que conduce o disputa el balón
       let closestLiveP = null;
@@ -6059,7 +7352,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
       });
 
-      // Actualizar rótulo FM inferior cuando cambia el portador del balón (sin dibujar nombres molestos sobre el césped)
+      // Actualizar rótulo FM inferior cuando cambia el portador del balón
       if (closestLiveP && minLiveDist < 5.0 && closestLiveP.player?.name) {
         if (lastCarrierPlayerId !== closestLiveP.player.id && !currentHighlightData && simulator.isRunning && !isKickoffInProgress) {
           lastCarrierPlayerId = closestLiveP.player.id;
@@ -6068,29 +7361,27 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
       }
 
-      // Interpolación y dibujo de posiciones para jugadores locales en 2D
-      simulator.home2D.forEach(p => {
-        const dx = p.targetX - p.curX;
-        const dy = p.targetY - p.curY;
-        p.curX += dx * 0.14;
-        p.curY += dy * 0.14;
-        drawPlayerToken2D(ctx, p, "home", (p === closestLiveP && minLiveDist < 5.5), padX, padY, pitchW, pitchH, dpr);
-      });
-
-      // Interpolación y dibujo de posiciones para jugadores visitantes en 2D
-      simulator.away2D.forEach(p => {
-        const dx = p.targetX - p.curX;
-        const dy = p.targetY - p.curY;
-        p.curX += dx * 0.14;
-        p.curY += dy * 0.14;
-        drawPlayerToken2D(ctx, p, "away", (p === closestLiveP && minLiveDist < 5.5), padX, padY, pitchW, pitchH, dpr);
-      });
-
-      // Balón 2D
-      drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
-
-      // Efectos climáticos visuales sobre el terreno de juego (Mejora 6)
-      drawWeatherOverlay(ctx, w, h, matchWeather.id);
+      // Renderizar en 3D con Three.js (o fallback 2D si WebGL no está disponible)
+      if (threeEngine) {
+        threeEngine.updateAndRender(closestLiveP, minLiveDist);
+      } else {
+        if (!ctx) ctx = canvas.getContext("2d");
+        if (ctx) {
+          resizeCanvas();
+          const w = canvas.width;
+          const h = canvas.height;
+          const pDim = drawPitch2D(ctx, w, h);
+          const { padX, padY, pitchW, pitchH, dpr } = pDim;
+          simulator.home2D.forEach(p => {
+            drawPlayerToken2D(ctx, p, "home", (p === closestLiveP && minLiveDist < 5.5), padX, padY, pitchW, pitchH, dpr);
+          });
+          simulator.away2D.forEach(p => {
+            drawPlayerToken2D(ctx, p, "away", (p === closestLiveP && minLiveDist < 5.5), padX, padY, pitchW, pitchH, dpr);
+          });
+          drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
+          drawWeatherOverlay(ctx, w, h, matchWeather.id);
+        }
+      }
 
       if (!simulator.isFinished) {
         requestAnimationFrame(drawPitch);
@@ -8471,6 +9762,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       if (modalEnd) modalEnd.classList.remove("hidden");
 
       container.querySelector("#btn-finish-match-continue").onclick = () => {
+        if (threeEngine && threeEngine.dispose) {
+          threeEngine.dispose();
+          threeEngine = null;
+        }
         // Asegurar que la formación y alineación guardadas se preserven para los siguientes partidos
         if (masterTacticsForNextMatches) {
           gameState.userTactics = JSON.parse(JSON.stringify(masterTacticsForNextMatches));
