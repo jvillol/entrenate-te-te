@@ -2087,7 +2087,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
                       <span id="ast-coach-name" class="text-[11px] font-black text-white tracking-tight">Segundo Entrenador</span>
                       <span id="ast-urgency-badge" class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 text-[8.5px] font-extrabold uppercase tracking-wider border border-amber-500/40">CONSEJO TÁCTICO</span>
                     </div>
-                    <div class="text-[9px] text-slate-400 font-medium">Cuerpo Técnico en Directo</div>
+                    <div class="flex items-center gap-1 text-[9px] text-amber-300 font-semibold">
+                      <span>⏸ Partido pausado · Decisión táctica</span>
+                    </div>
                   </div>
                 </div>
                 <button id="btn-ast-close" class="text-slate-400 hover:text-white text-xs p-1 rounded-lg transition cursor-pointer" title="Cerrar consejo">✕</button>
@@ -3596,6 +3598,15 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const card = container.querySelector("#live-assistant-card");
       if (!card) return;
 
+      // Pausar automáticamente la simulación para permitir decidir sin prisa ni tapar el partido
+      if (simulator.isRunning) {
+        simulator.pause();
+      }
+      const iconPP = container.querySelector("#play-pause-icon");
+      const textPP = container.querySelector("#play-pause-text");
+      if (iconPP) iconPP.textContent = "▶";
+      if (textPP) textPP.textContent = "Reanudar";
+
       const coachNameEl = card.querySelector("#ast-coach-name");
       const badgeEl = card.querySelector("#ast-urgency-badge");
       const diagEl = card.querySelector("#ast-diagnosis");
@@ -3618,16 +3629,27 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       card.classList.remove("opacity-0", "translate-y-4", "pointer-events-none");
       card.classList.add("opacity-100", "translate-y-0", "pointer-events-auto");
 
-      updateFMCommentary(`💡 ${simulator.assistantCoachName || 'Segundo Entrenador'}: ${advice.title}`, "CUERPO TÉCNICO", true);
+      updateFMCommentary(`💡 ${simulator.assistantCoachName || 'Segundo Entrenador'} pausa para ajuste: ${advice.title}`, "CUERPO TÉCNICO", true);
     }
 
-    function hideAssistantAdviceCard() {
+    function hideAssistantAdviceCard(autoResume = false) {
       const card = container.querySelector("#live-assistant-card");
       if (card) {
         card.classList.remove("opacity-100", "translate-y-0", "pointer-events-auto");
         card.classList.add("opacity-0", "translate-y-4", "pointer-events-none");
       }
       currentAssistantAdvice = null;
+
+      // Reanudar automáticamente la simulación si no se había pedido pausa manual y el partido sigue en juego
+      if (autoResume && !simulator.isFinished && !simulator.isHalfTime && !simulator.pauseRequested) {
+        if (!simulator.isRunning) {
+          simulator.start();
+        }
+        const iconPP = container.querySelector("#play-pause-icon");
+        const textPP = container.querySelector("#play-pause-text");
+        if (iconPP) iconPP.textContent = "⏸";
+        if (textPP) textPP.textContent = "Pausar";
+      }
     }
 
     function handleAssistantFeedback(fb) {
@@ -8125,7 +8147,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           }
           SaveManager.saveGame(gameState);
           showMatchAlert({ text: `📋 ¡Ajuste táctico aplicado: ${adv.title}!` });
-          hideAssistantAdviceCard();
+          hideAssistantAdviceCard(true);
         }
       };
     }
@@ -8134,7 +8156,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       btnAstIgnore.onclick = (e) => {
         e.stopPropagation();
         simulator.dismissAssistantAdvice();
-        hideAssistantAdviceCard();
+        hideAssistantAdviceCard(true);
         showMatchAlert({ text: "Manteniendo el plan táctico actual" });
       };
     }
@@ -8143,7 +8165,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       btnAstClose.onclick = (e) => {
         e.stopPropagation();
         simulator.dismissAssistantAdvice();
-        hideAssistantAdviceCard();
+        hideAssistantAdviceCard(true);
       };
     }
 
