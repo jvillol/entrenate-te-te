@@ -7296,8 +7296,20 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       return { updateAndRender, dispose };
     }
 
+    let lastRealTimeTs = null;
+
     function drawPitch() {
       if (!canvas) return;
+
+      const nowTs = typeof performance !== "undefined" ? performance.now() : Date.now();
+      const rawDt = lastRealTimeTs !== null ? (nowTs - lastRealTimeTs) / 1000 : 0.016;
+      lastRealTimeTs = nowTs;
+      const dt = Math.min(0.05, Math.max(0.001, rawDt));
+
+      // Activar modo de simulación continua en tiempo real (60 FPS)
+      if (typeof simulator.stepRealTime === "function") {
+        simulator.useRealTime = true;
+      }
 
       // Inicializar motor 3D Three.js si está disponible
       ensureThreeLoadedAndInit();
@@ -7316,6 +7328,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           }
           return;
         }
+      } else if (typeof simulator.stepRealTime === "function") {
+        if (!isKickoffInProgress) {
+          simulator.stepRealTime(dt);
+        }
+        simulator.home2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
+        simulator.away2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
       } else {
         // Interpolación continua y suave del balón en el juego en vivo
         simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
