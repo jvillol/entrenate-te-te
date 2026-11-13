@@ -3772,70 +3772,108 @@ export class MatchSimulator {
     if (p.tackleCooldown > 0) p.tackleCooldown = Math.max(0, p.tackleCooldown - dt);
   }
 
-  _computeDynamicAnchor(p, side, inPossession) {
+  _getOffsideLineX(attackingTeam, opps) {
+    const isHomeAtk = attackingTeam === "home";
+    // Ordenar rivales por cercanía a su propia portería (el penúltimo defensor es el índice 1)
+    const oppGoalX = isHomeAtk ? 105 : 0;
+    const sorted = opps
+      .map(o => Math.abs(oppGoalX - o.xm))
+      .sort((a, b) => a - b);
+    const secondLastDist = sorted.length >= 2 ? sorted[1] : (sorted[0] ?? 15);
+    const secondLastX = isHomeAtk ? (oppGoalX - secondLastDist) : (oppGoalX + secondLastDist);
+    // El balón también habilita si está más adelantado que el penúltimo defensor
+    return isHomeAtk ? Math.max(secondLastX, this.ball.xm) : Math.min(secondLastX, this.ball.xm);
+  }
+
+  _computeTeamBlockAnchors(side, mates, inPossession) {
     const isHome = side === "home";
     const attackDir = isHome ? 1 : -1;
     const customMap = isHome ? this.homeCustomPositions : this.awayCustomPositions;
-    const custom = customMap && p.player ? customMap[p.player.id] : null;
-    const basePctX = custom && typeof custom.x === "number" ? custom.x : p.baseX;
-    const basePctY = custom && typeof custom.y === "number" ? custom.y : p.baseY;
-
-    const baseXm = (basePctX / 100) * 105;
-    const baseYm = (basePctY / 100) * 68;
-
     const inst = isHome ? this.homeInstructions : this.awayInstructions;
     const mentality = isHome ? this.homeMentality : this.awayMentality;
-    const role = this.getPlayerRole(p.player, side);
-
-    if (p.isKeeper) {
-      const ownGoalX = isHome ? 1.8 : 103.2;
-      const ballDistFromGoal = Math.abs(this.ball.xm - ownGoalX);
-      const stepOut = Math.min(7.5, Math.max(0, (ballDistFromGoal - 18) * 0.14));
-      const gkX = ownGoalX + attackDir * stepOut;
-      const gkY = Math.max(29.8, Math.min(38.2, 34 + (this.ball.ym - 34) * 0.24));
-      return { x: gkX, y: gkY };
-    }
-
-    // Basculación dinámica según posición del balón
-    const ballShiftX = (this.ball.xm - 52.5) * 0.48;
-    const ballShiftY = (this.ball.ym - 34) * 0.34;
 
     let mentalityShift = 0;
-    if (mentality === "ULTRA_OFFENSIVE") mentalityShift = 9.0;
-    else if (mentality === "OFFENSIVE") mentalityShift = 5.0;
-    else if (mentality === "DEFENSIVE") mentalityShift = -5.5;
-    else if (mentality === "ULTRA_DEFENSIVE") mentalityShift = -10.0;
+    if (mentality === "ULTRA_OFFENSIVE") mentalityShift = 8.0;
+    else if (mentality === "OFFENSIVE") mentalityShift = 4.5;
+    else if (mentality === "DEFENSIVE") mentalityShift = -5.0;
+    else if (mentality === "ULTRA_DEFENSIVE") mentalityShift = -9.0;
 
     let lineShift = 0;
     const defLine = inst?.outOfPossession?.defensiveLine || "normal";
-    if (defLine === "muy_alta") lineShift = 8.0;
-    else if (defLine === "alta") lineShift = 4.5;
-    else if (defLine === "baja") lineShift = -5.5;
-    else if (defLine === "muy_baja") lineShift = -9.5;
+    if (defLine === "muy_alta") lineShift = 7.0;
+    else if (defLine === "alta") lineShift = 4.0;
+    else if (defLine === "baja") lineShift = -5.0;
+    else if (defLine === "muy_baja") lineShift = -8.5;
 
-    // En posesión: el bloque se estira y sube; sin posesión: se junta y repliega
-    const possStretchX = inPossession ? 10.5 : -6.5;
-    const widthSetting = inst?.inPossession?.width || "normal";
-    let widthScale = inPossession ? 1.12 : 0.78;
-    if (inPossession) {
-      if (widthSetting === "muy_abierta") widthScale = 1.24;
-      else if (widthSetting === "abierta") widthScale = 1.17;
-      else if (widthSetting === "cerrada") widthScale = 0.94;
+    const ballShiftX = (this.ball.xm - 52.5) * 0.45;
+    // Todo el equipo bascula un 25% hacia la banda donde está el balón
+    const ballShiftY = (this.ball.ym - 34) * 0.25;
+    const possShiftX = inPossession ? 6.5 : -6.0;
+    const teamCentroidX = 52.5 + ballShiftX + attackDir * (mentalityShift + lineShift + possShiftX) * 0.55;
+
+    // Recoger posiciones base de los 10 jugadores de campo
+    const outfield = [];
+    let minBX = 999, maxBX = -999, sumBX = 0;
+    for (let i = 0; i < mates.length; i++) {
+      const p = mates[i];
+      if (p.isKeeper) continue;
+      const custom = customMap && p.player ? customMap[p.player.id] : null;
+      const basePctX = custom && typeof custom.x === "number" ? custom.x : p.baseX;
+      const basePctY = custom && typeof custom.y === "number" ? custom.y : p.baseY;
+      const baseXm = (basePctX / 100) * 105;
+      const baseYm = (basePctY / 100) * 68;
+      if (baseXm < minBX) minBX = baseXm;
+      if (baseXm > maxBX) maxBX = baseXm;
+      sumBX += baseXm;
+      outfield.push({ p, baseXm, baseYm });
     }
 
-    const rolePush = (role?.pushMod || 0) * 0.5;
-    const roleWidth = (role?.widthMod || 0) * 0.3;
+    const baseCentroidX = outfield.length > 0 ? sumBX / outfield.length : 52.5;
+    const baseSpan = Math.max(1, maxBX - minBX);
+    // Efecto Acordeón: distancia máxima 35-40m entre línea de defensas y delanteros
+    const maxAllowedSpan = inPossession ? 38.0 : 34.0;
+    const spanScale = baseSpan > maxAllowedSpan ? (maxAllowedSpan / baseSpan) : 1.0;
 
-    // Compresión longitudinal en bloque (más compactos en defensa)
-    const teamCentroidX = 52.5 + ballShiftX + attackDir * (mentalityShift + lineShift + possStretchX) * 0.55;
-    const compactFactorX = inPossession ? 0.96 : 0.76;
-    const relFromOwnCenter = baseXm - 52.5;
-    let anchorX = teamCentroidX + relFromOwnCenter * compactFactorX + attackDir * rolePush;
-    let anchorY = 34 + (baseYm - 34) * widthScale + ballShiftY + (baseYm >= 34 ? roleWidth : -roleWidth);
+    const anchors = new Map();
+    const defCandidates = [];
 
-    anchorX = Math.max(4.5, Math.min(100.5, anchorX));
-    anchorY = Math.max(3.5, Math.min(64.5, anchorY));
-    return { x: anchorX, y: anchorY };
+    for (let i = 0; i < mates.length; i++) {
+      const p = mates[i];
+      if (p.isKeeper) {
+        const ownGoalX = isHome ? 1.8 : 103.2;
+        const ballDistFromGoal = Math.abs(this.ball.xm - ownGoalX);
+        const stepOut = Math.min(7.5, Math.max(0, (ballDistFromGoal - 18) * 0.14));
+        const gkX = ownGoalX + attackDir * stepOut;
+        const gkY = Math.max(29.8, Math.min(38.2, 34 + (this.ball.ym - 34) * 0.24));
+        anchors.set(p, { x: gkX, y: gkY });
+      }
+    }
+
+    for (let i = 0; i < outfield.length; i++) {
+      const { p, baseXm, baseYm } = outfield[i];
+      const relX = (baseXm - baseCentroidX) * spanScale;
+      const ax = Math.max(5.0, Math.min(100.0, teamCentroidX + relX));
+      const ay = Math.max(3.5, Math.min(64.5, baseYm + ballShiftY));
+      anchors.set(p, { x: ax, y: ay });
+      defCandidates.push({ p, distOwnGoal: isHome ? baseXm : (105 - baseXm) });
+    }
+
+    // En defensa, los 4 defensas forman una línea defensiva recta (misma X aproximada)
+    if (!inPossession && defCandidates.length >= 4) {
+      defCandidates.sort((a, b) => a.distOwnGoal - b.distOwnGoal);
+      const backFour = defCandidates.slice(0, 4);
+      let avgDefX = 0;
+      for (let i = 0; i < backFour.length; i++) {
+        avgDefX += anchors.get(backFour[i].p).x;
+      }
+      avgDefX /= 4;
+      for (let i = 0; i < backFour.length; i++) {
+        const cur = anchors.get(backFour[i].p);
+        anchors.set(backFour[i].p, { x: avgDefX, y: cur.y });
+      }
+    }
+
+    return anchors;
   }
 
   _launchBallPass(passer, receiver, team) {
@@ -4118,28 +4156,30 @@ export class MatchSimulator {
     const inPossession = this.ball.possession === team;
     const carrier = this.ball.carrier;
     const carrierInTeam = carrier && carrier.side === team ? carrier : null;
+    const anchors = this._computeTeamBlockAnchors(team, mates, inPossession);
 
     if (inPossession) {
-      // Seleccionar hasta 2 apoyos cercanos y delanteros haciendo desmarques
-      let supportIds = new Set();
-      let runnerIds = new Set();
+      const offsideLineX = this._getOffsideLineX(team, opps);
+      const clampOnsideX = (tx, player) => {
+        // Excepción reglamentaria: solo si ya salió el pase hacia él puede cruzar la línea
+        if (this.ball.carrier === null && this.ball.passTarget === player && this.ball.passTeam === team) {
+          return tx;
+        }
+        return isHome ? Math.min(tx, offsideLineX - 1.1) : Math.max(tx, offsideLineX + 1.1);
+      };
 
-      if (carrierInTeam) {
-        const rankedSupport = mates
-          .filter(m => m !== carrierInTeam && !m.isKeeper)
-          .map(m => ({ m, d: Math.hypot(m.xm - carrierInTeam.xm, m.ym - carrierInTeam.ym) }))
-          .sort((a, b) => a.d - b.d);
-        if (rankedSupport[0]) supportIds.add(rankedSupport[0].m);
-        if (rankedSupport[1] && rankedSupport[1].d < 26) supportIds.add(rankedSupport[1].m);
+      // Detectar si el poseedor levanta la cabeza para pasar (listo para decidir tras el control)
+      const carrierReadyToPass = carrierInTeam && carrierInTeam.controlTimer <= 0 && carrierInTeam.decisionTimer <= 0.25;
 
-        mates.forEach(m => {
-          if (m !== carrierInTeam && !m.isKeeper && !supportIds.has(m)) {
-            if ((m.xm - this.ball.xm) * attackDir > 2 || m.baseX * attackDir > (isHome ? 62 : -38)) {
-              runnerIds.add(m);
-            }
-          }
-        });
-      }
+      // Identificar extremos/delanteros para situarse al límite del fuera de juego y tirar desmarques diagonales
+      const forwardIds = new Set();
+      mates.forEach(m => {
+        if (m !== carrierInTeam && !m.isKeeper) {
+          const isAttackerPos = ["DC", "ED", "EI", "SD", "MCO", "MD", "MI"].includes(m.player?.pos);
+          const isAheadBase = isHome ? (m.baseX >= 60) : (m.baseX <= 40);
+          if (isAttackerPos || isAheadBase) forwardIds.add(m);
+        }
+      });
 
       // Si el balón está suelto sin receptor asignado en este equipo, el más cercano va a recogerlo
       let looseChaser = null;
@@ -4157,7 +4197,7 @@ export class MatchSimulator {
 
       for (let i = 0; i < mates.length; i++) {
         const p = mates[i];
-        const anchor = this._computeDynamicAnchor(p, team, true);
+        const anchor = anchors.get(p) || { x: p.xm, y: p.ym };
 
         if (p === looseChaser) {
           p.aiState = "RECEIVE";
@@ -4167,7 +4207,6 @@ export class MatchSimulator {
 
         if (p === carrierInTeam) {
           if (p.controlTimer > 0) {
-            // Pausa de control orientado (0.3 - 0.5s) orientándose hacia la portería rival
             p.controlTimer = Math.max(0, p.controlTimer - dt);
             p.aiState = "CONTROL";
             const pivotX = isHome ? Math.min(104, p.xm + 3.5) : Math.max(1, p.xm - 3.5);
@@ -4176,7 +4215,6 @@ export class MatchSimulator {
           }
           p.decisionTimer -= dt;
           if (p.decisionTimer <= 0) {
-            // Evaluar cada 0.45s (o 0.25s si está muy presionado)
             let pressed = false;
             for (let j = 0; j < opps.length; j++) {
               if (Math.hypot(opps[j].xm - p.xm, opps[j].ym - p.ym) < 3.0) {
@@ -4189,7 +4227,6 @@ export class MatchSimulator {
           }
 
           if (this.ball.carrier === p) {
-            // Conducir en línea recta hacia la portería o el área rival
             const goalTargetX = isHome ? 100 : 5;
             const goalTargetY = 34 + (p.ym - 34) * 0.25;
             let avoidX = 0;
@@ -4203,56 +4240,52 @@ export class MatchSimulator {
             }
             this._steerPlayer(p, goalTargetX + avoidX, Math.max(4, Math.min(64, goalTargetY + avoidY)), 0.90, dt, allPlayers);
           } else {
-            this._steerPlayer(p, anchor.x, anchor.y, 0.72, dt, allPlayers);
+            this._steerPlayer(p, clampOnsideX(anchor.x, p), anchor.y, 0.72, dt, allPlayers);
           }
         } else if (this.ball.carrier === null && this.ball.passTarget === p && this.ball.passTeam === team) {
-          // Receptor acude hacia el balón en trayectoria
           p.aiState = "RECEIVE";
           this._steerPlayer(p, this.ball.xm + this.ball.vx * 0.18, this.ball.ym + this.ball.vy * 0.18, 0.96, dt, allPlayers);
-        } else if (supportIds.has(p) && carrierInTeam) {
-          // Apoyo dinámico en triángulo
-          p.aiState = "SUPPORT";
-          const sideSign = p.ym >= carrierInTeam.ym ? 1 : -1;
-          const supX = Math.max(6, Math.min(99, carrierInTeam.xm + attackDir * 7.5));
-          const supY = Math.max(5, Math.min(63, carrierInTeam.ym + sideSign * 10.5));
-          this._steerPlayer(p, (anchor.x * 0.35 + supX * 0.65), (anchor.y * 0.35 + supY * 0.65), 0.85, dt, allPlayers);
-        } else if (runnerIds.has(p)) {
-          // Desmarque al espacio libre entre defensas
-          p.aiState = "MAKE_RUN";
-          const runPhase = Math.sin((this.realTimeMinute * 3.0) + p.animPhase) > -0.25 ? 1 : 0.3;
-          const runX = Math.max(8, Math.min(98, anchor.x + attackDir * 9.5 * runPhase));
-          const runY = Math.max(4, Math.min(64, anchor.y + Math.sin(p.animPhase) * 3.5));
-          this._steerPlayer(p, runX, runY, 0.92, dt, allPlayers);
+        } else if (forwardIds.has(p)) {
+          // Delanteros y extremos al límite de la línea defensiva rival; desmarque diagonal solo al levantar cabeza
+          const edgeX = isHome ? Math.min(anchor.x + 8, offsideLineX - 1.1) : Math.max(anchor.x - 8, offsideLineX + 1.1);
+          if (carrierReadyToPass) {
+            p.aiState = "MAKE_RUN";
+            const diagY = anchor.y + (anchor.y > 34 ? -6.5 : 6.5);
+            const runX = clampOnsideX(edgeX + attackDir * 1.0, p);
+            this._steerPlayer(p, runX, Math.max(5, Math.min(63, diagY)), 0.94, dt, allPlayers);
+          } else {
+            p.aiState = "ANCHOR";
+            this._steerPlayer(p, clampOnsideX(edgeX, p), anchor.y, 0.80, dt, allPlayers);
+          }
         } else {
           p.aiState = p.isKeeper ? "GK" : "ANCHOR";
-          this._steerPlayer(p, anchor.x, anchor.y, 0.75, dt, allPlayers);
+          this._steerPlayer(p, clampOnsideX(anchor.x, p), anchor.y, 0.78, dt, allPlayers);
         }
       }
     } else {
-      // SIN POSESIÓN (DEFENSA): Presión al poseedor / balón suelto + línea compacta + marcaje
-      const inst = isHome ? this.homeInstructions : this.awayInstructions;
-      const pressing = inst?.outOfPossession?.pressing || "normal";
-      const pressCount = (pressing === "muy_alto" || pressing === "alto") ? 2 : 1;
-
-      const sortedByBall = mates
-        .filter(m => !m.isKeeper)
-        .map(m => ({ m, d: Math.hypot(m.xm - this.ball.xm, m.ym - this.ball.ym) }))
-        .sort((a, b) => a.d - b.d);
-
-      const pressers = new Set();
-      for (let k = 0; k < Math.min(pressCount, sortedByBall.length); k++) {
-        pressers.add(sortedByBall[k].m);
+      // DISCIPLINA DEFENSIVA ESTRICTA:
+      // SOLO 1 JUGADOR (el más cercano al balón) sale a presionar; los otros 9 mantienen línea y tapan líneas de pase
+      let solePresser = null;
+      let minBallDist = 999;
+      for (let i = 0; i < mates.length; i++) {
+        const m = mates[i];
+        if (m.isKeeper) continue;
+        const d = Math.hypot(m.xm - this.ball.xm, m.ym - this.ball.ym);
+        if (d < minBallDist) {
+          minBallDist = d;
+          solePresser = m;
+        }
       }
 
-      const manMarking = isHome ? this.homeManMarking : this.awayManMarking;
+      const ownGoalX = isHome ? 1.8 : 103.2;
+      const ownGoalY = 34;
 
       for (let i = 0; i < mates.length; i++) {
         const p = mates[i];
-        const anchor = this._computeDynamicAnchor(p, team, false);
+        const anchor = anchors.get(p) || { x: p.xm, y: p.ym };
 
         if (p.isKeeper) {
           p.aiState = "GK";
-          const ownGoalX = isHome ? 1.8 : 103.2;
           const ballInBox = isHome ? (this.ball.xm < 16.5 && Math.abs(this.ball.ym - 34) < 18) : (this.ball.xm > 88.5 && Math.abs(this.ball.ym - 34) < 18);
           if (ballInBox && this.ball.carrier === null && Math.hypot(this.ball.vx, this.ball.vy) < 8.5) {
             this._steerPlayer(p, this.ball.xm, this.ball.ym, 0.96, dt, allPlayers);
@@ -4262,13 +4295,12 @@ export class MatchSimulator {
           continue;
         }
 
-        if (pressers.has(p)) {
+        if (p === solePresser) {
           p.aiState = "PRESS";
           const targetX = this.ball.xm + (this.ball.carrier ? this.ball.carrier.vx * 0.15 : this.ball.vx * 0.15);
           const targetY = this.ball.ym + (this.ball.carrier ? this.ball.carrier.vy * 0.15 : this.ball.vy * 0.15);
           this._steerPlayer(p, targetX, targetY, 0.98, dt, allPlayers);
 
-          // Intentar robo físico si alcanza al poseedor
           if (this.ball.carrier && this.ball.carrier.side !== team && p.tackleCooldown <= 0) {
             const dCarrier = Math.hypot(p.xm - this.ball.carrier.xm, p.ym - this.ball.carrier.ym);
             if (dCarrier < 1.25) {
@@ -4276,22 +4308,14 @@ export class MatchSimulator {
             }
           }
         } else {
-          // Marcaje individual si está configurado o zonal
-          const markTargetId = manMarking && p.player ? manMarking[p.player.id] : null;
-          const markOpp = markTargetId ? opps.find(o => o.player?.id === markTargetId) : null;
-          if (markOpp) {
-            p.aiState = "MARK";
-            const ownGoalX = isHome ? 2 : 103;
-            const goalDirX = (ownGoalX - markOpp.xm);
-            const goalDirY = (34 - markOpp.ym);
-            const gd = Math.hypot(goalDirX, goalDirY) || 1;
-            const mx = markOpp.xm + (goalDirX / gd) * 1.8;
-            const my = markOpp.ym + (goalDirY / gd) * 1.8;
-            this._steerPlayer(p, (anchor.x * 0.35 + mx * 0.65), (anchor.y * 0.35 + my * 0.65), 0.86, dt, allPlayers);
-          } else {
-            p.aiState = "DEFEND_ZONE";
-            this._steerPlayer(p, anchor.x, anchor.y, 0.80, dt, allPlayers);
-          }
+          // Los otros 9 mantienen estrictamente su línea tapando líneas de pase entre balón y propia portería
+          p.aiState = "DEFEND_ZONE";
+          const b2gX = ownGoalX - this.ball.xm;
+          const b2gY = ownGoalY - this.ball.ym;
+          const b2gLen = Math.hypot(b2gX, b2gY) || 1;
+          // Pequeña cobertura hacia el pasillo balón-portería sin romper la línea recta defensiva en X
+          const coverY = Math.max(4.0, Math.min(64.0, anchor.y + (b2gY / b2gLen) * 1.4));
+          this._steerPlayer(p, anchor.x, coverY, 0.82, dt, allPlayers);
         }
       }
     }
