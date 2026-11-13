@@ -4049,8 +4049,8 @@ export class MatchSimulator {
     const distToGoal = Math.hypot(dxGoal, dyGoal);
     const goalAngle = Math.atan2(dyGoal, dxGoal);
 
-    // 1. Análisis del cono frontal (30 grados -> ±15° = ±PI/12) hacia portería rival
-    let minConeOppDist = 99;
+    // Trazar rayo/cono desde el jugador hacia el centro de la portería rival
+    let minFrontalOppDist = 99;
     let nearestAnyOpp = 99;
     for (let i = 0; i < opps.length; i++) {
       const o = opps[i];
@@ -4061,128 +4061,95 @@ export class MatchSimulator {
 
       const oppAngle = Math.atan2(dy, dx);
       const angleDiff = Math.abs(Math.atan2(Math.sin(oppAngle - goalAngle), Math.cos(oppAngle - goalAngle)));
-      // Cono frontal de 30 grados entre el jugador y la portería
-      if (angleDiff <= Math.PI / 12 && d <= distToGoal + 2) {
-        if (d < minConeOppDist) minConeOppDist = d;
+      const segDist = this._distPointToSegment(o.xm, o.ym, carrier.xm, carrier.ym, goalX, goalY);
+      if ((angleDiff <= Math.PI / 5 || segDist < 3.2) && d <= distToGoal + 1.0) {
+        if (d < minFrontalOppDist) minFrontalOppDist = d;
       }
     }
 
-    const inOppHalf = isHome ? (carrier.xm > 52.5) : (carrier.xm < 52.5);
-    const inFinalThird = isHome ? (carrier.xm > 70) : (carrier.xm < 35);
-    const forbidBackPass = inFinalThird && minConeOppDist >= 4.0;
-
-    // 2. REGLA DE ORO: TIRAR (prioridad absoluta si < 22m y ángulo de tiro libre)
-    const freeAngle = Math.abs(carrier.ym - 34) < 22 || distToGoal < 16;
-    const clearShotCone = minConeOppDist > 2.2 || distToGoal < 11;
-    let shootScore = -999;
-    if (!carrier.isKeeper && distToGoal < 22 && freeAngle && clearShotCone) {
-      shootScore = 1000;
-    }
-
-    // 3. CONDUCIR (en campo rival con >= 6m libres hacia portería, o puntuación base de conducción)
-    let dribbleScore = -999;
+    // 1. PRIORIDAD 1: ENCARAR Y TIRAR (Prohibido volver atrás si hay vía libre)
     if (!carrier.isKeeper) {
-      if (inOppHalf && minConeOppDist >= 6.0) {
-        dribbleScore = 85 + Math.max(0, 30 - distToGoal) * 1.5;
-      } else if (minConeOppDist >= 4.5 && nearestAnyOpp >= 3.2) {
-        dribbleScore = 18 + (inOppHalf ? 14 : 0);
+      // Si entra a < 20m de la portería rival con ángulo, ejecutar shoot() de inmediato
+      if (distToGoal < 20.0 && (minFrontalOppDist >= 1.8 || distToGoal < 12.0)) {
+        this._launchBallShot(carrier, team);
+        return;
+      }
+      // Si no hay ningún defensor rival dentro de un radio de 5m hacia la portería rival -> sprint recto al punto de penalti
+      if (minFrontalOppDist >= 5.0) {
+        carrier.aiState = "SPRINT_TO_GOAL";
+        const cName = carrier.player?.name || "Jugador";
+        this._emitCommentary(`${cName} tiene vía libre y encara directo hacia el área rival!`, "CONDUCCIÓN", 2.0);
+        return;
       }
     }
 
-    // 4. EVALUADOR INTELIGENTE DE PASES (Utility AI)
-    const evaluatePasses = (allowBackward) => {
+    // Helper evaluador de líneas de pase sin rivales a < 2m
+    const findBestPass = (forwardOnly) => {
       let bestM = null;
-      let bestS = -999;
-      let hasForwardValid = false;
+      let bestS = -9999;
 
       for (let i = 0; i < mates.length; i++) {
         const m = mates[i];
         if (m === carrier) continue;
 
         const passDist = Math.hypot(m.xm - carrier.xm, m.ym - carrier.ym);
-        // Descartar inmediatamente < 5m o > 40m
-        if (passDist < 5.0 || passDist > 40.0) continue;
+        if (passDist < 4.0 || passDist > 42.0) continue;
 
-        // Descartar si hay algún rival a menos de 2.5m de la línea recta del pase
+        const mateDistToGoal = Math.hypot(goalX - m.xm, goalY - m.ym);
+        const forwardGain = (m.xm - carrier.xm) * attackDir;
+        const isCloserToGoal = mateDistToGoal < distToGoal && forwardGain > 0.5;
+
+        if (forwardOnly && !isCloserToGoal) continue;
+        if (!forwardOnly && isCloserToGoal) continue;
+
+        // Comprobar que la línea de pase no tenga rivales a menos de 2 metros
         let minSegDist = 99;
         for (let j = 0; j < opps.length; j++) {
           const o = opps[j];
           const segD = this._distPointToSegment(o.xm, o.ym, carrier.xm, carrier.ym, m.xm, m.ym);
           if (segD < minSegDist) minSegDist = segD;
         }
-        if (minSegDist < 2.5) continue;
+        if (minSegDist < 2.0) continue;
 
-        const forwardGain = (m.xm - carrier.xm) * attackDir;
-        if (forwardGain >= 0) {
-          hasForwardValid = true;
-        } else {
-          // Pase hacia atrás: descartar si prohibido o si no se permiten todavía
-          if (forbidBackPass || !allowBackward) continue;
-        }
-
-        // Distancia del receptor al rival más cercano
         let mateNearestOpp = 99;
         for (let j = 0; j < opps.length; j++) {
           const d = Math.hypot(opps[j].xm - m.xm, opps[j].ym - m.ym);
           if (d < mateNearestOpp) mateNearestOpp = d;
         }
 
-        let score = 0;
-        if (forwardGain >= 0) {
-          score += forwardGain * 3.0; // +3 pts por cada metro adelantado
-        } else {
-          score -= 40.0; // Penalización de -40 pts a pases hacia atrás
-        }
-
-        if (mateNearestOpp >= 6.0) {
-          score += 20.0; // +20 pts si está desmarcado (>= 6m de cualquier rival)
-        }
-
-        const ballInCenter = Math.abs(carrier.ym - 34) <= 13.0;
-        const mateOnOpenFlank = Math.abs(m.ym - 34) > 19.0;
-        if (ballInCenter && mateOnOpenFlank) {
-          score += 15.0; // +15 pts por cambio de orientación a banda abierta
-        }
+        // Priorizar al compañero más adelantado y libre
+        const advanceScore = (distToGoal - mateDistToGoal) * 3.0;
+        const spaceScore = mateNearestOpp >= 5.0 ? 20.0 : mateNearestOpp * 2.5;
+        const score = forwardOnly ? (advanceScore + spaceScore) : (forwardGain * 2.0 + spaceScore);
 
         if (score > bestS) {
           bestS = score;
           bestM = m;
         }
       }
-      return { bestM, bestS, hasForwardValid };
+      return bestM;
     };
 
-    let { bestM: bestMate, bestS: bestPassScore, hasForwardValid } = evaluatePasses(false);
-
-    // Pase atrás SOLO permitido si rival presiona a < 3m, TODOS los pases adelante bloqueados, y no está prohibido
-    if (!hasForwardValid && nearestAnyOpp < 3.0 && !forbidBackPass) {
-      const backEval = evaluatePasses(true);
-      if (backEval.bestM) {
-        bestMate = backEval.bestM;
-        bestPassScore = backEval.bestS;
+    // 2. PRIORIDAD 2: PASAR ADELANTE (si un defensa cierra el paso < 5m / < 4m delante)
+    if (minFrontalOppDist < 5.0 || carrier.isKeeper) {
+      const forwardMate = findBestPass(true);
+      if (forwardMate) {
+        this._launchBallPass(carrier, forwardMate, team);
+        return;
       }
     }
 
-    // 5. Ejecutar SIEMPRE la acción con mayor puntuación determinista
-    if (shootScore >= dribbleScore && shootScore >= bestPassScore && shootScore > -900) {
-      this._launchBallShot(carrier, team);
-      return;
+    // 3. PRIORIDAD 3: PASE DE SEGURIDAD (Último recurso: SOLO si defensa encima < 3m y todos delante cubiertos)
+    if (nearestAnyOpp < 3.0 || carrier.isKeeper) {
+      const safeMate = findBestPass(false);
+      if (safeMate) {
+        this._launchBallPass(carrier, safeMate, team);
+        return;
+      }
     }
 
-    if (dribbleScore >= bestPassScore && dribbleScore > -900) {
-      carrier.aiState = "DRIBBLE";
-      const cName = carrier.player?.name || "Jugador";
-      this._emitCommentary(`${cName} encara en conducción hacia el área rival...`, "CONDUCCIÓN", 2.2);
-      return;
-    }
-
-    if (bestMate && bestPassScore > -900) {
-      this._launchBallPass(carrier, bestMate, team);
-      return;
-    }
-
-    // Salvaguarda para portero o jugador totalmente encerrado sin opción válida
-    if (carrier.isKeeper || nearestAnyOpp < 2.2) {
+    // Salvaguarda para portero o jugador totalmente encerrado
+    if (carrier.isKeeper) {
       const outfieldMates = mates.filter(m => m !== carrier && !m.isKeeper);
       if (outfieldMates.length > 0) {
         outfieldMates.sort((a, b) => ((b.xm - a.xm) * attackDir));
@@ -4191,7 +4158,7 @@ export class MatchSimulator {
       }
     }
 
-    carrier.aiState = "DRIBBLE";
+    carrier.aiState = "SPRINT_TO_GOAL";
   }
 
   _updateTeamAI(team, mates, opps, allPlayers, dt) {
@@ -4271,18 +4238,18 @@ export class MatchSimulator {
           }
 
           if (this.ball.carrier === p) {
-            const goalTargetX = isHome ? 100 : 5;
-            const goalTargetY = 34 + (p.ym - 34) * 0.25;
-            let avoidX = 0;
-            let avoidY = 0;
-            for (let j = 0; j < opps.length; j++) {
-              const od = Math.hypot(opps[j].xm - p.xm, opps[j].ym - p.ym);
-              if (od < 3.5 && od > 0.1) {
-                avoidX += ((p.xm - opps[j].xm) / od) * 2.2;
-                avoidY += ((p.ym - opps[j].ym) / od) * 2.2;
-              }
+            // Si encara con vía libre y entra a < 20m de la portería rival, dispara inmediatamente
+            const goalX = isHome ? 105 : 0;
+            const dGoalNow = Math.hypot(goalX - p.xm, 34 - p.ym);
+            if (!p.isKeeper && p.aiState === "SPRINT_TO_GOAL" && dGoalNow < 20.0) {
+              this._launchBallShot(p, team);
+              continue;
             }
-            this._steerPlayer(p, goalTargetX + avoidX, Math.max(4, Math.min(64, goalTargetY + avoidY)), 0.90, dt, allPlayers);
+            // Correr en línea recta hacia el punto de penalti rival a máxima velocidad si encara
+            const penX = isHome ? 94 : 11;
+            const penY = 34;
+            const speedRatio = p.aiState === "SPRINT_TO_GOAL" ? 1.0 : 0.90;
+            this._steerPlayer(p, penX, penY, speedRatio, dt, allPlayers);
           } else {
             this._steerPlayer(p, clampOnsideX(anchor.x, p), anchor.y, 0.72, dt, allPlayers);
           }
@@ -4324,6 +4291,26 @@ export class MatchSimulator {
       const ownGoalX = isHome ? 1.8 : 103.2;
       const ownGoalY = 34;
 
+      // Cobertura de los centrales: si el balón/poseedor supera la línea de mediocampo hacia campo propio,
+      // el central más cercano sale a cerrarle el paso frontalmente en el segmento balón <-> propia portería
+      const ballInOwnHalf = isHome ? (this.ball.xm < 52.5) : (this.ball.xm > 52.5);
+      let coverCB = null;
+      if (ballInOwnHalf) {
+        let bestCBDist = 999;
+        for (let i = 0; i < mates.length; i++) {
+          const m = mates[i];
+          if (m.isKeeper || m === solePresser) continue;
+          const pos = m.player?.pos || "";
+          const isDef = pos === "DFC" || pos === "LI" || pos === "LD" || pos === "MCD";
+          if (!isDef) continue;
+          const d = Math.hypot(m.xm - this.ball.xm, m.ym - this.ball.ym) - (pos === "DFC" ? 4.0 : 0);
+          if (d < bestCBDist) {
+            bestCBDist = d;
+            coverCB = m;
+          }
+        }
+      }
+
       for (let i = 0; i < mates.length; i++) {
         const p = mates[i];
         const anchor = anchors.get(p) || { x: p.xm, y: p.ym };
@@ -4355,24 +4342,41 @@ export class MatchSimulator {
         }
 
         if (p === solePresser) {
-          p.aiState = "PRESS";
-          const targetX = this.ball.xm + (this.ball.carrier ? this.ball.carrier.vx * 0.15 : this.ball.vx * 0.15);
-          const targetY = this.ball.ym + (this.ball.carrier ? this.ball.carrier.vy * 0.15 : this.ball.vy * 0.15);
-          this._steerPlayer(p, targetX, targetY, 0.98, dt, allPlayers);
+          // Marcador directo (PRESSING): corre directo a la coordenada del balón interponiéndose hacia portería
+          p.aiState = "PRESSING";
+          const b2gX = ownGoalX - this.ball.xm;
+          const b2gY = ownGoalY - this.ball.ym;
+          const b2gLen = Math.hypot(b2gX, b2gY) || 1;
+          const targetX = this.ball.xm + (b2gX / b2gLen) * 0.4;
+          const targetY = this.ball.ym + (b2gY / b2gLen) * 0.4;
+          this._steerPlayer(p, targetX, targetY, 1.0, dt, allPlayers);
 
           if (this.ball.carrier && this.ball.carrier.side !== team && p.tackleCooldown <= 0) {
             const dCarrier = Math.hypot(p.xm - this.ball.carrier.xm, p.ym - this.ball.carrier.ym);
-            if (dCarrier < 1.25) {
+            if (dCarrier < 1.5) {
+              this._attemptTackle(p, this.ball.carrier, team);
+            }
+          }
+        } else if (p === coverCB) {
+          // Cobertura frontal del central en el segmento entre el balón y el centro de su portería
+          p.aiState = "COVER_FRONTAL";
+          const segT = 0.28;
+          const blockX = Math.max(2.0, Math.min(103.0, this.ball.xm + (ownGoalX - this.ball.xm) * segT));
+          const blockY = Math.max(4.0, Math.min(64.0, this.ball.ym + (ownGoalY - this.ball.ym) * segT));
+          this._steerPlayer(p, blockX, blockY, 0.96, dt, allPlayers);
+
+          if (this.ball.carrier && this.ball.carrier.side !== team && p.tackleCooldown <= 0) {
+            const dCarrier = Math.hypot(p.xm - this.ball.carrier.xm, p.ym - this.ball.carrier.ym);
+            if (dCarrier < 1.5) {
               this._attemptTackle(p, this.ball.carrier, team);
             }
           }
         } else {
-          // Los otros 9 mantienen estrictamente su línea tapando líneas de pase entre balón y propia portería
+          // Los demás mantienen estrictamente su línea tapando líneas de pase entre balón y propia portería
           p.aiState = "DEFEND_ZONE";
           const b2gX = ownGoalX - this.ball.xm;
           const b2gY = ownGoalY - this.ball.ym;
           const b2gLen = Math.hypot(b2gX, b2gY) || 1;
-          // Pequeña cobertura hacia el pasillo balón-portería sin romper la línea recta defensiva en X
           const coverY = Math.max(4.0, Math.min(64.0, anchor.y + (b2gY / b2gLen) * 1.4));
           this._steerPlayer(p, anchor.x, coverY, 0.82, dt, allPlayers);
         }
@@ -4428,23 +4432,22 @@ export class MatchSimulator {
 
   _awardCardRealTime(player, side, cardType) {
     if (!player) return;
+    const min = Math.max(1, this.minute);
     if (cardType === "YELLOW") {
       player.matchYellowCards = (player.matchYellowCards || 0) + 1;
       const isSecondYellow = player.matchYellowCards >= 2;
-      this.matchCards.push({
-        minute: Math.max(1, this.minute),
-        team: side,
-        playerId: player.id,
-        playerName: player.name,
-        type: isSecondYellow ? "RED" : "YELLOW"
-      });
+      if (!this.matchCards || typeof this.matchCards !== "object" || Array.isArray(this.matchCards)) {
+        this.matchCards = { yellows: {}, reds: {} };
+      }
       if (isSecondYellow) {
-        this.stats.redCards[side] = (this.stats.redCards[side] || 0) + 1;
+        this.matchCards.reds[player.id] = { player, reason: "Segunda amarilla", minute: min, team: side };
+        if (this.stats.redCards) this.stats.redCards[side] = (this.stats.redCards[side] || 0) + 1;
       } else {
-        this.stats.yellowCards[side] = (this.stats.yellowCards[side] || 0) + 1;
+        this.matchCards.yellows[player.id] = { player, minute: min, team: side };
+        if (this.stats.yellowCards) this.stats.yellowCards[side] = (this.stats.yellowCards[side] || 0) + 1;
       }
       this.events.push({
-        minute: Math.max(1, this.minute),
+        minute: min,
         type: isSecondYellow ? "RED_CARD" : "YELLOW_CARD",
         team: side,
         player: player.name,
@@ -4453,7 +4456,7 @@ export class MatchSimulator {
           : `🟨 Tarjeta amarilla para ${player.name}.`
       });
       if (this.onCard) {
-        this.onCard({ minute: Math.max(1, this.minute), team: side, player, type: isSecondYellow ? "RED" : "YELLOW" });
+        this.onCard({ minute: min, team: side, player, type: isSecondYellow ? "RED" : "YELLOW" });
       }
     }
   }
