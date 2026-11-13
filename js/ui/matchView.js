@@ -5089,16 +5089,19 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       } // Fin de if (!onlyUpdateState && ctx)
 
       // 6. SIMULACIÓN DINÁMICA CONECTADA EN TIEMPO REAL CON LOS 22 JUGADORES DEL CAMPO
-      // - u = distancia a línea de gol (0 = portería, 11 = penalti, 16.5 = frontal área, 34..36 = medular)
-      // - v = posición lateral (0 = banda lejana sup-dcha, 34 = centro portería, 55..60 = banda cercana inf-izq)
+      // - u = distancia a línea de gol (0 = portería atacada, 11 = penalti, 16.5 = frontal área, 34..36 = medular)
+      // - v = posición lateral en metros del campo (0 = banda der, 34 = centro de la portería, 68 = banda izq)
       const isHomeAtk = isHome;
-      const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 0.58, 1.5, 34.0);
-      const to3DV = (y2d) => clamp(5.0 + (y2d / 100) * 52.0, 4.5, 57.5);
+      // Conversión métrica exacta para campo de 105x68m:
+      // Local ataca hacia x=105 (u=0 es x=105, u=105 es x=0): x2d = 100 - (u/105)*100 -> u = (100 - x2d)*1.05
+      // Visitante ataca hacia x=0 (u=0 es x=0, u=105 es x=105): x2d = (u/105)*100 -> u = x2d * 1.05
+      const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 1.05, 1.0, 52.0);
+      const to3DV = (y2d) => clamp((y2d / 100) * 68.0, 2.0, 66.0);
       const to2DX = (u3d) => {
-        const progX = clamp(u3d / 0.58, -3.5, 103.5);
-        return isHomeAtk ? (100 - progX) : progX;
+        const progPct = clamp((u3d / 105.0) * 100.0, -4.0, 104.0);
+        return isHomeAtk ? (100.0 - progPct) : progPct;
       };
-      const to2DY = (v3d) => clamp(((v3d - 5.0) / 52.0) * 100, -4.0, 104.0);
+      const to2DY = (v3d) => clamp((v3d / 68.0) * 100.0, -2.0, 102.0);
 
       const playPattern = hlData.playPattern || "TIKI_TAKA_CENTRAL";
       const seed = hlData.patternSeed !== undefined ? hlData.patternSeed : 0.5;
@@ -7402,12 +7405,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       // Inicializar motor 3D Three.js si está disponible (para jugadas clave)
       ensureThreeLoadedAndInit();
 
-      // Si hay una jugada clave activa (ataque relevante, ocasión, parada o acción defensiva), renderizar en 3D
-      if (currentHighlightData) {
+      // Si hay una jugada clave activa (ataque relevante, ocasión, parada, bloqueo o balón parado), renderizar en 3D
+      const is3DHighlightActive = Boolean(currentHighlightData || simulator.isHighlightRunning || simulator.isSetPieceRunning);
+
+      if (is3DHighlightActive && currentHighlightData) {
         if (threeEngine && canvas3d) {
           canvas3d.style.display = "block";
           canvas.style.display = "none";
           drawFrontalHighlightScene(null, 800, 450, currentHighlightData, true);
+
+          // Buscar al futbolista poseedor o más cercano al balón en 3D
+          let closestLiveP = null;
+          let minLiveDist = 999;
+          [...simulator.home2D, ...simulator.away2D].forEach(p => {
+            const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+            if (d < minLiveDist) {
+              minLiveDist = d;
+              closestLiveP = p;
+            }
+          });
+          threeEngine.updateAndRender(closestLiveP, minLiveDist);
         } else {
           if (canvas3d) canvas3d.style.display = "none";
           canvas.style.display = "block";
@@ -7415,42 +7432,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           resizeCanvas();
           drawFrontalHighlightScene(ctx, canvas.width, canvas.height, currentHighlightData, false);
           drawWeatherOverlay(ctx, canvas.width, canvas.height, matchWeather.id);
-          if (!simulator.isFinished) {
-            requestAnimationFrame(drawPitch);
-          }
-          return;
         }
       } else {
-        // ÚNICA FUENTE DE LA VERDAD: Simulación física continua 60 FPS en 105x68m
-        const nowTs = typeof performance !== "undefined" ? performance.now() : Date.now();
-        const rawDt = lastRealTimeTs !== null ? (nowTs - lastRealTimeTs) / 1000 : 0.016;
-        lastRealTimeTs = nowTs;
-        const dt = Math.min(0.05, Math.max(0.001, rawDt));
-
-        if (!isKickoffInProgress && typeof simulator.stepRealTime === "function" && simulator.isRunning && !simulator.isSetPieceRunning) {
-          simulator.stepRealTime(dt);
-          simulator.home2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
-          simulator.away2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
-        }
-      }
-
-      // Buscar al futbolista que conduce o disputa el balón
-      let closestLiveP = null;
-      let minLiveDist = 999;
-      [...simulator.home2D, ...simulator.away2D].forEach(p => {
-        const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
-        if (d < minLiveDist) {
-          minLiveDist = d;
-          closestLiveP = p;
-        }
-      });
-
-      // Renderizar siempre en 3D Three.js directamente desde la física real (2D solo si WebGL no ha cargado)
-      if (threeEngine && canvas3d) {
-        canvas3d.style.display = "block";
-        canvas.style.display = "none";
-        threeEngine.updateAndRender(closestLiveP, minLiveDist);
-      } else {
+        // MODO FAST_SIM (Tiempo entre jugadas clave):
+        // Mostrar exclusivamente la simulación táctica en 2D con las fichas y dibujo táctico en el césped
         if (canvas3d) canvas3d.style.display = "none";
         canvas.style.display = "block";
         if (!ctx) ctx = canvas.getContext("2d");
@@ -7458,6 +7443,30 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           resizeCanvas();
           const w = canvas.width;
           const h = canvas.height;
+
+          // Interpolación suave y orgánica de las fichas 2D hacia sus anclas tácticas
+          simulator.ball.x += ((simulator.ball.targetX ?? simulator.ball.x) - simulator.ball.x) * 0.14;
+          simulator.ball.y += ((simulator.ball.targetY ?? simulator.ball.y) - simulator.ball.y) * 0.14;
+          simulator.home2D.forEach(p => {
+            p.curX += ((p.targetX ?? p.curX) - p.curX) * 0.12;
+            p.curY += ((p.targetY ?? p.curY) - p.curY) * 0.12;
+          });
+          simulator.away2D.forEach(p => {
+            p.curX += ((p.targetX ?? p.curX) - p.curX) * 0.12;
+            p.curY += ((p.targetY ?? p.curY) - p.curY) * 0.12;
+          });
+
+          // Buscar jugador poseedor o más cercano al balón en 2D
+          let closestLiveP = null;
+          let minLiveDist = 999;
+          [...simulator.home2D, ...simulator.away2D].forEach(p => {
+            const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+            if (d < minLiveDist) {
+              minLiveDist = d;
+              closestLiveP = p;
+            }
+          });
+
           const pDim = drawPitch2D(ctx, w, h);
           const { padX, padY, pitchW, pitchH, dpr } = pDim;
           simulator.home2D.forEach(p => {

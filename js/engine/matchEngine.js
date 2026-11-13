@@ -116,8 +116,10 @@ export class MatchSimulator {
     this.awayPlayersOnPitch.forEach(p => initPlayerMatchStats(p, true));
     this.awayBench.forEach(p => initPlayerMatchStats(p, false));
 
-    // Inicializar posiciones 3D relativas (x: 0-100, y: 0-100, z: 0-25) y físicas reales (105x68m) — Única Fuente de la Verdad
-    this.useRealTime = true;
+    // Inicializar cómputo del partido: FAST_SIM (entre jugadas en 2D) y HIGHLIGHT_PLAYING (jugadas clave en 3D)
+    this.useRealTime = false;
+    this.matchSecond = 0;
+    this.highlightInterval = null;
     this.realTimeMinute = 0;
     this.lastMinuteProcessed = 0;
     this.tickEmitTimer = 0;
@@ -291,6 +293,10 @@ export class MatchSimulator {
       clearTimeout(this.loopTimeout);
       this.loopTimeout = null;
     }
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
     if (this.highlightTimeouts && this.highlightTimeouts.length > 0) {
       this.highlightTimeouts.forEach(clearTimeout);
       this.highlightTimeouts = [];
@@ -317,6 +323,7 @@ export class MatchSimulator {
       this.loopTimeout = null;
     }
     if (this.onTick) this.onTick(this.getState());
+    this.loop();
   }
 
   pause() {
@@ -324,6 +331,10 @@ export class MatchSimulator {
     if (this.loopTimeout) {
       clearTimeout(this.loopTimeout);
       this.loopTimeout = null;
+    }
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
     }
     if (this.onTick) this.onTick(this.getState());
   }
@@ -1473,17 +1484,17 @@ export class MatchSimulator {
       this.ball.targetX = 65 + Math.random() * 28;
       this.ball.targetY = ballYTarget;
 
-      // Ocasión de ataque local (con sutil arreón final de la afición local si empata o pierde en el tramo final: +0.3%, strictly <= 0.5%)
+      // Ocasión de ataque local (calibrado para generar entre 6 y 12 ocasiones por parte según táctica)
       const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.003 : 0;
-      let homeChanceMult = 0.165 + lateHomeSurge;
-      if (this.minute <= 25) homeChanceMult *= 0.85; // Orden táctico, rigor defensivo y máxima energía inicial
+      let homeChanceMult = 0.25 + lateHomeSurge;
+      if (this.minute <= 15) homeChanceMult *= 0.85; // Ajuste táctico de tanteo inicial
       const leadDiffHome = this.homeScore - this.awayScore;
-      if (leadDiffHome >= 3) homeChanceMult *= 0.35; // Freno natural a goleadas desorbitadas (6-0)
-      else if (leadDiffHome >= 2) homeChanceMult *= 0.60;
+      if (leadDiffHome >= 3) homeChanceMult *= 0.40; // Freno natural a goleadas desorbitadas (6-0)
+      else if (leadDiffHome >= 2) homeChanceMult *= 0.65;
 
       if (this.activeShout) {
-        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.15;
-        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.72;
+        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.20;
+        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.70;
         else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.75;
       }
       const attackScore = (homeAtk / (homeAtk + awayDef)) * homeChanceMult;
@@ -1507,7 +1518,7 @@ export class MatchSimulator {
           }
         });
         return !this.isSkippingToEnd;
-      } else if (chanceRoll < attackScore + 0.025) {
+      } else if (chanceRoll < attackScore + 0.035) {
         // Balón parado (Córner o Falta peligrosa calibrado a ritmo real de partido)
         const isCorner = Math.random() < 0.65;
         if (this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK")) {
@@ -1530,15 +1541,15 @@ export class MatchSimulator {
       this.ball.targetX = 35 - Math.random() * 28;
       this.ball.targetY = ballYTargetAway;
 
-      let awayChanceMult = 0.155;
-      if (this.minute <= 25) awayChanceMult *= 0.85; // Orden táctico, rigor defensivo y máxima energía inicial
+      let awayChanceMult = 0.24;
+      if (this.minute <= 15) awayChanceMult *= 0.85; // Ajuste táctico de tanteo inicial
       const leadDiffAway = this.awayScore - this.homeScore;
-      if (leadDiffAway >= 3) awayChanceMult *= 0.35; // Freno natural a goleadas desorbitadas
-      else if (leadDiffAway >= 2) awayChanceMult *= 0.60;
+      if (leadDiffAway >= 3) awayChanceMult *= 0.40; // Freno natural a goleadas desorbitadas
+      else if (leadDiffAway >= 2) awayChanceMult *= 0.65;
 
       if (this.activeShout) {
-        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.15;
-        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.72;
+        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.20;
+        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.70;
         else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.75;
       }
       const attackScore = (awayAtk / (awayAtk + homeDef)) * awayChanceMult;
@@ -1562,7 +1573,7 @@ export class MatchSimulator {
           }
         });
         return !this.isSkippingToEnd;
-      } else if (chanceRoll < attackScore + 0.025) {
+      } else if (chanceRoll < attackScore + 0.035) {
         // Balón parado (Córner o Falta peligrosa calibrado a ritmo real de partido)
         const isCorner = Math.random() < 0.65;
         if (this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK")) {
@@ -1718,10 +1729,27 @@ export class MatchSimulator {
     return false;
   }
 
-  // Ejecución de jugada clave orgánica y conectada a la simulación en tiempo real
+  // Ejecución de jugada clave guiada y sincronizada al 100% con el visor 3D
   executeKeyHighlight(attackingSide, onComplete) {
     this.isHighlightRunning = true;
-    this.speed = 1; // Ritmo deliberado para apreciar la jugada en detalle
+    this.speed = 1; // Ritmo televisivo real (1s real = 1s de partido)
+
+    // Reloj en tiempo real: 1 segundo real = 1 segundo de partido durante la jugada clave
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
+    this.highlightInterval = setInterval(() => {
+      if (!this.isRunning || (!this.isHighlightRunning && !this.isSetPieceRunning)) {
+        return;
+      }
+      this.matchSecond = (this.matchSecond || 0) + 1;
+      if (this.matchSecond >= 60) {
+        this.matchSecond = 0;
+        this.minute++;
+      }
+      if (this.onTick) this.onTick(this.getState());
+    }, Math.max(100, Math.round(1000 / (this.userSpeed || 1))));
 
     const isHome = attackingSide === "home";
     const defSide = isHome ? "away" : "home";
@@ -2228,7 +2256,7 @@ export class MatchSimulator {
         } else {
           setHlTimeout(() => {
             this.concludeHighlight({ outcome: "BLOCK", tacticalAnalysis: analysis, onComplete });
-          }, 3500);
+          }, 2000);
         }
       } else if (outcome === "POST") {
         this.adjustPlayerRating(shooter, 0.2);
@@ -2243,7 +2271,7 @@ export class MatchSimulator {
         } else {
           setHlTimeout(() => {
             this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
-          }, 3500);
+          }, 2000);
         }
       } else if (outcome === "WIDE") {
         this.adjustPlayerRating(shooter, -0.1);
@@ -2258,7 +2286,7 @@ export class MatchSimulator {
         } else {
           setHlTimeout(() => {
             this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
-          }, 3500);
+          }, 2000);
         }
       } else if (outcome === "SAVE") {
         this.stats.shotsOnTarget[attackingSide]++;
@@ -2303,10 +2331,10 @@ export class MatchSimulator {
         if (isSkip) {
           saveCompletion();
         } else {
-          setHlTimeout(saveCompletion, 3500);
+          setHlTimeout(saveCompletion, 2000);
         }
       } else {
-        // ¡GOOOOL!
+        // ¡GOOOOL! Registrado exactamente cuando el balón cruza la línea en 3D
         this.stats.shotsOnTarget[attackingSide]++;
         if (isHome) {
           this.homeScore++;
@@ -2345,6 +2373,7 @@ export class MatchSimulator {
 
         if (!this.isSkippingToEnd) {
           this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, isSkip ? 2500 : 4500);
+          if (this.onTick) this.onTick(this.getState());
         }
 
         const analysis = attackingSide === this.userSide
@@ -2352,6 +2381,10 @@ export class MatchSimulator {
           : `⚠️ Despiste en la marca: ${shooter.name} aprovechó el centro y fusiló la portería.`;
 
         const goalCompletion = () => {
+          if (this.highlightInterval) {
+            clearInterval(this.highlightInterval);
+            this.highlightInterval = null;
+          }
           this.isHighlightRunning = false;
           this.speed = this.userSpeed;
           this._sync2DToMeters();
@@ -2388,7 +2421,7 @@ export class MatchSimulator {
         if (isSkip || this.isSkippingToEnd) {
           goalCompletion();
         } else {
-          setHlTimeout(goalCompletion, 3500);
+          setHlTimeout(goalCompletion, 2000);
         }
       }
     };
@@ -2508,13 +2541,22 @@ export class MatchSimulator {
             });
           }
 
-          executeResolution(false);
+          // Esperar el vuelo físico del balón hacia la portería (o bloqueo) para sincronización visual 100%
+          const flightMs = outcome === "BLOCK" ? 450 : 950;
+          setHlTimeout(() => {
+            if (!this.isRunning && !this.isHighlightRunning) return;
+            executeResolution(false);
+          }, flightMs);
         }, 3000);
       }, 4000);
     }, 4500);
   }
 
   concludeHighlight({ outcome, tacticalAnalysis, onComplete }) {
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
     this.isHighlightRunning = false;
     this.speed = this.userSpeed;
     this.skipCurrentHighlight = null;
@@ -2728,6 +2770,23 @@ export class MatchSimulator {
   executeSetPiece(setup, onDone) {
     this.isSetPieceRunning = true;
     this.speed = 1;
+
+    // Reloj en tiempo real durante balón parado
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
+    this.highlightInterval = setInterval(() => {
+      if (!this.isRunning || (!this.isHighlightRunning && !this.isSetPieceRunning)) {
+        return;
+      }
+      this.matchSecond = (this.matchSecond || 0) + 1;
+      if (this.matchSecond >= 60) {
+        this.matchSecond = 0;
+        this.minute++;
+      }
+      if (this.onTick) this.onTick(this.getState());
+    }, Math.max(100, Math.round(1000 / (this.userSpeed || 1))));
 
     const { type, attackingSide, spot, taker, targetStrategy, placements } = setup;
     const isHome = attackingSide === "home";
@@ -3070,6 +3129,10 @@ export class MatchSimulator {
 
       // 2. Transición y reanudación automática de la simulación
       setSpTimeout(() => {
+        if (this.highlightInterval) {
+          clearInterval(this.highlightInterval);
+          this.highlightInterval = null;
+        }
         if (this.isFinished || this.isSkippingToEnd) {
           this.isSetPieceRunning = false;
           return;
@@ -3333,9 +3396,14 @@ export class MatchSimulator {
     players.forEach(p => {
       const role = this.getPlayerRole(p, side);
       const item2D = coords2D?.find(item => item.player?.id === p.id);
+      const pOvr = p.ovr ?? 75;
+      const pEnergy = p.energy !== undefined ? p.energy : 100;
       let power = 75;
       if (type === "atk") {
-        power = (p.sho * 0.4 + p.dri * 0.3 + p.pac * 0.3) * (0.6 + p.energy / 250);
+        const sho = p.sho ?? pOvr;
+        const dri = p.dri ?? pOvr;
+        const pac = p.pac ?? pOvr;
+        power = (sho * 0.4 + dri * 0.3 + pac * 0.3) * (0.6 + pEnergy / 250);
         if (role && role.atkMod) power *= (1 + role.atkMod);
         // Si el jugador está adelantado manualmente hacia la portería rival (avance ofensivo)
         if (item2D) {
@@ -3343,16 +3411,22 @@ export class MatchSimulator {
           if (advX > 55) power *= 1.10;
         }
       } else if (type === "mid") {
-        power = (p.pas * 0.4 + p.dri * 0.3 + p.def * 0.3) * (0.6 + p.energy / 250);
+        const pas = p.pas ?? pOvr;
+        const dri = p.dri ?? pOvr;
+        const def = p.def ?? pOvr;
+        power = (pas * 0.4 + dri * 0.3 + def * 0.3) * (0.6 + pEnergy / 250);
         if (role && role.midMod) power *= role.midMod;
         // Si el jugador está centrado hacia la medular (amplitud interior)
         if (item2D && item2D.baseY >= 35 && item2D.baseY <= 65) power *= 1.08;
       } else if (type === "def") {
         if (p.pos === "POR") {
-          const gkPar = p.par !== undefined ? p.par : (p.gks || p.ovr || 75);
-          power = (gkPar * 0.75 + (p.phy || 70) * 0.25) * (0.6 + (p.energy !== undefined ? p.energy : 100) / 250);
+          const gkPar = p.par !== undefined ? p.par : (p.gks || pOvr);
+          power = (gkPar * 0.75 + (p.phy || 70) * 0.25) * (0.6 + pEnergy / 250);
         } else {
-          power = ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.pac || 70) * 0.2) * (0.6 + (p.energy !== undefined ? p.energy : 100) / 250);
+          const def = p.def ?? pOvr;
+          const phy = p.phy ?? pOvr;
+          const pac = p.pac ?? pOvr;
+          power = (def * 0.5 + phy * 0.3 + pac * 0.2) * (0.6 + pEnergy / 250);
         }
         if (role && role.defMod) power *= role.defMod;
         // Si el jugador está retrasado hacia campo propio (refuerzo defensivo)
@@ -3485,18 +3559,20 @@ export class MatchSimulator {
     });
   }
 
-  // Formato televisivo oficial del minuto con descuento (ej: 45+2', 90+4')
-  getFormattedMinute() {
+  // Formato televisivo oficial del minuto con descuento y segundos en jugada 3D en vivo
+  getFormattedMinute(includeSeconds = false) {
+    const isLive3D = this.isHighlightRunning || this.isSetPieceRunning;
+    const secStr = (isLive3D || includeSeconds) ? `:${String(Math.floor(this.matchSecond || 0)).padStart(2, "0")}` : "'";
     if (!this.isSecondHalf && !this.halfTimeTriggered) {
       if (this.minute > 45) {
-        return `45+${this.minute - 45}'`;
+        return `45+${this.minute - 45}${secStr}`;
       }
-      return `${this.minute}'`;
+      return `${this.minute}${secStr}`;
     } else {
       if (this.minute > 90) {
-        return `90+${this.minute - 90}'`;
+        return `90+${this.minute - 90}${secStr}`;
       }
-      return `${this.minute}'`;
+      return `${this.minute}${secStr}`;
     }
   }
 
@@ -3523,7 +3599,7 @@ export class MatchSimulator {
     this.start();
   }
 
-  // Saltar instantáneamente al final del partido usando la física continua real
+  // Saltar instantáneamente al final del partido (FAST_SIM ultrarrápido)
   skipToEnd() {
     this.clearAllTimeouts();
     this.isSkippingToEnd = true;
@@ -3536,8 +3612,8 @@ export class MatchSimulator {
     this.isRunning = true;
 
     let safetyGuard = 0;
-    while (!this.isFinished && this.minute < this.maxMinutes && safetyGuard < 12000) {
-      this.stepRealTime(0.05);
+    while (!this.isFinished && this.minute < this.maxMinutes && safetyGuard < 150) {
+      this.stepMinute();
       safetyGuard++;
     }
     this.isSkippingToEnd = false;

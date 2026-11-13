@@ -2088,8 +2088,10 @@ class MatchSimulator {
     this.awayPlayersOnPitch.forEach(p => initPlayerMatchStats(p, true));
     this.awayBench.forEach(p => initPlayerMatchStats(p, false));
 
-    // Inicializar posiciones 3D relativas (x: 0-100, y: 0-100, z: 0-25) y físicas reales (105x68m) — Única Fuente de la Verdad
-    this.useRealTime = true;
+    // Inicializar cómputo del partido: FAST_SIM (entre jugadas en 2D) y HIGHLIGHT_PLAYING (jugadas clave en 3D)
+    this.useRealTime = false;
+    this.matchSecond = 0;
+    this.highlightInterval = null;
     this.realTimeMinute = 0;
     this.lastMinuteProcessed = 0;
     this.tickEmitTimer = 0;
@@ -2263,6 +2265,10 @@ class MatchSimulator {
       clearTimeout(this.loopTimeout);
       this.loopTimeout = null;
     }
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
     if (this.highlightTimeouts && this.highlightTimeouts.length > 0) {
       this.highlightTimeouts.forEach(clearTimeout);
       this.highlightTimeouts = [];
@@ -2289,6 +2295,7 @@ class MatchSimulator {
       this.loopTimeout = null;
     }
     if (this.onTick) this.onTick(this.getState());
+    this.loop();
   }
 
   pause() {
@@ -2296,6 +2303,10 @@ class MatchSimulator {
     if (this.loopTimeout) {
       clearTimeout(this.loopTimeout);
       this.loopTimeout = null;
+    }
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
     }
     if (this.onTick) this.onTick(this.getState());
   }
@@ -3445,17 +3456,17 @@ class MatchSimulator {
       this.ball.targetX = 65 + Math.random() * 28;
       this.ball.targetY = ballYTarget;
 
-      // Ocasión de ataque local (con sutil arreón final de la afición local si empata o pierde en el tramo final: +0.3%, strictly <= 0.5%)
+      // Ocasión de ataque local (calibrado para generar entre 6 y 12 ocasiones por parte según táctica)
       const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.003 : 0;
-      let homeChanceMult = 0.165 + lateHomeSurge;
-      if (this.minute <= 25) homeChanceMult *= 0.85; // Orden táctico, rigor defensivo y máxima energía inicial
+      let homeChanceMult = 0.25 + lateHomeSurge;
+      if (this.minute <= 15) homeChanceMult *= 0.85; // Ajuste táctico de tanteo inicial
       const leadDiffHome = this.homeScore - this.awayScore;
-      if (leadDiffHome >= 3) homeChanceMult *= 0.35; // Freno natural a goleadas desorbitadas (6-0)
-      else if (leadDiffHome >= 2) homeChanceMult *= 0.60;
+      if (leadDiffHome >= 3) homeChanceMult *= 0.40; // Freno natural a goleadas desorbitadas (6-0)
+      else if (leadDiffHome >= 2) homeChanceMult *= 0.65;
 
       if (this.activeShout) {
-        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.15;
-        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.72;
+        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.20;
+        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.70;
         else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.75;
       }
       const attackScore = (homeAtk / (homeAtk + awayDef)) * homeChanceMult;
@@ -3479,7 +3490,7 @@ class MatchSimulator {
           }
         });
         return !this.isSkippingToEnd;
-      } else if (chanceRoll < attackScore + 0.025) {
+      } else if (chanceRoll < attackScore + 0.035) {
         // Balón parado (Córner o Falta peligrosa calibrado a ritmo real de partido)
         const isCorner = Math.random() < 0.65;
         if (this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK")) {
@@ -3502,15 +3513,15 @@ class MatchSimulator {
       this.ball.targetX = 35 - Math.random() * 28;
       this.ball.targetY = ballYTargetAway;
 
-      let awayChanceMult = 0.155;
-      if (this.minute <= 25) awayChanceMult *= 0.85; // Orden táctico, rigor defensivo y máxima energía inicial
+      let awayChanceMult = 0.24;
+      if (this.minute <= 15) awayChanceMult *= 0.85; // Ajuste táctico de tanteo inicial
       const leadDiffAway = this.awayScore - this.homeScore;
-      if (leadDiffAway >= 3) awayChanceMult *= 0.35; // Freno natural a goleadas desorbitadas
-      else if (leadDiffAway >= 2) awayChanceMult *= 0.60;
+      if (leadDiffAway >= 3) awayChanceMult *= 0.40; // Freno natural a goleadas desorbitadas
+      else if (leadDiffAway >= 2) awayChanceMult *= 0.65;
 
       if (this.activeShout) {
-        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.15;
-        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.72;
+        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.20;
+        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.70;
         else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.75;
       }
       const attackScore = (awayAtk / (awayAtk + homeDef)) * awayChanceMult;
@@ -3534,7 +3545,7 @@ class MatchSimulator {
           }
         });
         return !this.isSkippingToEnd;
-      } else if (chanceRoll < attackScore + 0.025) {
+      } else if (chanceRoll < attackScore + 0.035) {
         // Balón parado (Córner o Falta peligrosa calibrado a ritmo real de partido)
         const isCorner = Math.random() < 0.65;
         if (this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK")) {
@@ -3690,10 +3701,27 @@ class MatchSimulator {
     return false;
   }
 
-  // Ejecución de jugada clave orgánica y conectada a la simulación en tiempo real
+  // Ejecución de jugada clave guiada y sincronizada al 100% con el visor 3D
   executeKeyHighlight(attackingSide, onComplete) {
     this.isHighlightRunning = true;
-    this.speed = 1; // Ritmo deliberado para apreciar la jugada en detalle
+    this.speed = 1; // Ritmo televisivo real (1s real = 1s de partido)
+
+    // Reloj en tiempo real: 1 segundo real = 1 segundo de partido durante la jugada clave
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
+    this.highlightInterval = setInterval(() => {
+      if (!this.isRunning || (!this.isHighlightRunning && !this.isSetPieceRunning)) {
+        return;
+      }
+      this.matchSecond = (this.matchSecond || 0) + 1;
+      if (this.matchSecond >= 60) {
+        this.matchSecond = 0;
+        this.minute++;
+      }
+      if (this.onTick) this.onTick(this.getState());
+    }, Math.max(100, Math.round(1000 / (this.userSpeed || 1))));
 
     const isHome = attackingSide === "home";
     const defSide = isHome ? "away" : "home";
@@ -4200,7 +4228,7 @@ class MatchSimulator {
         } else {
           setHlTimeout(() => {
             this.concludeHighlight({ outcome: "BLOCK", tacticalAnalysis: analysis, onComplete });
-          }, 3500);
+          }, 2000);
         }
       } else if (outcome === "POST") {
         this.adjustPlayerRating(shooter, 0.2);
@@ -4215,7 +4243,7 @@ class MatchSimulator {
         } else {
           setHlTimeout(() => {
             this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
-          }, 3500);
+          }, 2000);
         }
       } else if (outcome === "WIDE") {
         this.adjustPlayerRating(shooter, -0.1);
@@ -4230,7 +4258,7 @@ class MatchSimulator {
         } else {
           setHlTimeout(() => {
             this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
-          }, 3500);
+          }, 2000);
         }
       } else if (outcome === "SAVE") {
         this.stats.shotsOnTarget[attackingSide]++;
@@ -4275,10 +4303,10 @@ class MatchSimulator {
         if (isSkip) {
           saveCompletion();
         } else {
-          setHlTimeout(saveCompletion, 3500);
+          setHlTimeout(saveCompletion, 2000);
         }
       } else {
-        // ¡GOOOOL!
+        // ¡GOOOOL! Registrado exactamente cuando el balón cruza la línea en 3D
         this.stats.shotsOnTarget[attackingSide]++;
         if (isHome) {
           this.homeScore++;
@@ -4317,6 +4345,7 @@ class MatchSimulator {
 
         if (!this.isSkippingToEnd) {
           this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, isSkip ? 2500 : 4500);
+          if (this.onTick) this.onTick(this.getState());
         }
 
         const analysis = attackingSide === this.userSide
@@ -4324,6 +4353,10 @@ class MatchSimulator {
           : `⚠️ Despiste en la marca: ${shooter.name} aprovechó el centro y fusiló la portería.`;
 
         const goalCompletion = () => {
+          if (this.highlightInterval) {
+            clearInterval(this.highlightInterval);
+            this.highlightInterval = null;
+          }
           this.isHighlightRunning = false;
           this.speed = this.userSpeed;
           this._sync2DToMeters();
@@ -4360,7 +4393,7 @@ class MatchSimulator {
         if (isSkip || this.isSkippingToEnd) {
           goalCompletion();
         } else {
-          setHlTimeout(goalCompletion, 3500);
+          setHlTimeout(goalCompletion, 2000);
         }
       }
     };
@@ -4480,13 +4513,22 @@ class MatchSimulator {
             });
           }
 
-          executeResolution(false);
+          // Esperar el vuelo físico del balón hacia la portería (o bloqueo) para sincronización visual 100%
+          const flightMs = outcome === "BLOCK" ? 450 : 950;
+          setHlTimeout(() => {
+            if (!this.isRunning && !this.isHighlightRunning) return;
+            executeResolution(false);
+          }, flightMs);
         }, 3000);
       }, 4000);
     }, 4500);
   }
 
   concludeHighlight({ outcome, tacticalAnalysis, onComplete }) {
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
     this.isHighlightRunning = false;
     this.speed = this.userSpeed;
     this.skipCurrentHighlight = null;
@@ -4700,6 +4742,23 @@ class MatchSimulator {
   executeSetPiece(setup, onDone) {
     this.isSetPieceRunning = true;
     this.speed = 1;
+
+    // Reloj en tiempo real durante balón parado
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
+    this.highlightInterval = setInterval(() => {
+      if (!this.isRunning || (!this.isHighlightRunning && !this.isSetPieceRunning)) {
+        return;
+      }
+      this.matchSecond = (this.matchSecond || 0) + 1;
+      if (this.matchSecond >= 60) {
+        this.matchSecond = 0;
+        this.minute++;
+      }
+      if (this.onTick) this.onTick(this.getState());
+    }, Math.max(100, Math.round(1000 / (this.userSpeed || 1))));
 
     const { type, attackingSide, spot, taker, targetStrategy, placements } = setup;
     const isHome = attackingSide === "home";
@@ -5042,6 +5101,10 @@ class MatchSimulator {
 
       // 2. Transición y reanudación automática de la simulación
       setSpTimeout(() => {
+        if (this.highlightInterval) {
+          clearInterval(this.highlightInterval);
+          this.highlightInterval = null;
+        }
         if (this.isFinished || this.isSkippingToEnd) {
           this.isSetPieceRunning = false;
           return;
@@ -5305,9 +5368,14 @@ class MatchSimulator {
     players.forEach(p => {
       const role = this.getPlayerRole(p, side);
       const item2D = coords2D?.find(item => item.player?.id === p.id);
+      const pOvr = p.ovr ?? 75;
+      const pEnergy = p.energy !== undefined ? p.energy : 100;
       let power = 75;
       if (type === "atk") {
-        power = (p.sho * 0.4 + p.dri * 0.3 + p.pac * 0.3) * (0.6 + p.energy / 250);
+        const sho = p.sho ?? pOvr;
+        const dri = p.dri ?? pOvr;
+        const pac = p.pac ?? pOvr;
+        power = (sho * 0.4 + dri * 0.3 + pac * 0.3) * (0.6 + pEnergy / 250);
         if (role && role.atkMod) power *= (1 + role.atkMod);
         // Si el jugador está adelantado manualmente hacia la portería rival (avance ofensivo)
         if (item2D) {
@@ -5315,16 +5383,22 @@ class MatchSimulator {
           if (advX > 55) power *= 1.10;
         }
       } else if (type === "mid") {
-        power = (p.pas * 0.4 + p.dri * 0.3 + p.def * 0.3) * (0.6 + p.energy / 250);
+        const pas = p.pas ?? pOvr;
+        const dri = p.dri ?? pOvr;
+        const def = p.def ?? pOvr;
+        power = (pas * 0.4 + dri * 0.3 + def * 0.3) * (0.6 + pEnergy / 250);
         if (role && role.midMod) power *= role.midMod;
         // Si el jugador está centrado hacia la medular (amplitud interior)
         if (item2D && item2D.baseY >= 35 && item2D.baseY <= 65) power *= 1.08;
       } else if (type === "def") {
         if (p.pos === "POR") {
-          const gkPar = p.par !== undefined ? p.par : (p.gks || p.ovr || 75);
-          power = (gkPar * 0.75 + (p.phy || 70) * 0.25) * (0.6 + (p.energy !== undefined ? p.energy : 100) / 250);
+          const gkPar = p.par !== undefined ? p.par : (p.gks || pOvr);
+          power = (gkPar * 0.75 + (p.phy || 70) * 0.25) * (0.6 + pEnergy / 250);
         } else {
-          power = ((p.def || 70) * 0.5 + (p.phy || 70) * 0.3 + (p.pac || 70) * 0.2) * (0.6 + (p.energy !== undefined ? p.energy : 100) / 250);
+          const def = p.def ?? pOvr;
+          const phy = p.phy ?? pOvr;
+          const pac = p.pac ?? pOvr;
+          power = (def * 0.5 + phy * 0.3 + pac * 0.2) * (0.6 + pEnergy / 250);
         }
         if (role && role.defMod) power *= role.defMod;
         // Si el jugador está retrasado hacia campo propio (refuerzo defensivo)
@@ -5457,18 +5531,20 @@ class MatchSimulator {
     });
   }
 
-  // Formato televisivo oficial del minuto con descuento (ej: 45+2', 90+4')
-  getFormattedMinute() {
+  // Formato televisivo oficial del minuto con descuento y segundos en jugada 3D en vivo
+  getFormattedMinute(includeSeconds = false) {
+    const isLive3D = this.isHighlightRunning || this.isSetPieceRunning;
+    const secStr = (isLive3D || includeSeconds) ? `:${String(Math.floor(this.matchSecond || 0)).padStart(2, "0")}` : "'";
     if (!this.isSecondHalf && !this.halfTimeTriggered) {
       if (this.minute > 45) {
-        return `45+${this.minute - 45}'`;
+        return `45+${this.minute - 45}${secStr}`;
       }
-      return `${this.minute}'`;
+      return `${this.minute}${secStr}`;
     } else {
       if (this.minute > 90) {
-        return `90+${this.minute - 90}'`;
+        return `90+${this.minute - 90}${secStr}`;
       }
-      return `${this.minute}'`;
+      return `${this.minute}${secStr}`;
     }
   }
 
@@ -5495,7 +5571,7 @@ class MatchSimulator {
     this.start();
   }
 
-  // Saltar instantáneamente al final del partido usando la física continua real
+  // Saltar instantáneamente al final del partido (FAST_SIM ultrarrápido)
   skipToEnd() {
     this.clearAllTimeouts();
     this.isSkippingToEnd = true;
@@ -5508,8 +5584,8 @@ class MatchSimulator {
     this.isRunning = true;
 
     let safetyGuard = 0;
-    while (!this.isFinished && this.minute < this.maxMinutes && safetyGuard < 12000) {
-      this.stepRealTime(0.05);
+    while (!this.isFinished && this.minute < this.maxMinutes && safetyGuard < 150) {
+      this.stepMinute();
       safetyGuard++;
     }
     this.isSkippingToEnd = false;
@@ -14070,16 +14146,19 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       } // Fin de if (!onlyUpdateState && ctx)
 
       // 6. SIMULACIÓN DINÁMICA CONECTADA EN TIEMPO REAL CON LOS 22 JUGADORES DEL CAMPO
-      // - u = distancia a línea de gol (0 = portería, 11 = penalti, 16.5 = frontal área, 34..36 = medular)
-      // - v = posición lateral (0 = banda lejana sup-dcha, 34 = centro portería, 55..60 = banda cercana inf-izq)
+      // - u = distancia a línea de gol (0 = portería atacada, 11 = penalti, 16.5 = frontal área, 34..36 = medular)
+      // - v = posición lateral en metros del campo (0 = banda der, 34 = centro de la portería, 68 = banda izq)
       const isHomeAtk = isHome;
-      const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 0.58, 1.5, 34.0);
-      const to3DV = (y2d) => clamp(5.0 + (y2d / 100) * 52.0, 4.5, 57.5);
+      // Conversión métrica exacta para campo de 105x68m:
+      // Local ataca hacia x=105 (u=0 es x=105, u=105 es x=0): x2d = 100 - (u/105)*100 -> u = (100 - x2d)*1.05
+      // Visitante ataca hacia x=0 (u=0 es x=0, u=105 es x=105): x2d = (u/105)*100 -> u = x2d * 1.05
+      const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 1.05, 1.0, 52.0);
+      const to3DV = (y2d) => clamp((y2d / 100) * 68.0, 2.0, 66.0);
       const to2DX = (u3d) => {
-        const progX = clamp(u3d / 0.58, -3.5, 103.5);
-        return isHomeAtk ? (100 - progX) : progX;
+        const progPct = clamp((u3d / 105.0) * 100.0, -4.0, 104.0);
+        return isHomeAtk ? (100.0 - progPct) : progPct;
       };
-      const to2DY = (v3d) => clamp(((v3d - 5.0) / 52.0) * 100, -4.0, 104.0);
+      const to2DY = (v3d) => clamp((v3d / 68.0) * 100.0, -2.0, 102.0);
 
       const playPattern = hlData.playPattern || "TIKI_TAKA_CENTRAL";
       const seed = hlData.patternSeed !== undefined ? hlData.patternSeed : 0.5;
@@ -16383,12 +16462,26 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       // Inicializar motor 3D Three.js si está disponible (para jugadas clave)
       ensureThreeLoadedAndInit();
 
-      // Si hay una jugada clave activa (ataque relevante, ocasión, parada o acción defensiva), renderizar en 3D
-      if (currentHighlightData) {
+      // Si hay una jugada clave activa (ataque relevante, ocasión, parada, bloqueo o balón parado), renderizar en 3D
+      const is3DHighlightActive = Boolean(currentHighlightData || simulator.isHighlightRunning || simulator.isSetPieceRunning);
+
+      if (is3DHighlightActive && currentHighlightData) {
         if (threeEngine && canvas3d) {
           canvas3d.style.display = "block";
           canvas.style.display = "none";
           drawFrontalHighlightScene(null, 800, 450, currentHighlightData, true);
+
+          // Buscar al futbolista poseedor o más cercano al balón en 3D
+          let closestLiveP = null;
+          let minLiveDist = 999;
+          [...simulator.home2D, ...simulator.away2D].forEach(p => {
+            const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+            if (d < minLiveDist) {
+              minLiveDist = d;
+              closestLiveP = p;
+            }
+          });
+          threeEngine.updateAndRender(closestLiveP, minLiveDist);
         } else {
           if (canvas3d) canvas3d.style.display = "none";
           canvas.style.display = "block";
@@ -16396,42 +16489,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           resizeCanvas();
           drawFrontalHighlightScene(ctx, canvas.width, canvas.height, currentHighlightData, false);
           drawWeatherOverlay(ctx, canvas.width, canvas.height, matchWeather.id);
-          if (!simulator.isFinished) {
-            requestAnimationFrame(drawPitch);
-          }
-          return;
         }
       } else {
-        // ÚNICA FUENTE DE LA VERDAD: Simulación física continua 60 FPS en 105x68m
-        const nowTs = typeof performance !== "undefined" ? performance.now() : Date.now();
-        const rawDt = lastRealTimeTs !== null ? (nowTs - lastRealTimeTs) / 1000 : 0.016;
-        lastRealTimeTs = nowTs;
-        const dt = Math.min(0.05, Math.max(0.001, rawDt));
-
-        if (!isKickoffInProgress && typeof simulator.stepRealTime === "function" && simulator.isRunning && !simulator.isSetPieceRunning) {
-          simulator.stepRealTime(dt);
-          simulator.home2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
-          simulator.away2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
-        }
-      }
-
-      // Buscar al futbolista que conduce o disputa el balón
-      let closestLiveP = null;
-      let minLiveDist = 999;
-      [...simulator.home2D, ...simulator.away2D].forEach(p => {
-        const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
-        if (d < minLiveDist) {
-          minLiveDist = d;
-          closestLiveP = p;
-        }
-      });
-
-      // Renderizar siempre en 3D Three.js directamente desde la física real (2D solo si WebGL no ha cargado)
-      if (threeEngine && canvas3d) {
-        canvas3d.style.display = "block";
-        canvas.style.display = "none";
-        threeEngine.updateAndRender(closestLiveP, minLiveDist);
-      } else {
+        // MODO FAST_SIM (Tiempo entre jugadas clave):
+        // Mostrar exclusivamente la simulación táctica en 2D con las fichas y dibujo táctico en el césped
         if (canvas3d) canvas3d.style.display = "none";
         canvas.style.display = "block";
         if (!ctx) ctx = canvas.getContext("2d");
@@ -16439,6 +16500,30 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           resizeCanvas();
           const w = canvas.width;
           const h = canvas.height;
+
+          // Interpolación suave y orgánica de las fichas 2D hacia sus anclas tácticas
+          simulator.ball.x += ((simulator.ball.targetX ?? simulator.ball.x) - simulator.ball.x) * 0.14;
+          simulator.ball.y += ((simulator.ball.targetY ?? simulator.ball.y) - simulator.ball.y) * 0.14;
+          simulator.home2D.forEach(p => {
+            p.curX += ((p.targetX ?? p.curX) - p.curX) * 0.12;
+            p.curY += ((p.targetY ?? p.curY) - p.curY) * 0.12;
+          });
+          simulator.away2D.forEach(p => {
+            p.curX += ((p.targetX ?? p.curX) - p.curX) * 0.12;
+            p.curY += ((p.targetY ?? p.curY) - p.curY) * 0.12;
+          });
+
+          // Buscar jugador poseedor o más cercano al balón en 2D
+          let closestLiveP = null;
+          let minLiveDist = 999;
+          [...simulator.home2D, ...simulator.away2D].forEach(p => {
+            const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+            if (d < minLiveDist) {
+              minLiveDist = d;
+              closestLiveP = p;
+            }
+          });
+
           const pDim = drawPitch2D(ctx, w, h);
           const { padX, padY, pitchW, pitchH, dpr } = pDim;
           simulator.home2D.forEach(p => {
