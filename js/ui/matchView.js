@@ -3570,60 +3570,39 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const kickoffBadge = container.querySelector("#kickoff-badge");
       if (kickoffBadge) kickoffBadge.classList.remove("hidden");
 
-      // Colocar jugadores y balón en posición de saque de centro
+      // Colocar jugadores y balón en posición de saque de centro (0,0,0)
       simulator.resetKickoff(concedingSide);
 
-      // Tiempo para ver a los equipos situados en sus campos
+      // Pausa breve para mostrar a los 22 jugadores colocados antes de reanudar la física real
       registerUiTimeout(() => {
+        if (kickoffBadge) kickoffBadge.classList.add("hidden");
+        isKickoffInProgress = false;
         if (simulator.isFinished) return;
-        // Pase hacia atrás para iniciar la jugada
-        if (concedingSide === "home") {
-          simulator.ball.targetX = 40;
-          simulator.ball.targetY = 48;
-        } else {
-          simulator.ball.targetX = 60;
-          simulator.ball.targetY = 52;
+
+        if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered && !simulator.isSecondHalf) {
+          simulator.halfTimeTriggered = true;
+          simulator.isHalfTime = true;
+          simulator.pause();
+          simulator.onHalfTime(simulator.getState());
+          return;
         }
 
-        registerUiTimeout(() => {
-          if (kickoffBadge) kickoffBadge.classList.add("hidden");
-          isKickoffInProgress = false;
-          if (simulator.isFinished) return;
+        if (simulator.minute >= simulator.maxMinutes) {
+          simulator.finish();
+          return;
+        }
 
-          // Si tras el gol ya se había cumplido el tiempo reglamentario del primer tiempo con su descuento
-          if (simulator.minute >= simulator.halfTimeMinute && !simulator.halfTimeTriggered && !simulator.isSecondHalf) {
-            simulator.halfTimeTriggered = true;
-            simulator.isHalfTime = true;
-            simulator.pause();
-            simulator.onHalfTime(simulator.getState());
-            return;
-          }
-
-          if (simulator.minute >= simulator.maxMinutes) {
-            simulator.finish();
-            return;
-          }
-
-          if (simulator.pauseRequested) {
-            simulator.pauseRequested = false;
-            simulator.pause();
-            const iconPP = container.querySelector("#play-pause-icon");
-            const textPP = container.querySelector("#play-pause-text");
-            if (iconPP) iconPP.textContent = "▶";
-            if (textPP) textPP.textContent = "Reanudar";
-            showMatchAlert({ text: "⏸ Partido en pausa tras la reanudación" });
-            return;
-          }
-
-          if (!simulator.isFinished) {
-            simulator.start();
-            const iconPP = container.querySelector("#play-pause-icon");
-            const textPP = container.querySelector("#play-pause-text");
-            if (iconPP) iconPP.textContent = "⏸";
-            if (textPP) textPP.textContent = "Pausar";
-          }
-        }, 1100);
-      }, 1500);
+        if (simulator.pauseRequested) {
+          simulator.pauseRequested = false;
+          simulator.pause();
+          const iconPP = container.querySelector("#play-pause-icon");
+          const textPP = container.querySelector("#play-pause-text");
+          if (iconPP) iconPP.textContent = "▶";
+          if (textPP) textPP.textContent = "Reanudar";
+        } else {
+          simulator.start();
+        }
+      }, 650);
     }
 
     function handleSubstitutionChyron(subData) {
@@ -7442,42 +7421,16 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           return;
         }
       } else {
-        // Tramos normales del partido: mostrar simulación táctica con fichas en 2D usando Utility AI
-        if (canvas3d) canvas3d.style.display = "none";
-        canvas.style.display = "block";
-
+        // ÚNICA FUENTE DE LA VERDAD: Simulación física continua 60 FPS en 105x68m
         const nowTs = typeof performance !== "undefined" ? performance.now() : Date.now();
         const rawDt = lastRealTimeTs !== null ? (nowTs - lastRealTimeTs) / 1000 : 0.016;
         lastRealTimeTs = nowTs;
         const dt = Math.min(0.05, Math.max(0.001, rawDt));
 
-        if (!isKickoffInProgress && typeof simulator.stepTactical2D === "function" && simulator.isRunning && !simulator.isSetPieceRunning) {
-          simulator.stepTactical2D(dt);
+        if (!isKickoffInProgress && typeof simulator.stepRealTime === "function" && simulator.isRunning && !simulator.isSetPieceRunning) {
+          simulator.stepRealTime(dt);
           simulator.home2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
           simulator.away2D.forEach(p => { p.curZ = (p.curZ || 0) * 0.82; p.hlPose = null; });
-        } else {
-          // Interpolación continua y suave del balón en el juego en vivo 2D
-          simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.16;
-          simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.16;
-          if (simulator.ball.targetZ !== undefined) {
-            simulator.ball.z = (simulator.ball.z || 0) + (simulator.ball.targetZ - (simulator.ball.z || 0)) * 0.18;
-          } else {
-            simulator.ball.z = (simulator.ball.z || 0) * 0.85;
-          }
-
-          // Interpolación de posiciones de los 22 futbolistas en 2D
-          simulator.home2D.forEach(p => {
-            p.curX += (p.targetX - p.curX) * 0.14;
-            p.curY += (p.targetY - p.curY) * 0.14;
-            p.curZ = (p.curZ || 0) * 0.82;
-            p.hlPose = null;
-          });
-          simulator.away2D.forEach(p => {
-            p.curX += (p.targetX - p.curX) * 0.14;
-            p.curY += (p.targetY - p.curY) * 0.14;
-            p.curZ = (p.curZ || 0) * 0.82;
-            p.hlPose = null;
-          });
         }
       }
 
@@ -7492,19 +7445,14 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         }
       });
 
-      // Actualizar rótulo FM inferior cuando cambia el portador del balón
-      if (closestLiveP && minLiveDist < 5.0 && closestLiveP.player?.name) {
-        if (lastCarrierPlayerId !== closestLiveP.player.id && !currentHighlightData && simulator.isRunning && !isKickoffInProgress) {
-          lastCarrierPlayerId = closestLiveP.player.id;
-          const pSide = closestLiveP.side === "home" ? (homeTeam.shortName || homeTeam.name) : (awayTeam.shortName || awayTeam.name);
-          updateFMCommentary(`${closestLiveP.player.name} (${pSide}) conduce con el esférico...`, "MATCH ENGINE");
-        }
-      }
-
-      // Renderizar 3D en jugadas clave; 2D con fichas en el resto del partido
-      if (currentHighlightData && threeEngine && canvas3d) {
+      // Renderizar siempre en 3D Three.js directamente desde la física real (2D solo si WebGL no ha cargado)
+      if (threeEngine && canvas3d) {
+        canvas3d.style.display = "block";
+        canvas.style.display = "none";
         threeEngine.updateAndRender(closestLiveP, minLiveDist);
       } else {
+        if (canvas3d) canvas3d.style.display = "none";
+        canvas.style.display = "block";
         if (!ctx) ctx = canvas.getContext("2d");
         if (ctx) {
           resizeCanvas();

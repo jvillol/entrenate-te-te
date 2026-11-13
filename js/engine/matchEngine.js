@@ -116,8 +116,8 @@ export class MatchSimulator {
     this.awayPlayersOnPitch.forEach(p => initPlayerMatchStats(p, true));
     this.awayBench.forEach(p => initPlayerMatchStats(p, false));
 
-    // Inicializar posiciones 3D relativas (x: 0-100, y: 0-100, z: 0-25) y físicas reales (105x68m)
-    this.useRealTime = false;
+    // Inicializar posiciones 3D relativas (x: 0-100, y: 0-100, z: 0-25) y físicas reales (105x68m) — Única Fuente de la Verdad
+    this.useRealTime = true;
     this.realTimeMinute = 0;
     this.lastMinuteProcessed = 0;
     this.tickEmitTimer = 0;
@@ -312,23 +312,11 @@ export class MatchSimulator {
     if (this.isRunning) return;
     this.isRunning = true;
     this.pauseRequested = false;
-    if (this.onTick) this.onTick(this.getState());
-
-    if (this.useRealTime) {
-      if (this.loopTimeout) {
-        clearTimeout(this.loopTimeout);
-        this.loopTimeout = null;
-      }
-      return;
-    }
-
-    const baseInterval = 460;
-    const interval = Math.max(50, Math.round(baseInterval / this.speed));
-
     if (this.loopTimeout) {
       clearTimeout(this.loopTimeout);
+      this.loopTimeout = null;
     }
-    this.loopTimeout = setTimeout(() => this.loop(), interval);
+    if (this.onTick) this.onTick(this.getState());
   }
 
   pause() {
@@ -3535,26 +3523,21 @@ export class MatchSimulator {
     this.start();
   }
 
-  // Saltar instantáneamente al final del partido
+  // Saltar instantáneamente al final del partido usando la física continua real
   skipToEnd() {
     this.clearAllTimeouts();
     this.isSkippingToEnd = true;
     this.halfTimeTriggered = true;
     this.isHalfTime = false;
     this.isSecondHalf = true;
-    const wasVisualActive = this.isHighlightRunning || this.isSetPieceRunning;
     this.isHighlightRunning = false;
     this.isSetPieceRunning = false;
-    if (wasVisualActive && this.onHighlightEnd) {
-      this.onHighlightEnd();
-    }
     this.pauseRequested = false;
+    this.isRunning = true;
 
     let safetyGuard = 0;
-    while (this.minute < this.maxMinutes && safetyGuard < 200) {
-      this.isSetPieceRunning = false;
-      this.isHighlightRunning = false;
-      this.stepMinute();
+    while (!this.isFinished && this.minute < this.maxMinutes && safetyGuard < 12000) {
+      this.stepRealTime(0.05);
       safetyGuard++;
     }
     this.isSkippingToEnd = false;
@@ -4019,10 +4002,8 @@ export class MatchSimulator {
     if (!this._tactical2DOnly) {
       if (isHome) {
         this.stats.shots.home += 1;
-        if (onTargetAim) this.stats.shotsOnTarget.home += 1;
       } else {
         this.stats.shots.away += 1;
-        if (onTargetAim) this.stats.shotsOnTarget.away += 1;
       }
       if (shooter.player) {
         shooter.player.matchShots = (shooter.player.matchShots || 0) + 1;
@@ -4030,8 +4011,9 @@ export class MatchSimulator {
 
       const scorerName = shooter.player?.name || "Jugador";
       const tName = isHome ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
+      this._emitCommentary(`${scorerName} (${tName}) dispara a puerta!`, "REMATE", 0.6);
       if (this.onAlert) {
-        this.onAlert({ text: `⚡ ${scorerName} (${tName}) arma el disparo a puerta!` });
+        this.onAlert({ text: `⚡ ${scorerName} (${tName}) dispara a puerta!` });
       }
     }
 
@@ -4348,6 +4330,21 @@ export class MatchSimulator {
 
         if (p.isKeeper) {
           p.aiState = "GK";
+          const gkX = isHome ? 1.5 : 103.5;
+          const gkSkill = Number(p.player?.por || p.player?.ovr || 70);
+          const reflexRatio = Math.max(0.75, Math.min(1.12, 0.78 + (gkSkill - 55) * 0.006));
+          const oppShotIncoming = this.ball.shotTeam && this.ball.shotTeam !== team &&
+            ((isHome && this.ball.vx < -0.5) || (!isHome && this.ball.vx > 0.5));
+
+          if (oppShotIncoming) {
+            const tCross = (gkX - this.ball.xm) / this.ball.vx;
+            if (tCross > 0 && tCross < 2.2) {
+              const predY = Math.max(30.2, Math.min(37.8, this.ball.ym + this.ball.vy * tCross));
+              this._steerPlayer(p, gkX, predY, reflexRatio, dt, allPlayers);
+              continue;
+            }
+          }
+
           const ballInBox = isHome ? (this.ball.xm < 16.5 && Math.abs(this.ball.ym - 34) < 18) : (this.ball.xm > 88.5 && Math.abs(this.ball.ym - 34) < 18);
           if (ballInBox && this.ball.carrier === null && Math.hypot(this.ball.vx, this.ball.vy) < 8.5) {
             this._steerPlayer(p, this.ball.xm, this.ball.ym, 0.96, dt, allPlayers);
@@ -4497,7 +4494,28 @@ export class MatchSimulator {
 
     const concedingSide = isHome ? "away" : "home";
     const atkTeam = isHome ? this.homeTeam : this.awayTeam;
-    this.resetKickoff(concedingSide);
+
+    if (scoringSide === "home") this.stats.shotsOnTarget.home += 1;
+    else this.stats.shotsOnTarget.away += 1;
+
+    this._emitCommentary(`⚽ ¡GOOOOOOL de ${scorerName} (${tName})!`, "GOL", 0.1);
+
+    // Dejar el balón dentro de la red durante la celebración antes de recolocar en el centro
+    this.ball.xm = isHome ? 105.9 : -0.9;
+    this.ball.ym = Math.max(30.6, Math.min(37.4, this.ball.ym));
+    this.ball.zm = Math.min(2.2, Math.max(0.2, this.ball.zm));
+    this.ball.vx = 0;
+    this.ball.vy = 0;
+    this.ball.vz = 0;
+    this.ball.carrier = null;
+    this.ball.shotTeam = null;
+    this._syncBallTo2D();
+
+    if (this.isSkippingToEnd) {
+      this.resetKickoff(concedingSide);
+    } else {
+      this.pause();
+    }
 
     if (this.onGoal) {
       this.onGoal({
@@ -4511,7 +4529,7 @@ export class MatchSimulator {
         score: `${this.homeScore} - ${this.awayScore}`,
         homeScore: this.homeScore,
         awayScore: this.awayScore,
-        isSkipped: false,
+        isSkipped: this.isSkippingToEnd,
         state: this.getState()
       });
     }
@@ -4521,6 +4539,7 @@ export class MatchSimulator {
   _restartFromCornerOrGoalKick(side, cornerSide, isCorner) {
     const isHomeAttacking = side === "home";
     const mates = isHomeAttacking ? this.home2D : this.away2D;
+    const tName = isHomeAttacking ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
 
     if (isCorner) {
       if (isHomeAttacking) this.stats.corners.home += 1;
@@ -4537,8 +4556,13 @@ export class MatchSimulator {
         this.ball.xm = cx;
         this.ball.ym = cy;
         this.ball.zm = 0;
+        this.ball.vx = 0;
+        this.ball.vy = 0;
+        this.ball.vz = 0;
+        this.ball.shotTeam = null;
         this.ball.carrier = taker;
         this.ball.possession = side;
+        this._emitCommentary(`🚩 Saque de esquina para ${tName} (${taker.player?.name || "Lanzador"}).`, "CÓRNER", 0.9);
         const target = mates.find(m => m !== taker && !m.isKeeper && m.player?.pos?.includes("D")) || mates[9] || mates[2];
         if (target) {
           target.xm = isHomeAttacking ? 95 : 10;
@@ -4558,9 +4582,14 @@ export class MatchSimulator {
         this.ball.xm = gx;
         this.ball.ym = 34;
         this.ball.zm = 0;
+        this.ball.vx = 0;
+        this.ball.vy = 0;
+        this.ball.vz = 0;
+        this.ball.shotTeam = null;
         this.ball.carrier = gk;
         this.ball.possession = side;
         gk.decisionTimer = 0.25;
+        this._emitCommentary(`🧤 El balón sale por línea de fondo. Saque de puerta para ${gk.player?.name || tName}.`, "SAQUE DE PUERTA", 1.1);
       }
     }
   }
@@ -4605,15 +4634,11 @@ export class MatchSimulator {
       b.shotTeam = null;
     }
 
-    // Comprobar porterías y líneas de fondo
-    const inGoalMouthY = b.ym >= 30.34 && b.ym <= 37.66 && b.zm <= 2.48;
+    // Comprobar porterías y líneas de fondo (x >= 52.5 -> xm >= 105, x <= -52.5 -> xm <= 0; |z| < 3.66 -> |ym - 34| < 3.66; y < 2.44 -> zm < 2.44)
+    const inGoalMouthY = Math.abs(b.ym - 34) < 3.66 && b.zm < 2.44;
     if (b.xm >= 105) {
       if (inGoalMouthY) {
-        if (this._tactical2DOnly) {
-          this._restartFromCornerOrGoalKick("away", "right", false);
-        } else {
-          this._handleRealTimeGoal("home");
-        }
+        this._handleRealTimeGoal("home");
         return;
       }
       const isCorner = b.lastTouchTeam === "away";
@@ -4622,11 +4647,7 @@ export class MatchSimulator {
     }
     if (b.xm <= 0) {
       if (inGoalMouthY) {
-        if (this._tactical2DOnly) {
-          this._restartFromCornerOrGoalKick("home", "left", false);
-        } else {
-          this._handleRealTimeGoal("away");
-        }
+        this._handleRealTimeGoal("away");
         return;
       }
       const isCorner = b.lastTouchTeam === "home";
@@ -4634,16 +4655,18 @@ export class MatchSimulator {
       return;
     }
 
-    // Saque de banda si sale por los laterales
+    // Saque de banda si sale por los laterales (y <= 0 o y >= 68)
     if (b.ym <= 0.1 || b.ym >= 67.9) {
       const throwTeam = b.lastTouchTeam === "home" ? "away" : "home";
       const mates = throwTeam === "home" ? this.home2D : this.away2D;
+      const tName = throwTeam === "home" ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
       b.ym = b.ym <= 0.1 ? 0.6 : 67.4;
       b.xm = Math.max(3, Math.min(102, b.xm));
       b.zm = 0;
       b.vx = 0;
       b.vy = 0;
       b.vz = 0;
+      b.shotTeam = null;
       const taker = mates.filter(m => !m.isKeeper).sort((a, c) => Math.hypot(a.xm - b.xm, a.ym - b.ym) - Math.hypot(c.xm - b.xm, c.ym - b.ym))[0];
       if (taker) {
         taker.xm = b.xm;
@@ -4651,58 +4674,62 @@ export class MatchSimulator {
         b.carrier = taker;
         b.possession = throwTeam;
         taker.decisionTimer = 0.2;
+        this._emitCommentary(`🔄 Saque de banda para ${tName} (${taker.player?.name || "Jugador"}).`, "BANDA", 1.2);
       }
       return;
     }
 
-    // Intercepción en vuelo / paradas de portero / recepción
+    // Intercepción en vuelo / paradas físicas del portero (< 1.2m) / recepción
     if (b.pickupCooldown <= 0) {
       const ballSpeed = Math.hypot(b.vx, b.vy);
       for (let i = 0; i < allPlayers.length; i++) {
         const p = allPlayers[i];
         const dist = Math.hypot(p.xm - b.xm, p.ym - b.ym);
-        const reach = p.isKeeper ? 1.65 : 1.05;
-        const maxZ = p.isKeeper ? 2.5 : 1.75;
+        const reach = p.isKeeper ? 1.2 : 1.05;
+        const maxZ = p.isKeeper ? 2.44 : 1.75;
         if (dist > reach || b.zm > maxZ) continue;
 
         if (b.shotTeam && p.side !== b.shotTeam) {
           if (p.isKeeper) {
-            const gkSkill = Number(p.player?.por || p.player?.ovr || 70);
-            const saveProb = Math.max(0.45, Math.min(0.92, 0.66 + (gkSkill - 70) * 0.008));
-            if (Math.random() < saveProb) {
-              if (!this._tactical2DOnly) {
-                if (p.player) p.player.matchSaves = (p.player.matchSaves || 0) + 1;
-                if (this.onAlert) this.onAlert({ text: `🧤 ¡Gran intervención de ${p.player?.name || "el portero"}!` });
-              }
-              if (Math.random() < 0.55) {
-                // Atrapa el balón
-                b.carrier = p;
-                b.shotTeam = null;
-                b.shotMeta = null;
-                b.possession = p.side;
-                b.lastTouchTeam = p.side;
-                b.lastTouchPlayer = p;
-                p.decisionTimer = 0.35;
-              } else {
-                // Despeje hacia el córner
-                b.vx = (p.side === "home" ? -1 : 1) * 9.0;
-                b.vy = (b.ym >= 34 ? 1 : -1) * 11.5;
-                b.vz = 2.4;
-                b.shotTeam = null;
-                b.lastTouchTeam = p.side;
-                b.lastTouchPlayer = p;
-                b.pickupCooldown = 0.25;
-              }
-              return;
+            // Parada física determinista: si el portero llega a < 1.2m del balón antes de cruzar la línea, lo para o desvía
+            if (!this._tactical2DOnly) {
+              if (b.shotTeam === "home") this.stats.shotsOnTarget.home += 1;
+              else this.stats.shotsOnTarget.away += 1;
+              if (p.player) p.player.matchSaves = (p.player.matchSaves || 0) + 1;
+              const gkName = p.player?.name || "El portero";
+              const shooterName = b.shotMeta?.scorer?.player?.name || "el atacante";
+              this._emitCommentary(`🧤 ¡Paradón de ${gkName} ante el disparo de ${shooterName}!`, "PARADA", 0.7);
+              if (this.onAlert) this.onAlert({ text: `🧤 ¡Paradón de ${gkName}!` });
             }
+            if (ballSpeed < 22.5) {
+              // Atrapa el balón
+              b.carrier = p;
+              b.shotTeam = null;
+              b.shotMeta = null;
+              b.possession = p.side;
+              b.lastTouchTeam = p.side;
+              b.lastTouchPlayer = p;
+              p.decisionTimer = 0.35;
+            } else {
+              // Despeje físico hacia la banda/córner (alejando el balón de la propia portería)
+              b.vx = (p.side === "home" ? 1 : -1) * 8.5;
+              b.vy = (b.ym >= 34 ? 1 : -1) * 11.5;
+              b.vz = 2.4;
+              b.shotTeam = null;
+              b.lastTouchTeam = p.side;
+              b.lastTouchPlayer = p;
+              b.pickupCooldown = 0.25;
+            }
+            return;
           } else if (ballSpeed > 10 && Math.random() < 0.55) {
-            // Bloqueo de defensa
+            // Bloqueo físico de defensa
             b.vx = -b.vx * 0.35 + (Math.random() - 0.5) * 4;
             b.vy = -b.vy * 0.35 + (Math.random() - 0.5) * 4;
             b.shotTeam = null;
             b.lastTouchTeam = p.side;
             b.lastTouchPlayer = p;
             b.pickupCooldown = 0.2;
+            this._emitCommentary(`🛡️ ¡Bloqueo defensivo de ${p.player?.name || "la zaga"}!`, "BLOQUEO", 1.0);
             return;
           }
         } else if (!b.shotTeam) {
@@ -4841,7 +4868,7 @@ export class MatchSimulator {
     if (this.foulCooldown > 0) this.foulCooldown = Math.max(0, this.foulCooldown - dt);
     if (this.commentaryCooldown > 0) this.commentaryCooldown = Math.max(0, this.commentaryCooldown - dt);
 
-    const physScale = this.speed >= 4 ? 2.5 : (this.speed >= 2 ? 1.65 : 1.0);
+    const physScale = this.isSkippingToEnd ? 1.5 : (this.speed >= 4 ? 2.5 : (this.speed >= 2 ? 1.65 : 1.0));
     const simDt = dt * physScale;
     const substeps = Math.max(1, Math.ceil(simDt / 0.025));
     const subDt = simDt / substeps;
@@ -4852,7 +4879,7 @@ export class MatchSimulator {
       this._updateTeamAI("home", this.home2D, this.away2D, allPlayers, subDt);
       this._updateTeamAI("away", this.away2D, this.home2D, allPlayers, subDt);
       this._stepBallPhysics(subDt, allPlayers);
-      if (this.isFinished || this.isHalfTime) break;
+      if (this.isFinished || this.isHalfTime || !this.isRunning) break;
     }
 
     // Sincronizar coordenadas normalizadas (0..100) para el motor 3D Three.js
@@ -4881,7 +4908,7 @@ export class MatchSimulator {
     }
 
     this.tickEmitTimer += dt;
-    if (this.tickEmitTimer >= 0.25 && !this.isFinished && !this.isHalfTime) {
+    if (!this.isSkippingToEnd && this.tickEmitTimer >= 0.25 && !this.isFinished && !this.isHalfTime) {
       this.tickEmitTimer = 0;
       if (this.onTick) this.onTick(this.getState());
     }
