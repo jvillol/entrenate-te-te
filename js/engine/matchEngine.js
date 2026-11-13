@@ -2768,6 +2768,7 @@ export class MatchSimulator {
 
   // Ejecución física y cinemática 3D de la jugada a balón parado con Azar + Estadísticas
   executeSetPiece(setup, onDone) {
+    this.isRunning = true;
     this.isSetPieceRunning = true;
     this.speed = 1;
 
@@ -2865,13 +2866,18 @@ export class MatchSimulator {
     // Activar renderizado 3D Three.js para córneres, faltas y penaltis
     if (!this.isSkippingToEnd && this.onHighlightStart) {
       this.onHighlightStart({
+        type: "SET_PIECE",
         playType: type,
         isSetPiece: true,
         attackingSide,
         defendingSide: isHome ? "away" : "home",
+        atkTeam,
+        defTeam,
         shooter: taker,
         passer: taker,
         keeper: goalkeeper,
+        tacticalNote: `⚽ ${spAlertTitle} de ${atkTeam.shortName}`,
+        commentary: `⚽ ${spAlertTitle} ejecutada por ${taker.name}`,
         phase: "BUILDUP",
         outcome: "PENDING"
       });
@@ -3031,6 +3037,10 @@ export class MatchSimulator {
 
     this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${scorer.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
 
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
     this.isSetPieceRunning = false;
     this.speed = this.userSpeed;
     if (!this.isSkippingToEnd && this.onHighlightEnd) {

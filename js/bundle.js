@@ -4740,6 +4740,7 @@ class MatchSimulator {
 
   // Ejecución física y cinemática 3D de la jugada a balón parado con Azar + Estadísticas
   executeSetPiece(setup, onDone) {
+    this.isRunning = true;
     this.isSetPieceRunning = true;
     this.speed = 1;
 
@@ -4837,13 +4838,18 @@ class MatchSimulator {
     // Activar renderizado 3D Three.js para córneres, faltas y penaltis
     if (!this.isSkippingToEnd && this.onHighlightStart) {
       this.onHighlightStart({
+        type: "SET_PIECE",
         playType: type,
         isSetPiece: true,
         attackingSide,
         defendingSide: isHome ? "away" : "home",
+        atkTeam,
+        defTeam,
         shooter: taker,
         passer: taker,
         keeper: goalkeeper,
+        tacticalNote: `⚽ ${spAlertTitle} de ${atkTeam.shortName}`,
+        commentary: `⚽ ${spAlertTitle} ejecutada por ${taker.name}`,
         phase: "BUILDUP",
         outcome: "PENDING"
       });
@@ -5003,6 +5009,10 @@ class MatchSimulator {
 
     this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${scorer.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
 
+    if (this.highlightInterval) {
+      clearInterval(this.highlightInterval);
+      this.highlightInterval = null;
+    }
     this.isSetPieceRunning = false;
     this.speed = this.userSpeed;
     if (!this.isSkippingToEnd && this.onHighlightEnd) {
@@ -12497,18 +12507,23 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       currentHighlightStartFrame = Math.max(0, replayBuffer.length - 12);
       currentHighlightData = { ...hlData };
 
+      const atkTeam = hlData.atkTeam || (hlData.attackingSide === "home" ? homeTeam : awayTeam) || { name: "Ataque", shortName: "ATA" };
+      const defTeam = hlData.defTeam || (hlData.attackingSide === "home" ? awayTeam : homeTeam) || { name: "Defensa", shortName: "DEF" };
+      const atkShort = (atkTeam.shortName || atkTeam.name || "ATA").toUpperCase();
+      const atkName = atkTeam.name || atkTeam.shortName || "Ataque";
+
       const hud = container.querySelector("#highlight-action-hud");
       const hudTitle = container.querySelector("#hl-hud-title");
       const hudSub = container.querySelector("#hl-hud-subtitle");
       if (hud && hudTitle && hudSub) {
-        hudTitle.textContent = `🎥 ENFOQUE DE ACCIÓN · ${hlData.atkTeam.shortName.toUpperCase()}`;
+        hudTitle.textContent = `🎥 ENFOQUE DE ACCIÓN · ${atkShort}`;
         hudSub.textContent = hlData.tacticalNote || hlData.commentary || "Apertura y construcción de jugada";
         hud.classList.remove("opacity-0", "-translate-y-2");
         hud.classList.add("opacity-100", "translate-y-0");
       }
 
-      updateFMCommentary(hlData.tacticalNote || hlData.commentary || `¡Jugada de peligro de ${hlData.atkTeam.name}!`, hlData.atkTeam.shortName.toUpperCase(), true);
-      showMatchAlert({ text: `⚡ ¡Jugada de peligro de ${hlData.atkTeam.name}!` });
+      updateFMCommentary(hlData.tacticalNote || hlData.commentary || `¡Jugada de peligro de ${atkName}!`, atkShort, true);
+      showMatchAlert({ text: `⚡ ¡Jugada de peligro de ${atkName}!` });
     }
 
     function handleHighlightPhase(phaseData) {
@@ -13597,6 +13612,18 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           p.hlPose = null;
         });
         if (onlyUpdateState) return;
+        if (ctx) {
+          const pDim = drawPitch2D(ctx, w, h);
+          const { padX, padY, pitchW, pitchH, dpr } = pDim;
+          simulator.home2D.forEach(p => {
+            drawPlayerToken2D(ctx, p, "home", false, padX, padY, pitchW, pitchH, dpr);
+          });
+          simulator.away2D.forEach(p => {
+            drawPlayerToken2D(ctx, p, "away", false, padX, padY, pitchW, pitchH, dpr);
+          });
+          drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
+        }
+        return;
       }
 
       const outcome = hlData.outcome || "GOAL";
@@ -18419,6 +18446,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             if (textPP) textPP.textContent = "Pausar";
           }
 
+          simulator.isRunning = true;
           simulator.executeSetPiece({
             type: spInfo.type,
             attackingSide: spInfo.attackingSide,
