@@ -492,7 +492,7 @@ export const TACTICAL_PRESETS = {
     desc: "Posesión paciente, pase corto, ritmo pausado y contrapresión instantánea tras pérdida",
     inPossession: { passingStyle: "short", tempo: "slow", width: "balanced" },
     inTransition: { loss: "counterpress", win: "hold" },
-    outOfPossession: { defensiveLine: "high", pressing: "high" }
+    outOfPossession: { defensiveLine: "high", pressing: "high", defenseWidth: "balanced" }
   },
   gegenpress: {
     id: "gegenpress",
@@ -501,7 +501,7 @@ export const TACTICAL_PRESETS = {
     desc: "Ritmo asfixiante, recuperación inmediata tras pérdida y transiciones verticales rápidas",
     inPossession: { passingStyle: "mixed", tempo: "fast", width: "wide" },
     inTransition: { loss: "counterpress", win: "counter" },
-    outOfPossession: { defensiveLine: "high", pressing: "high" }
+    outOfPossession: { defensiveLine: "high", pressing: "high", defenseWidth: "wide" }
   },
   counter_attack: {
     id: "counter_attack",
@@ -510,7 +510,7 @@ export const TACTICAL_PRESETS = {
     desc: "Bloque bajo ordenado, repliegue rápido y salida vertical fulgurante al espacio",
     inPossession: { passingStyle: "direct", tempo: "fast", width: "wide" },
     inTransition: { loss: "regroup", win: "counter" },
-    outOfPossession: { defensiveLine: "low", pressing: "mid" }
+    outOfPossession: { defensiveLine: "low", pressing: "mid", defenseWidth: "compact" }
   },
   catenaccio: {
     id: "catenaccio",
@@ -519,7 +519,7 @@ export const TACTICAL_PRESETS = {
     desc: "Bloque muy bajo, cerrojo en el área, repliegue masivo y balones largos sin riesgos",
     inPossession: { passingStyle: "direct", tempo: "slow", width: "center" },
     inTransition: { loss: "regroup", win: "hold" },
-    outOfPossession: { defensiveLine: "low", pressing: "low" }
+    outOfPossession: { defensiveLine: "low", pressing: "low", defenseWidth: "compact" }
   },
   wing_play: {
     id: "wing_play",
@@ -528,7 +528,7 @@ export const TACTICAL_PRESETS = {
     desc: "Apertura a extremos y carrileros para doblar y colgar centros al área",
     inPossession: { passingStyle: "mixed", tempo: "normal", width: "wide" },
     inTransition: { loss: "regroup", win: "counter" },
-    outOfPossession: { defensiveLine: "mid", pressing: "mid" }
+    outOfPossession: { defensiveLine: "mid", pressing: "mid", defenseWidth: "balanced" }
   },
   direct_football: {
     id: "direct_football",
@@ -537,7 +537,7 @@ export const TACTICAL_PRESETS = {
     desc: "Balones largos directos a la referencia ofensiva, segundas jugadas y verticalidad",
     inPossession: { passingStyle: "direct", tempo: "fast", width: "center" },
     inTransition: { loss: "counterpress", win: "counter" },
-    outOfPossession: { defensiveLine: "mid", pressing: "high" }
+    outOfPossession: { defensiveLine: "mid", pressing: "high", defenseWidth: "balanced" }
   }
 };
 
@@ -577,6 +577,11 @@ export const TACTICAL_OPTIONS = {
     { id: "low", label: "Baja / Contención", desc: "Esperar en zona, mantener líneas juntas y no desgastarse", icon: "🧘" },
     { id: "mid", label: "Media", desc: "Presión estándar al entrar en zona activa", icon: "🏃" },
     { id: "high", label: "Asfixiante / Alta", desc: "Acosar la salida de balón rival en su propio campo", icon: "🔥" }
+  ],
+  defenseWidth: [
+    { id: "compact", label: "Cerrado por Dentro", desc: "Línea estrecha (30m) para blindar el área; deja espacio en bandas", icon: "🛡️" },
+    { id: "balanced", label: "Equilibrada", desc: "Anchura estándar de la zaga (42-46m)", icon: "📐" },
+    { id: "wide", label: "Cerrar Bandas", desc: "Laterales pegados a la cal para secar extremos y tapar centros", icon: "↔️" }
   ]
 };
 
@@ -585,7 +590,7 @@ export function getDefaultTacticalInstructions() {
     preset: "tiki_taka",
     inPossession: { passingStyle: "short", tempo: "slow", width: "balanced" },
     inTransition: { loss: "counterpress", win: "hold" },
-    outOfPossession: { defensiveLine: "high", pressing: "high" }
+    outOfPossession: { defensiveLine: "high", pressing: "high", defenseWidth: "balanced" }
   };
 }
 

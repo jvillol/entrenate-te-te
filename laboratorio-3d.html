@@ -1,0 +1,3443 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Laboratorio 3D · Match Engine Football Manager</title>
+  <!-- Three.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/SkeletonUtils.js"></script>
+  <!-- Tailwind CSS CDN para la interfaz -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background-color: #030712;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      user-select: none;
+    }
+    #viewport-container {
+      width: 100vw;
+      height: 100vh;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #canvas-container {
+      width: 100%;
+      height: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+    }
+    .fm-glass {
+      background: rgba(10, 18, 30, 0.90);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+    }
+    .btn-tactic {
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .btn-tactic:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px -4px rgba(16, 185, 129, 0.35);
+    }
+    .btn-tactic:active {
+      transform: scale(0.97);
+    }
+    .btn-active {
+      border-color: #10b981 !important;
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.32), rgba(6, 78, 59, 0.6)) !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 18px rgba(16, 185, 129, 0.45);
+    }
+    .btn-alert-active {
+      border-color: #ef4444 !important;
+      background: linear-gradient(135deg, rgba(239, 68, 68, 0.32), rgba(127, 29, 29, 0.6)) !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 18px rgba(239, 68, 68, 0.45);
+    }
+    /* Estilo de etiqueta flotante 2D */
+    .player-tag {
+      position: absolute;
+      transform: translate(-50%, -100%);
+      pointer-events: none;
+      z-index: 10;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+      padding: 1.5px 6px;
+      border-radius: 9999px;
+      color: #fff;
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.65);
+      transition: opacity 0.15s ease;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body class="text-slate-100">
+
+  <!-- Contenedor 3D Three.js -->
+  <div id="viewport-container">
+    <div id="canvas-container"></div>
+    <div id="labels-container" class="absolute inset-0 pointer-events-none z-10 overflow-hidden"></div>
+  </div>
+
+  <!-- PANEL SUPERIOR: PIZARRA TÁCTICA Y SELECTOR DE JUGADAS (FOOTBALL MANAGER) -->
+  <header class="absolute top-3 left-3 right-3 z-20 flex flex-col gap-2 pointer-events-none max-w-7xl mx-auto">
+    
+    <!-- Barra Principal: Título + Botones de Demostración Causa-Efecto + Controles -->
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <!-- Badge FM Engine -->
+      <div class="fm-glass px-3 py-1.5 rounded-2xl flex items-center gap-2.5 shadow-2xl pointer-events-auto border border-emerald-500/40">
+        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-base font-black shadow-lg">
+          ⚽
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-xs font-black tracking-wider uppercase text-white font-mono">FM AUTONOMOUS ENGINE 3D</h1>
+            <span id="sim-mode-badge" class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 text-[8.5px] font-extrabold uppercase tracking-widest border border-emerald-500/40">20 TICKS/S · REPLAY BUFFER 15S</span>
+          </div>
+          <p class="text-[9.5px] text-slate-400 font-medium">105x68m · Cero Plantillas · Pitch Control + Geometría FIFA</p>
+        </div>
+      </div>
+
+      <!-- Selector de Modo Autónomo / Replay Buffer / Balón Parado Vectorial FIFA -->
+      <div class="fm-glass p-1 rounded-2xl flex flex-wrap items-center justify-center gap-1 shadow-2xl pointer-events-auto">
+        <button id="btn-play-wing-conceded" class="btn-tactic px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900/80 border border-emerald-500/60 text-emerald-200 hover:text-white flex items-center gap-2" title="Simula en FAST_SIM a 20 ticks/s con Pitch Control hasta que emerge una ocasión real y reproduce los últimos 14s del replayBuffer">
+          <span class="text-sm">⚡</span>
+          <div class="text-left leading-tight">
+            <div class="text-[10.5px] font-extrabold">1. Jugada Emergente (Replay Buffer)</div>
+            <div class="text-[8.5px] text-emerald-300 font-normal">Simula 20 Hz en background y reproduce ocasión</div>
+          </div>
+        </button>
+
+        <button id="btn-play-wing-blocked" class="btn-tactic px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900/80 border border-amber-500/60 text-amber-200 hover:text-white flex items-center gap-2" title="Falta Directa estrictamente fuera del área con barrera perpendicular a 9.15 metros exactos sobre el vector balón->portería">
+          <span class="text-sm">🎯</span>
+          <div class="text-left leading-tight">
+            <div class="text-[10.5px] font-extrabold">2. Falta Directa FIFA (9.15m)</div>
+            <div class="text-[8.5px] text-amber-300 font-normal">Fuera del área · Barrera vectorial a 9.15m</div>
+          </div>
+        </button>
+
+        <button id="btn-play-highline-break" class="btn-tactic px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900/80 border border-rose-500/60 text-rose-200 hover:text-white flex items-center gap-2" title="Penalti reglamentario: balón en (-41.5, 0), portero bajo palos (-52.5, 0), lanzador a 3m y 20 jugadores fuera del área y semicírculo">
+          <span class="text-sm">🥅</span>
+          <div class="text-left leading-tight">
+            <div class="text-[10.5px] font-extrabold">3. Penalti Reglamentario FIFA</div>
+            <div class="text-[8.5px] text-rose-300 font-normal">Punto (-41.5, 0) · 20 jugadores fuera del área</div>
+          </div>
+        </button>
+
+        <button id="btn-play-lowblock-wall" class="btn-tactic px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-900/80 border border-sky-500/60 text-sky-200 hover:text-white flex items-center gap-2" title="Córner exacto desde (±52.5, ±34) con atacantes y defensas entre el punto de penalti y el área pequeña">
+          <span class="text-sm">🚩</span>
+          <div class="text-left leading-tight">
+            <div class="text-[10.5px] font-extrabold">4. Córner Reglamentario FIFA</div>
+            <div class="text-[8.5px] text-sky-300 font-normal">Esquina (±52.5, ±34) · Duelo aéreo real</div>
+          </div>
+        </button>
+      </div>
+
+      <!-- Controles de Vista: Cámaras FM + 16:9 Panorámica + Pantalla Completa -->
+      <div class="fm-glass px-2.5 py-1.5 rounded-2xl flex items-center gap-1.5 shadow-2xl pointer-events-auto">
+        <button id="btn-toggle-cam" class="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-emerald-400 flex items-center gap-1 transition active:scale-95" title="Alternar ángulo de cámara">
+          <span>🎥</span> <span id="cam-name">TV Panorámica</span>
+        </button>
+        <button id="btn-toggle-fullscreen" class="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-200 flex items-center gap-1 transition active:scale-95" title="Pantalla Completa Horizontal">
+          <span>⛶</span> <span class="hidden sm:inline">16:9</span>
+        </button>
+        <button id="btn-replay" class="px-2.5 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-[11px] font-bold text-slate-200 flex items-center gap-1 transition active:scale-95" title="Repetir jugada activa">
+          <span>🔄</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Barra de Ajustes Tácticos Interactivos en Vivo (La Pizarra del Entrenador) -->
+    <div class="fm-glass px-3 py-1.5 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-2xl pointer-events-auto border border-slate-700/70 text-[10px]">
+      
+      <!-- Táctica de Ataque Rival -->
+      <div class="flex items-center gap-2">
+        <span class="text-slate-400 font-bold uppercase tracking-wider">Ataque Rival:</span>
+        <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800">
+          <button id="tactic-atk-wide" class="px-2 py-0.5 rounded-md font-bold text-white bg-emerald-600 transition" onclick="setAtkWidth('wide')">↔️ Por Bandas (Z=±31m)</button>
+          <button id="tactic-atk-center" class="px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition" onclick="setAtkWidth('center')">🎯 Por Centro (Z=±14m)</button>
+        </div>
+      </div>
+
+      <!-- Mi Anchura Defensiva -->
+      <div class="flex items-center gap-2">
+        <span class="text-slate-400 font-bold uppercase tracking-wider">Mi Anchura Defensiva:</span>
+        <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800">
+          <button id="tactic-def-compact" class="px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition" onclick="setDefWidth('compact')">🛡️ Cerrado por Dentro (Z=±15m)</button>
+          <button id="tactic-def-balanced" class="px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition" onclick="setDefWidth('balanced')">📐 Equilibrada (Z=±23m)</button>
+          <button id="tactic-def-wide" class="px-2 py-0.5 rounded-md font-bold text-white bg-emerald-600 transition" onclick="setDefWidth('wide')">↔️ Cerrar Bandas (Z=±30m)</button>
+        </div>
+      </div>
+
+      <!-- Altura de Línea Defensiva -->
+      <div class="flex items-center gap-2">
+        <span class="text-slate-400 font-bold uppercase tracking-wider">Línea Defensiva:</span>
+        <div class="inline-flex rounded-lg bg-slate-950 p-0.5 border border-slate-800">
+          <button id="tactic-line-high" class="px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition" onclick="setDefLine('high')">🚩 Alta (X=0m)</button>
+          <button id="tactic-line-mid" class="px-2 py-0.5 rounded-md font-bold text-white bg-emerald-600 transition" onclick="setDefLine('mid')">📏 Media (X=22m)</button>
+          <button id="tactic-line-low" class="px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition" onclick="setDefLine('low')">🧱 Baja (X=36m)</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Overlay de Notificación Táctica Causa-Efecto (Alerta FM26) -->
+  <div class="absolute top-28 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex flex-col items-center max-w-xl w-full px-4">
+    <div id="tactical-toast" class="fm-glass px-4 py-2 rounded-2xl border border-amber-400 shadow-2xl flex items-center gap-2.5 transition-all duration-300 opacity-0 -translate-y-2 w-full justify-center">
+      <span id="toast-icon" class="text-base">⚡</span>
+      <div class="text-center">
+        <div id="toast-title" class="text-[10.5px] font-black uppercase tracking-wider text-amber-300 font-mono">ANÁLISIS TÁCTICO FM</div>
+        <div id="toast-desc" class="text-[10px] text-slate-200 font-semibold leading-tight">Construyendo la jugada desde el círculo central...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BARRA INFERIOR DE RETRANSMISIÓN Y COMENTARIOS ESTILO FOOTBALL MANAGER -->
+  <footer class="absolute bottom-4 left-4 right-4 z-20 pointer-events-none flex flex-col items-center">
+    <div id="fm-commentary-bar" class="w-full max-w-4xl fm-glass px-4 py-2.5 rounded-2xl border border-rose-500/50 shadow-2xl flex items-center gap-3 transition-all duration-300">
+      <div id="ticker-badge" class="px-2.5 py-0.5 rounded-full bg-rose-600 text-white font-mono font-black text-[9px] uppercase tracking-wider shadow flex items-center gap-1.5 flex-shrink-0">
+        <span class="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+        <span id="ticker-badge-text">MATCH ENGINE</span>
+      </div>
+      <div id="ticker-text" class="text-xs font-semibold text-rose-100 truncate flex-1">
+        Fase de creación: circulación entre centrocampistas buscando basculación del rival...
+      </div>
+      <div id="ticker-phase" class="text-[10px] font-mono font-bold text-amber-400 px-2 py-0.5 rounded bg-slate-900 border border-slate-700/60 flex-shrink-0">
+        FASE: CREACIÓN
+      </div>
+      <div id="ticker-time" class="text-[10px] font-mono font-bold text-slate-300 px-2 py-0.5 rounded bg-slate-900 border border-slate-700/60 flex-shrink-0">
+        24:18
+      </div>
+    </div>
+  </footer>
+
+  <!-- SCRIPT COMPLETO CON MOTOR 3D Y LAS 4 REGLAS ESTRICTAS FOOTBALL MANAGER -->
+  <script>
+    // =========================================================================
+    // 1. ESCENARIO 3D OFICIAL FIFA (105x68m) Y CÁMARA TV PANORÁMICA FM
+    // =========================================================================
+    const container = document.getElementById("canvas-container");
+    const labelsContainer = document.getElementById("labels-container");
+
+    const FIELD_LENGTH = 105; // X: -52.5 a +52.5
+    const FIELD_WIDTH = 68;   // Z: -34.0 a +34.0
+    const GOAL_WIDTH = 7.32;  // Z: -3.66 a +3.66
+    const GOAL_HEIGHT = 2.44; // Y: 0 a 2.44
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x040812);
+    scene.fog = new THREE.FogExp2(0x040812, 0.0055);
+
+    // Cámara TV Panorámica Horizontal: alejada y baja para ver el ancho completo de banda a banda (cal a cal)
+    const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 1.0, 320);
+    camera.position.set(0, 38, 62);
+    const camLookTarget = new THREE.Vector3(0, 0.6, -1.5);
+    camera.lookAt(camLookTarget);
+
+    let activeCameraMode = "broadcast"; // "broadcast", "tactical", "endzone"
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.08;
+    container.appendChild(renderer.domElement);
+
+    // Iluminación Broadcast FM27: HemisphereLight ambiental suave + DirectionalLight con sombras proyectadas (castShadow)
+    const ambientLight = new THREE.AmbientLight(0xeef6ff, 0.42);
+    scene.add(ambientLight);
+
+    const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x14532d, 0.58);
+    hemiLight.position.set(0, 68, 0);
+    scene.add(hemiLight);
+
+    const mainLight = new THREE.DirectionalLight(0xfff8e7, 1.42);
+    mainLight.position.set(34, 58, 36);
+    mainLight.castShadow = true;
+    mainLight.shadow.mapSize.width = 2048;
+    mainLight.shadow.mapSize.height = 2048;
+    mainLight.shadow.camera.near = 12;
+    mainLight.shadow.camera.far = 150;
+    mainLight.shadow.camera.left = -62;
+    mainLight.shadow.camera.right = 62;
+    mainLight.shadow.camera.top = 42;
+    mainLight.shadow.camera.bottom = -42;
+    mainLight.shadow.bias = -0.0004;
+    if (mainLight.shadow.normalBias !== undefined) {
+      mainLight.shadow.normalBias = 0.015;
+    }
+    scene.add(mainLight);
+
+    // Contraluz suave para perfilar las siluetas humanas sobre el césped
+    const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.44);
+    rimLight.position.set(-42, 36, -40);
+    scene.add(rimLight);
+
+    const maxAniso = renderer.capabilities.getMaxAnisotropy ? Math.min(16, renderer.capabilities.getMaxAnisotropy()) : 4;
+
+    // 1. Textura procedural de césped con franjas de corte realistas, damero transversal y líneas de cal nítidas
+    function buildPitchTexture() {
+      const cw = 2048, ch = 1354;
+      const c = document.createElement("canvas");
+      c.width = cw; c.height = ch;
+      const g = c.getContext("2d");
+
+      // Moqueta perimetral técnica exterior oscura
+      g.fillStyle = "#113d1a";
+      g.fillRect(0, 0, cw, ch);
+
+      const marginX = (cw * 8) / 121;
+      const marginZ = (ch * 6) / 80;
+      const pw = cw - marginX * 2;
+      const ph = ch - marginZ * 2;
+
+      // 18 Franjas de corte alternas con degradado longitudinal de reflexión de la hierba
+      const numStripes = 18;
+      const stripeW = pw / numStripes;
+      for (let i = 0; i < numStripes; i++) {
+        const sx = marginX + i * stripeW;
+        const grad = g.createLinearGradient(sx, marginZ, sx, marginZ + ph);
+        if (i % 2 === 0) {
+          grad.addColorStop(0, "#1c632a");
+          grad.addColorStop(0.5, "#227532");
+          grad.addColorStop(1, "#1c632a");
+        } else {
+          grad.addColorStop(0, "#277e36");
+          grad.addColorStop(0.5, "#2f8f40");
+          grad.addColorStop(1, "#277e36");
+        }
+        g.fillStyle = grad;
+        g.fillRect(sx, marginZ, stripeW + 1, ph);
+
+        // Borde sutil de pasada de rodillo entre franjas
+        g.fillStyle = (i % 2 === 0) ? "rgba(255,255,255,0.024)" : "rgba(0,20,5,0.032)";
+        g.fillRect(sx, marginZ, 2.2, ph);
+      }
+
+      // 12 Pasadas horizontales cruzadas de cortacésped (damero profesional de estadio)
+      const hStripes = 12;
+      const hStripeH = ph / hStripes;
+      for (let j = 0; j < hStripes; j++) {
+        g.fillStyle = (j % 2 === 0) ? "rgba(255, 255, 255, 0.030)" : "rgba(0, 18, 6, 0.022)";
+        g.fillRect(marginX, marginZ + j * hStripeH, pw, hStripeH);
+      }
+
+      // Micro-textura de briznas de césped (ruido orgánico fino)
+      for (let i = 0; i < 18000; i++) {
+        const rx = marginX + Math.random() * pw;
+        const ry = marginZ + Math.random() * ph;
+        g.fillStyle = (i % 2 === 0) ? "rgba(255,255,255,0.035)" : "rgba(0,25,5,0.045)";
+        g.fillRect(rx, ry, 1.8, 2.2);
+      }
+
+      const scaleX = pw / FIELD_LENGTH;
+      const scaleZ = ph / FIELD_WIDTH;
+
+      // Desgaste sutil natural en áreas pequeñas y puntos de penalti
+      [marginX + 3.2 * scaleX, marginX + pw - 3.2 * scaleX].forEach(wx => {
+        const wear = g.createRadialGradient(wx, ch / 2, 4, wx, ch / 2, 7.5 * scaleX);
+        wear.addColorStop(0, "rgba(130, 110, 68, 0.20)");
+        wear.addColorStop(1, "rgba(130, 110, 68, 0)");
+        g.fillStyle = wear;
+        g.beginPath();
+        g.arc(wx, ch / 2, 7.5 * scaleX, 0, Math.PI * 2);
+        g.fill();
+      });
+
+      // Líneas reglamentarias de cal blancas nítidas con ligero halo de pigmento
+      g.save();
+      g.strokeStyle = "rgba(252, 254, 255, 0.98)";
+      g.fillStyle = "#ffffff";
+      g.lineWidth = 4.8;
+      g.lineJoin = "round";
+      g.lineCap = "round";
+      g.shadowColor = "rgba(255, 255, 255, 0.28)";
+      g.shadowBlur = 1.5;
+
+      g.strokeRect(marginX, marginZ, pw, ph);
+
+      const midX = cw / 2;
+      g.beginPath();
+      g.moveTo(midX, marginZ);
+      g.lineTo(midX, marginZ + ph);
+      g.stroke();
+
+      g.beginPath();
+      g.ellipse(midX, ch / 2, 9.15 * scaleX, 9.15 * scaleZ, 0, 0, Math.PI * 2);
+      g.stroke();
+
+      g.beginPath();
+      g.arc(midX, ch / 2, 0.44 * scaleX, 0, Math.PI * 2);
+      g.fill();
+
+      // Áreas Grandes (16.5m) y Pequeñas (5.5m)
+      const penW = 16.5 * scaleX;
+      const penH = 40.32 * scaleZ;
+      const penTopZ = (ch - penH) / 2;
+      g.strokeRect(marginX, penTopZ, penW, penH);
+      g.strokeRect(marginX + pw - penW, penTopZ, penW, penH);
+
+      // Semicírculos reglamentarios de penalti (9.15m)
+      g.beginPath();
+      g.ellipse(marginX + 11.0 * scaleX, ch / 2, 9.15 * scaleX, 9.15 * scaleZ, 0, -0.926, 0.926);
+      g.stroke();
+      g.beginPath();
+      g.ellipse(marginX + pw - 11.0 * scaleX, ch / 2, 9.15 * scaleX, 9.15 * scaleZ, 0, Math.PI - 0.926, Math.PI + 0.926);
+      g.stroke();
+
+      const smallW = 5.5 * scaleX;
+      const smallH = 18.32 * scaleZ;
+      const smallTopZ = (ch - smallH) / 2;
+      g.strokeRect(marginX, smallTopZ, smallW, smallH);
+      g.strokeRect(marginX + pw - smallW, smallTopZ, smallW, smallH);
+
+      // Puntos de penalti (11m)
+      g.beginPath();
+      g.arc(marginX + 11.0 * scaleX, ch / 2, 0.44 * scaleX, 0, Math.PI * 2);
+      g.arc(marginX + pw - 11.0 * scaleX, ch / 2, 0.44 * scaleX, 0, Math.PI * 2);
+      g.fill();
+
+      // 4 Arcos de córner reglamentarios (1.0m)
+      const cR = 1.15 * scaleX;
+      g.beginPath(); g.arc(marginX, marginZ, cR, 0, Math.PI * 0.5); g.stroke();
+      g.beginPath(); g.arc(marginX + pw, marginZ, cR, Math.PI * 0.5, Math.PI); g.stroke();
+      g.beginPath(); g.arc(marginX + pw, marginZ + ph, cR, Math.PI, Math.PI * 1.5); g.stroke();
+      g.beginPath(); g.arc(marginX, marginZ + ph, cR, Math.PI * 1.5, Math.PI * 2); g.stroke();
+      g.restore();
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.anisotropy = maxAniso;
+      return tex;
+    }
+
+    // Mapa procedural de rugosidad y micro-relieve de hierba (roughnessMap + bumpMap)
+    function buildPitchRoughnessBumpTexture() {
+      const rw = 1024, rh = 677;
+      const rc = document.createElement("canvas");
+      rc.width = rw; rc.height = rh;
+      const rg = rc.getContext("2d");
+
+      rg.fillStyle = "#d4d4d8";
+      rg.fillRect(0, 0, rw, rh);
+
+      const numStripes = 18;
+      const stripeW = rw / numStripes;
+      for (let i = 0; i < numStripes; i++) {
+        rg.fillStyle = (i % 2 === 0) ? "#c8c8d0" : "#dedee6";
+        rg.fillRect(i * stripeW, 0, stripeW, rh);
+      }
+      for (let n = 0; n < 18000; n++) {
+        rg.fillStyle = (n % 2 === 0) ? "rgba(255,255,255,0.14)" : "rgba(40,40,45,0.14)";
+        rg.fillRect(Math.random() * rw, Math.random() * rh, 2, 2);
+      }
+      const rTex = new THREE.CanvasTexture(rc);
+      rTex.anisotropy = maxAniso;
+      return rTex;
+    }
+
+    const pitchBumpRoughTex = buildPitchRoughnessBumpTexture();
+    const pitchGeo = new THREE.PlaneGeometry(121, 80);
+    const pitchMat = new THREE.MeshStandardMaterial({
+      map: buildPitchTexture(),
+      bumpMap: pitchBumpRoughTex,
+      bumpScale: 0.045,
+      roughnessMap: pitchBumpRoughTex,
+      roughness: 0.88,
+      metalness: 0.02
+    });
+    const pitchMesh = new THREE.Mesh(pitchGeo, pitchMat);
+    pitchMesh.rotation.x = -Math.PI / 2;
+    pitchMesh.receiveShadow = true;
+    scene.add(pitchMesh);
+
+    // Suelo perimetral oscuro amplio de estadio para eliminar cualquier vacío gris exterior
+    const outerGroundGeo = new THREE.PlaneGeometry(340, 260);
+    const outerGroundMat = new THREE.MeshStandardMaterial({ color: 0x050912, roughness: 0.96, metalness: 0.02 });
+    const outerGround = new THREE.Mesh(outerGroundGeo, outerGroundMat);
+    outerGround.rotation.x = -Math.PI / 2;
+    outerGround.position.y = -0.05;
+    outerGround.receiveShadow = true;
+    scene.add(outerGround);
+
+    // Porterías 3D profesionales con estructura trasera y red fina
+    function createGoal3D(sideSign) {
+      const gGroup = new THREE.Group();
+      const goalX = sideSign * (FIELD_LENGTH / 2);
+      gGroup.position.set(goalX, 0, 0);
+
+      const postMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.22, metalness: 0.25 });
+      const stanchionMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.4, metalness: 0.5 });
+      const postR = 0.07;
+      const halfW = GOAL_WIDTH / 2;
+      const depth = 2.3;
+
+      const vGeo = new THREE.CylinderGeometry(postR, postR, GOAL_HEIGHT, 16);
+      [-halfW, halfW].forEach(zPos => {
+        const p = new THREE.Mesh(vGeo, postMat);
+        p.position.set(0, GOAL_HEIGHT / 2, zPos);
+        p.castShadow = true;
+        gGroup.add(p);
+
+        const rear = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, GOAL_HEIGHT, 8), stanchionMat);
+        rear.position.set(sideSign * depth, GOAL_HEIGHT / 2, zPos);
+        gGroup.add(rear);
+      });
+
+      const hGeo = new THREE.CylinderGeometry(postR, postR, GOAL_WIDTH, 16);
+      const crossbar = new THREE.Mesh(hGeo, postMat);
+      crossbar.rotation.x = Math.PI / 2;
+      crossbar.position.set(0, GOAL_HEIGHT, 0);
+      crossbar.castShadow = true;
+      gGroup.add(crossbar);
+
+      const netMat = new THREE.MeshBasicMaterial({
+        color: 0xe2e8f0,
+        wireframe: true,
+        transparent: true,
+        opacity: 0.28
+      });
+      const netGeo = new THREE.BoxGeometry(depth, GOAL_HEIGHT, GOAL_WIDTH, 5, 5, 12);
+      const netMesh = new THREE.Mesh(netGeo, netMat);
+      netMesh.position.set(sideSign * (depth / 2), GOAL_HEIGHT / 2, 0);
+      gGroup.add(netMesh);
+
+      scene.add(gGroup);
+      return gGroup;
+    }
+
+    createGoal3D(-1);
+    createGoal3D(1);
+
+    // Banderines de córner animados
+    const cornerFlags = [];
+    const flagPoleGeo = new THREE.CylinderGeometry(0.025, 0.025, 1.5, 6);
+    const flagPoleMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.4 });
+    const flagClothGeo = new THREE.PlaneGeometry(0.45, 0.30);
+    const flagClothMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, side: THREE.DoubleSide, roughness: 0.6 });
+    [
+      [-FIELD_LENGTH / 2, -FIELD_WIDTH / 2],
+      [FIELD_LENGTH / 2, -FIELD_WIDTH / 2],
+      [-FIELD_LENGTH / 2, FIELD_WIDTH / 2],
+      [FIELD_LENGTH / 2, FIELD_WIDTH / 2]
+    ].forEach(([fx, fz]) => {
+      const fg = new THREE.Group();
+      fg.position.set(fx, 0, fz);
+      const pole = new THREE.Mesh(flagPoleGeo, flagPoleMat);
+      pole.position.y = 0.75;
+      fg.add(pole);
+      const cloth = new THREE.Mesh(flagClothGeo, flagClothMat);
+      cloth.position.set(0.22, 1.32, 0);
+      fg.add(cloth);
+      scene.add(fg);
+      cornerFlags.push(cloth);
+    });
+
+    // ESTADIO BROADCAST FM27: Vallas LED animadas, Gradas con público, Banquillos y Torres de Focos
+    function buildAdboardTexture() {
+      const ac = document.createElement("canvas");
+      ac.width = 2048;
+      ac.height = 128;
+      const ag = ac.getContext("2d");
+      const sponsors = [
+        { bg: "#0f172a", fg: "#38bdf8", accent: "#0284c7", text: "⚽ FOOTBALL MANAGER 27 ENGINE" },
+        { bg: "#f8fafc", fg: "#0f172a", accent: "#f59e0b", text: "★ REAL MADRID CF ★" },
+        { bg: "#1e1b4b", fg: "#facc15", accent: "#ef4444", text: "LALIGA EA SPORTS LIVE" },
+        { bg: "#7f1d1d", fg: "#ffffff", accent: "#2563eb", text: "🛡️ FC BARCELONA" },
+        { bg: "#064e3b", fg: "#6ee7b7", accent: "#10b981", text: "⚡ 20 HZ AUTONOMOUS MATCH AI" }
+      ];
+      const segW = ac.width / sponsors.length;
+      sponsors.forEach((sp, i) => {
+        const sx = i * segW;
+        ag.fillStyle = sp.bg;
+        ag.fillRect(sx, 0, segW, ac.height);
+        ag.fillStyle = sp.accent;
+        ag.fillRect(sx, 0, 14, ac.height);
+        ag.fillStyle = "rgba(255,255,255,0.28)";
+        ag.fillRect(sx, 0, segW, 5);
+        ag.font = "900 40px 'Arial Black', Impact, sans-serif";
+        ag.textAlign = "center";
+        ag.textBaseline = "middle";
+        ag.fillStyle = sp.fg;
+        ag.fillText(sp.text, sx + segW / 2 + 6, ac.height / 2 + 2, segW - 30);
+      });
+      const tex = new THREE.CanvasTexture(ac);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+      return tex;
+    }
+
+    const adTex = buildAdboardTexture();
+    const adMat = new THREE.MeshStandardMaterial({
+      map: adTex,
+      roughness: 0.35,
+      emissive: 0x0f172a,
+      emissiveIntensity: 0.32
+    });
+    const farAd = new THREE.Mesh(new THREE.BoxGeometry(FIELD_LENGTH + 8, 1.05, 0.25), adMat);
+    farAd.position.set(0, 0.52, -FIELD_WIDTH / 2 - 3.0);
+    scene.add(farAd);
+    const nearAd = new THREE.Mesh(new THREE.BoxGeometry(FIELD_LENGTH + 8, 1.05, 0.25), adMat);
+    nearAd.position.set(0, 0.52, FIELD_WIDTH / 2 + 3.4);
+    scene.add(nearAd);
+    const leftAd = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.05, FIELD_WIDTH + 6.4), adMat);
+    leftAd.position.set(-FIELD_LENGTH / 2 - 4.0, 0.52, 0);
+    scene.add(leftAd);
+    const rightAd = new THREE.Mesh(new THREE.BoxGeometry(0.25, 1.05, FIELD_WIDTH + 6.4), adMat);
+    rightAd.position.set(FIELD_LENGTH / 2 + 4.0, 0.52, 0);
+    scene.add(rightAd);
+
+    // Gradas escalonadas con público
+    function buildCrowdTexture() {
+      const sc = document.createElement("canvas");
+      sc.width = 1024; sc.height = 512;
+      const sg = sc.getContext("2d");
+      sg.fillStyle = "#0b1220";
+      sg.fillRect(0, 0, sc.width, sc.height);
+      const rows = 26, rowH = sc.height / rows;
+      const palette = ["#ffffff", "#ffffff", "#e2e8f0", "#ef4444", "#2563eb", "#334155", "#475569", "#f59e0b", "#1e293b"];
+      for (let r = 0; r < rows; r++) {
+        const ry = r * rowH;
+        sg.fillStyle = r % 2 === 0 ? "#0f172a" : "#152036";
+        sg.fillRect(0, ry, sc.width, rowH);
+        const cols = 150, colW = sc.width / cols;
+        for (let c = 0; c < cols; c++) {
+          if (c % 25 === 12) {
+            sg.fillStyle = "#eab308";
+            sg.fillRect(c * colW, ry, colW * 0.85, rowH * 0.8);
+            continue;
+          }
+          const seed = (r * 73 + c * 31) % 100;
+          if (seed < 12) continue;
+          sg.fillStyle = palette[(r * 17 + c * 23) % palette.length];
+          const px = c * colW + (r % 2) * 2;
+          const py = ry + rowH * 0.55;
+          sg.fillRect(px - 2.3, py - 2.2, 4.6, 5.2);
+          sg.fillStyle = (seed % 3 === 0) ? "#d49b6a" : "#f1c27d";
+          sg.beginPath();
+          sg.arc(px, py - 3.6, 1.8, 0, Math.PI * 2);
+          sg.fill();
+        }
+      }
+      const tex = new THREE.CanvasTexture(sc);
+      tex.wrapS = THREE.RepeatWrapping;
+      return tex;
+    }
+
+    const standMat = new THREE.MeshStandardMaterial({ map: buildCrowdTexture(), roughness: 0.9 });
+    const concreteMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 });
+    const roofMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.65, metalness: 0.35 });
+
+    function createStand(width, distFromCenter, rotY) {
+      const g = new THREE.Group();
+      g.rotation.y = rotY;
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(width, 2.2, 1.5), concreteMat);
+      wall.position.set(0, 1.1, -distFromCenter);
+      g.add(wall);
+      const slope = new THREE.Mesh(new THREE.PlaneGeometry(width, 26), standMat);
+      slope.rotation.x = Math.PI * 0.31;
+      slope.position.set(0, 9.2, -distFromCenter - 10.5);
+      g.add(slope);
+      const back = new THREE.Mesh(new THREE.BoxGeometry(width + 16, 22, 3), concreteMat);
+      back.position.set(0, 11, -distFromCenter - 21.5);
+      g.add(back);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(width + 16, 1.0, 16), roofMat);
+      roof.position.set(0, 21.8, -distFromCenter - 14.5);
+      g.add(roof);
+      scene.add(g);
+    }
+    createStand(FIELD_LENGTH + 44, FIELD_WIDTH / 2 + 5.8, 0);
+    createStand(FIELD_LENGTH + 44, FIELD_WIDTH / 2 + 8.5, Math.PI);
+    createStand(FIELD_WIDTH + 44, FIELD_LENGTH / 2 + 6.5, Math.PI / 2);
+    createStand(FIELD_WIDTH + 44, FIELD_LENGTH / 2 + 6.5, -Math.PI / 2);
+
+    // Cerramiento diagonal de las 4 esquinas del estadio y banquillos técnicos para eliminar cualquier vacío exterior
+    const cornerWallGeo = new THREE.BoxGeometry(28, 22, 6);
+    [
+      [-FIELD_LENGTH / 2 - 12, -FIELD_WIDTH / 2 - 11, Math.PI * 0.25],
+      [FIELD_LENGTH / 2 + 12, -FIELD_WIDTH / 2 - 11, -Math.PI * 0.25],
+      [-FIELD_LENGTH / 2 - 12, FIELD_WIDTH / 2 + 12, Math.PI * 0.75],
+      [FIELD_LENGTH / 2 + 12, FIELD_WIDTH / 2 + 12, -Math.PI * 0.75]
+    ].forEach(([cx, cz, ry]) => {
+      const cw = new THREE.Mesh(cornerWallGeo, concreteMat);
+      cw.position.set(cx, 11, cz);
+      cw.rotation.y = ry;
+      scene.add(cw);
+    });
+
+    const dugoutGeo = new THREE.BoxGeometry(10.5, 2.1, 1.8);
+    [-15, 15].forEach(bx => {
+      const bench = new THREE.Mesh(dugoutGeo, concreteMat);
+      bench.position.set(bx, 1.05, -FIELD_WIDTH / 2 - 4.4);
+      bench.castShadow = true;
+      scene.add(bench);
+    });
+
+    // 4 Torres de iluminación en las esquinas
+    const towerGlowMat = new THREE.MeshBasicMaterial({ color: 0xfefce8 });
+    [
+      [-FIELD_LENGTH / 2 - 14, -FIELD_WIDTH / 2 - 12, 0.6],
+      [FIELD_LENGTH / 2 + 14, -FIELD_WIDTH / 2 - 12, -0.6],
+      [-FIELD_LENGTH / 2 - 14, FIELD_WIDTH / 2 + 14, 2.5],
+      [FIELD_LENGTH / 2 + 14, FIELD_WIDTH / 2 + 14, -2.5]
+    ].forEach(([tx, tz, ry]) => {
+      const tg = new THREE.Group();
+      tg.position.set(tx, 0, tz);
+      tg.rotation.y = ry;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.85, 34, 8), roofMat);
+      pole.position.y = 17;
+      tg.add(pole);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(6.5, 3.0, 1.0), towerGlowMat);
+      head.position.set(0, 33.5, 0);
+      head.rotation.x = 0.35;
+      tg.add(head);
+      scene.add(tg);
+    });
+
+    // =========================================================================
+    // 2. EL BALÓN OFICIAL CON PENTÁGONOS, ROTACIÓN FÍSICA Y ARO DE PORTADOR
+    // =========================================================================
+    function buildBallTexture() {
+      const bc = document.createElement("canvas");
+      bc.width = 256; bc.height = 128;
+      const bg = bc.getContext("2d");
+      bg.fillStyle = "#ffffff";
+      bg.fillRect(0, 0, 256, 128);
+      bg.fillStyle = "#0f172a";
+      const spots = [[32,32],[96,28],[160,32],[224,28],[64,64],[128,64],[192,64],[32,98],[96,100],[160,98],[224,100]];
+      spots.forEach(([sx, sy]) => {
+        bg.beginPath();
+        bg.arc(sx, sy, 12, 0, Math.PI * 2);
+        bg.fill();
+      });
+      bg.strokeStyle = "#334155";
+      bg.lineWidth = 2;
+      for (let i = 0; i < spots.length - 1; i++) {
+        bg.beginPath();
+        bg.moveTo(spots[i][0], spots[i][1]);
+        bg.lineTo(spots[i + 1][0], spots[i + 1][1]);
+        bg.stroke();
+      }
+      return new THREE.CanvasTexture(bc);
+    }
+
+    const ballRadius = 0.22;
+    const ballGeo = new THREE.SphereGeometry(ballRadius, 24, 24);
+    const ballMat = new THREE.MeshStandardMaterial({ map: buildBallTexture(), roughness: 0.30, metalness: 0.06 });
+    const ballMesh = new THREE.Mesh(ballGeo, ballMat);
+    ballMesh.castShadow = true;
+    scene.add(ballMesh);
+
+    const ballShadowGeo = new THREE.CircleGeometry(0.30, 20);
+    const ballShadowMat = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.5, depthWrite: false });
+    const ballShadow = new THREE.Mesh(ballShadowGeo, ballShadowMat);
+    ballShadow.rotation.x = -Math.PI / 2;
+    ballShadow.position.y = 0.025;
+    scene.add(ballShadow);
+
+    const carrierRingGeo = new THREE.RingGeometry(0.48, 0.66, 28);
+    const carrierRingMat = new THREE.MeshBasicMaterial({
+      color: 0xf59e0b,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.90
+    });
+    const carrierRing = new THREE.Mesh(carrierRingGeo, carrierRingMat);
+    carrierRing.rotation.x = -Math.PI / 2;
+    carrierRing.position.y = 0.035;
+    carrierRing.visible = false;
+    scene.add(carrierRing);
+
+    // =========================================================================
+    // 3. HUMANOIDES 3D ANATÓMICOS ESTILO FOOTBALL MANAGER 27 (MULTI-ARTICULADOS)
+    // =========================================================================
+    const sharedUpperTorsoGeo = new THREE.CylinderGeometry(0.245, 0.19, 0.46, 14);
+    const sharedWaistGeo = new THREE.CylinderGeometry(0.19, 0.195, 0.16, 12);
+    const sharedCollarGeo = new THREE.TorusGeometry(0.105, 0.022, 8, 16);
+    const sharedNeckGeo = new THREE.CylinderGeometry(0.068, 0.082, 0.12, 10);
+    const sharedShoulderCapGeo = new THREE.SphereGeometry(0.092, 10, 10);
+    const sharedPelvisGeo = new THREE.CylinderGeometry(0.20, 0.185, 0.20, 12);
+    const sharedShortLegGeo = new THREE.CylinderGeometry(0.115, 0.125, 0.22, 10);
+    const sharedHeadGeo = new THREE.SphereGeometry(0.135, 16, 14);
+    const sharedEarGeo = new THREE.SphereGeometry(0.026, 6, 6);
+    const sharedHairCapGeo = new THREE.SphereGeometry(0.143, 14, 12, 0, Math.PI * 2, 0, Math.PI * 0.56);
+    const sharedHairFadeGeo = new THREE.CylinderGeometry(0.132, 0.138, 0.07, 12);
+    const sharedHairBunGeo = new THREE.SphereGeometry(0.055, 8, 8);
+    const sharedThighGeo = new THREE.CylinderGeometry(0.095, 0.074, 0.36, 10);
+    const sharedKneeCapGeo = new THREE.SphereGeometry(0.072, 10, 8);
+    const sharedCalfGeo = new THREE.CylinderGeometry(0.074, 0.054, 0.38, 10);
+    const sharedBootUpperGeo = new THREE.BoxGeometry(0.105, 0.082, 0.24);
+    const sharedBootToeGeo = new THREE.SphereGeometry(0.052, 8, 8);
+    const sharedBootSoleGeo = new THREE.BoxGeometry(0.108, 0.022, 0.25);
+    const sharedSleeveGeo = new THREE.CylinderGeometry(0.078, 0.066, 0.24, 10);
+    const sharedElbowCapGeo = new THREE.SphereGeometry(0.058, 8, 8);
+    const sharedForearmGeo = new THREE.CylinderGeometry(0.058, 0.044, 0.26, 10);
+    const sharedHandGeo = new THREE.SphereGeometry(0.048, 8, 8);
+    const sharedGloveGeo = new THREE.BoxGeometry(0.095, 0.11, 0.07);
+    const soleMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.7 });
+
+    function buildLabJerseyTex(isHome, isGK, number, playerName) {
+      const jc = document.createElement("canvas");
+      jc.width = 512; jc.height = 512;
+      const jg = jc.getContext("2d");
+
+      const jerseyHex = isGK ? (isHome ? "#10b981" : "#f59e0b") : (isHome ? "#f8fafc" : "#1d3b8b");
+      const stripeHex = isGK ? null : (isHome ? null : "#a50044");
+      const collarHex = isGK ? "#ffffff" : (isHome ? "#1e293b" : "#facc15");
+      const numHex = isGK ? "#0f172a" : (isHome ? "#0f172a" : "#facc15");
+
+      jg.fillStyle = jerseyHex;
+      jg.fillRect(0, 0, 512, 512);
+
+      // Franjas blaugrana para el visitante
+      if (stripeHex) {
+        jg.fillStyle = stripeHex;
+        for (let sx = 0; sx < 512; sx += 96) {
+          jg.fillRect(sx, 0, 48, 512);
+        }
+      }
+
+      // Micro-textura de tejido y sombreado volumétrico
+      const grad = jg.createLinearGradient(0, 0, 512, 0);
+      grad.addColorStop(0.00, "rgba(0,0,0,0.20)");
+      grad.addColorStop(0.22, "rgba(255,255,255,0.08)");
+      grad.addColorStop(0.50, "rgba(0,0,0,0.22)");
+      grad.addColorStop(0.75, "rgba(255,255,255,0.06)");
+      grad.addColorStop(1.00, "rgba(0,0,0,0.20)");
+      jg.fillStyle = grad;
+      jg.fillRect(0, 0, 512, 512);
+
+      jg.fillStyle = collarHex;
+      jg.fillRect(0, 0, 512, 24);
+
+      // Escudo en pecho izquierdo (u ~ 0.25)
+      jg.fillStyle = "#facc15";
+      jg.beginPath();
+      jg.moveTo(156, 98); jg.lineTo(180, 98); jg.lineTo(180, 120); jg.lineTo(168, 134); jg.lineTo(156, 120);
+      jg.closePath();
+      jg.fill();
+
+      // Apellido + Dorsal en la espalda (u ~ 0.75 -> x = 384)
+      const cleanLast = String(playerName || "").trim().split(/\s+/).slice(-1)[0].toUpperCase().slice(0, 11);
+      jg.font = "800 30px 'Arial Narrow', Impact, sans-serif";
+      jg.textAlign = "center";
+      jg.textBaseline = "middle";
+      jg.lineWidth = 5;
+      jg.strokeStyle = isHome ? "rgba(255,255,255,0.5)" : "rgba(15,23,42,0.75)";
+      jg.strokeText(cleanLast, 384, 102);
+      jg.fillStyle = numHex;
+      jg.fillText(cleanLast, 384, 102);
+
+      jg.font = "900 176px 'Arial Black', Impact, sans-serif";
+      jg.lineWidth = 9;
+      jg.strokeText(`${number}`, 384, 268);
+      jg.fillText(`${number}`, 384, 268);
+
+      return new THREE.CanvasTexture(jc);
+    }
+
+    function buildLabFaceTex(skinHexInt, hairHexInt, hasBeard) {
+      const fc = document.createElement("canvas");
+      fc.width = 256; fc.height = 128;
+      const fg = fc.getContext("2d");
+      const skinStr = "#" + skinHexInt.toString(16).padStart(6, "0");
+      const hairStr = "#" + hairHexInt.toString(16).padStart(6, "0");
+      fg.fillStyle = skinStr;
+      fg.fillRect(0, 0, 256, 128);
+      const cx = 64;
+      fg.fillStyle = hairStr;
+      fg.fillRect(cx - 20, 50, 13, 3.5);
+      fg.fillRect(cx + 7, 50, 13, 3.5);
+      fg.fillStyle = "#f8fafc";
+      fg.beginPath();
+      fg.ellipse(cx - 13, 59, 5.2, 3.2, 0, 0, Math.PI * 2);
+      fg.ellipse(cx + 13, 59, 5.2, 3.2, 0, 0, Math.PI * 2);
+      fg.fill();
+      fg.fillStyle = "#1e293b";
+      fg.beginPath();
+      fg.arc(cx - 13, 59, 2.3, 0, Math.PI * 2);
+      fg.arc(cx + 13, 59, 2.3, 0, Math.PI * 2);
+      fg.fill();
+      fg.fillStyle = "rgba(80, 40, 20, 0.22)";
+      fg.beginPath();
+      fg.moveTo(cx, 58); fg.lineTo(cx - 3.5, 73); fg.lineTo(cx + 3.5, 73);
+      fg.closePath();
+      fg.fill();
+      if (hasBeard) {
+        fg.fillStyle = hairStr;
+        fg.globalAlpha = 0.35;
+        fg.beginPath();
+        fg.ellipse(cx, 88, 22, 16, 0, 0, Math.PI * 2);
+        fg.fill();
+        fg.globalAlpha = 1.0;
+      }
+      fg.strokeStyle = "rgba(110, 52, 42, 0.65)";
+      fg.lineWidth = 2.6;
+      fg.beginPath();
+      fg.moveTo(cx - 8, 83);
+      fg.quadraticCurveTo(cx, 86, cx + 8, 83);
+      fg.stroke();
+      return new THREE.CanvasTexture(fc);
+    }
+
+    function buildLabSockTex(socksHex, accentHex) {
+      const sc = document.createElement("canvas");
+      sc.width = 64; sc.height = 128;
+      const sg = sc.getContext("2d");
+      sg.fillStyle = socksHex;
+      sg.fillRect(0, 0, 64, 128);
+      sg.fillStyle = accentHex;
+      sg.fillRect(0, 8, 64, 10);
+      sg.fillRect(0, 24, 64, 6);
+      sg.fillStyle = "#f8fafc";
+      sg.fillRect(0, 108, 64, 20);
+      return new THREE.CanvasTexture(sc);
+    }
+
+    const skinPalette = [0xf5cba7, 0xe5b887, 0xd49b6a, 0x8d5524, 0x6b3e26, 0xf1c27d];
+    const hairPalette = [0x171412, 0x3b2314, 0x6b3e19, 0x0f172a, 0x9a6b32];
+    const bootPalette = [0x111827, 0xf97316, 0x38bdf8, 0xfacc15, 0xec4899, 0x22c55e];
+
+    function createPlayer3D(name, number, rolePos, isHome, isGK = false, customLook = null) {
+      const root = new THREE.Group();
+      const bodyGroup = new THREE.Group();
+      root.add(bodyGroup);
+
+      const seed = number * 19 + (isHome ? 3 : 11);
+      const skinCol = customLook?.skin ?? skinPalette[seed % skinPalette.length];
+      const hairCol = customLook?.hair ?? hairPalette[(seed * 3) % hairPalette.length];
+      const bootCol = bootPalette[(seed * 7) % bootPalette.length];
+      const hairStyle = customLook?.style ?? (seed % 5);
+      const hasBeard = customLook?.beard ?? ((seed % 3) === 0);
+
+      const solidJerseyCol = isGK ? (isHome ? 0x10b981 : 0xf59e0b) : (isHome ? 0xf8fafc : 0x1d3b8b);
+      const shortsCol = isGK ? (isHome ? 0x065f46 : 0xb45309) : (isHome ? 0xf1f5f9 : 0x1e3a8a);
+      const collarCol = isGK ? 0xffffff : (isHome ? 0x1e293b : 0xfacc15);
+      const socksHex = isGK ? (isHome ? "#10b981" : "#f59e0b") : (isHome ? "#f8fafc" : "#1d3b8b");
+      const sockAccent = isHome ? "#1e293b" : "#a50044";
+
+      const jerseyMat = new THREE.MeshStandardMaterial({
+        map: buildLabJerseyTex(isHome, isGK, number, name),
+        roughness: 0.56,
+        metalness: 0.04
+      });
+      const solidJerseyMat = new THREE.MeshStandardMaterial({ color: solidJerseyCol, roughness: 0.58 });
+      const collarMat = new THREE.MeshStandardMaterial({ color: collarCol, roughness: 0.55 });
+      const shortsMat = new THREE.MeshStandardMaterial({ color: shortsCol, roughness: 0.65 });
+      const socksMat = new THREE.MeshStandardMaterial({ map: buildLabSockTex(socksHex, sockAccent), roughness: 0.68 });
+      const skinMat = new THREE.MeshStandardMaterial({ color: skinCol, roughness: 0.56 });
+      const faceMat = new THREE.MeshStandardMaterial({ map: buildLabFaceTex(skinCol, hairCol, hasBeard), roughness: 0.54 });
+      const hairMat = new THREE.MeshStandardMaterial({ color: hairCol, roughness: 0.86 });
+      const bootMat = new THREE.MeshStandardMaterial({ color: bootCol, roughness: 0.34, metalness: 0.18 });
+      const gloveMat = new THREE.MeshStandardMaterial({ color: isGK ? 0xd9f99d : skinCol, roughness: 0.48 });
+
+      // Tren superior (Torso en V + Hombros + Cuello + Cabeza)
+      const torsoGroup = new THREE.Group();
+      torsoGroup.position.set(0, 0.94, 0);
+      bodyGroup.add(torsoGroup);
+
+      const waist = new THREE.Mesh(sharedWaistGeo, solidJerseyMat);
+      waist.scale.set(1.06, 1.0, 0.72);
+      waist.position.y = 0.06;
+      waist.castShadow = true;
+      torsoGroup.add(waist);
+
+      const upperTorso = new THREE.Mesh(sharedUpperTorsoGeo, jerseyMat);
+      upperTorso.scale.set(1.12, 1.0, 0.72);
+      upperTorso.position.y = 0.33;
+      upperTorso.castShadow = true;
+      upperTorso.receiveShadow = true;
+      torsoGroup.add(upperTorso);
+
+      const collarRing = new THREE.Mesh(sharedCollarGeo, collarMat);
+      collarRing.rotation.x = Math.PI / 2;
+      collarRing.position.set(0, 0.555, 0);
+      torsoGroup.add(collarRing);
+
+      [-0.255, 0.255].forEach(sx => {
+        const sh = new THREE.Mesh(sharedShoulderCapGeo, solidJerseyMat);
+        sh.position.set(sx, 0.49, 0);
+        sh.castShadow = true;
+        torsoGroup.add(sh);
+      });
+
+      const neck = new THREE.Mesh(sharedNeckGeo, skinMat);
+      neck.position.set(0, 0.61, 0);
+      neck.castShadow = true;
+      torsoGroup.add(neck);
+
+      const headGroup = new THREE.Group();
+      headGroup.position.set(0, 0.76, 0.01);
+      const headMesh = new THREE.Mesh(sharedHeadGeo, faceMat);
+      headMesh.scale.set(0.88, 1.04, 0.95);
+      headMesh.castShadow = true;
+      headGroup.add(headMesh);
+
+      [-0.118, 0.118].forEach(ex => {
+        const ear = new THREE.Mesh(sharedEarGeo, skinMat);
+        ear.scale.set(0.65, 1.15, 0.8);
+        ear.position.set(ex, 0, -0.01);
+        headGroup.add(ear);
+      });
+
+      if (hairStyle !== 2) {
+        const hairCap = new THREE.Mesh(sharedHairCapGeo, hairMat);
+        hairCap.scale.set(hairStyle === 3 ? 0.98 : 0.91, hairStyle === 3 ? 1.12 : 1.02, 0.98);
+        hairCap.rotation.x = -0.20;
+        hairCap.position.set(0, 0.018, -0.008);
+        hairCap.castShadow = true;
+        headGroup.add(hairCap);
+        if (hairStyle === 1) {
+          const topFade = new THREE.Mesh(sharedHairFadeGeo, hairMat);
+          topFade.scale.set(0.85, 1.0, 0.90);
+          topFade.position.set(0, 0.115, 0);
+          headGroup.add(topFade);
+        } else if (hairStyle === 4) {
+          const bun = new THREE.Mesh(sharedHairBunGeo, hairMat);
+          bun.position.set(0, 0.07, -0.145);
+          headGroup.add(bun);
+        }
+      }
+      torsoGroup.add(headGroup);
+
+      // Brazos articulados (Hombro -> Codo -> Mano/Guante)
+      function buildArm(sideSign) {
+        const armPivot = new THREE.Group();
+        armPivot.position.set(sideSign * 0.275, 0.485, 0);
+        const sleeve = new THREE.Mesh(sharedSleeveGeo, solidJerseyMat);
+        sleeve.position.y = -0.12;
+        sleeve.castShadow = true;
+        armPivot.add(sleeve);
+        const elbowCap = new THREE.Mesh(sharedElbowCapGeo, isGK ? solidJerseyMat : skinMat);
+        elbowCap.position.y = -0.245;
+        armPivot.add(elbowCap);
+        const elbowPivot = new THREE.Group();
+        elbowPivot.position.set(0, -0.245, 0);
+        const forearm = new THREE.Mesh(sharedForearmGeo, isGK ? solidJerseyMat : skinMat);
+        forearm.position.y = -0.13;
+        forearm.castShadow = true;
+        elbowPivot.add(forearm);
+        const hand = isGK ? new THREE.Mesh(sharedGloveGeo, gloveMat) : new THREE.Mesh(sharedHandGeo, gloveMat);
+        hand.position.y = -0.285;
+        hand.castShadow = true;
+        elbowPivot.add(hand);
+        armPivot.add(elbowPivot);
+        torsoGroup.add(armPivot);
+        return { armPivot, elbowPivot };
+      }
+      const leftArmRig = buildArm(-1);
+      const rightArmRig = buildArm(1);
+
+      // Pelvis y Piernas articuladas (Cadera -> Rodilla -> Gemelo/Media -> Bota)
+      const pelvis = new THREE.Mesh(sharedPelvisGeo, shortsMat);
+      pelvis.scale.set(1.08, 1.0, 0.74);
+      pelvis.position.set(0, 0.87, 0);
+      pelvis.castShadow = true;
+      bodyGroup.add(pelvis);
+
+      function buildLeg(offsetX) {
+        const hipPivot = new THREE.Group();
+        hipPivot.position.set(offsetX, 0.84, 0);
+        const shortLeg = new THREE.Mesh(sharedShortLegGeo, shortsMat);
+        shortLeg.position.y = -0.09;
+        shortLeg.castShadow = true;
+        hipPivot.add(shortLeg);
+        const thigh = new THREE.Mesh(sharedThighGeo, skinMat);
+        thigh.position.y = -0.23;
+        thigh.castShadow = true;
+        hipPivot.add(thigh);
+        const kneeCap = new THREE.Mesh(sharedKneeCapGeo, skinMat);
+        kneeCap.position.y = -0.41;
+        hipPivot.add(kneeCap);
+        const kneePivot = new THREE.Group();
+        kneePivot.position.set(0, -0.41, 0);
+        const calf = new THREE.Mesh(sharedCalfGeo, socksMat);
+        calf.position.y = -0.19;
+        calf.castShadow = true;
+        kneePivot.add(calf);
+        const bootGroup = new THREE.Group();
+        bootGroup.position.set(0, -0.39, 0.045);
+        const bootUpper = new THREE.Mesh(sharedBootUpperGeo, bootMat);
+        bootUpper.castShadow = true;
+        bootGroup.add(bootUpper);
+        const bootToe = new THREE.Mesh(sharedBootToeGeo, bootMat);
+        bootToe.scale.set(1.0, 0.78, 1.25);
+        bootToe.position.set(0, -0.008, 0.115);
+        bootGroup.add(bootToe);
+        const bootSole = new THREE.Mesh(sharedBootSoleGeo, soleMat);
+        bootSole.position.set(0, -0.048, 0.01);
+        bootGroup.add(bootSole);
+        kneePivot.add(bootGroup);
+        hipPivot.add(kneePivot);
+        bodyGroup.add(hipPivot);
+        return { hipPivot, kneePivot };
+      }
+      const leftLegRig = buildLeg(-0.115);
+      const rightLegRig = buildLeg(0.115);
+
+      const heightScale = customLook?.height ?? (0.97 + ((seed % 7) * 0.013));
+      bodyGroup.scale.set(heightScale, heightScale, heightScale);
+
+      // Sombra de contacto
+      const shadowGeo = new THREE.CircleGeometry(0.42, 18);
+      const shadowMat = new THREE.MeshBasicMaterial({ color: 0x021206, transparent: true, opacity: 0.40, depthWrite: false });
+      const shadowMesh = new THREE.Mesh(shadowGeo, shadowMat);
+      shadowMesh.rotation.x = -Math.PI / 2;
+      shadowMesh.position.y = 0.02;
+      root.add(shadowMesh);
+
+      // Etiqueta flotante con dorsal y nombre
+      const tagEl = document.createElement("div");
+      tagEl.className = "player-tag";
+      tagEl.innerHTML = `<span class="opacity-75 mr-0.5">#${number}</span> ${name}`;
+      tagEl.style.display = "none";
+      labelsContainer.appendChild(tagEl);
+
+      scene.add(root);
+
+      return {
+        id: (isHome ? "h_" : "a_") + number,
+        name,
+        number,
+        rolePos,
+        isHome,
+        isGK,
+        root,
+        bodyGroup,
+        torsoGroup,
+        headGroup,
+        leftLeg: leftLegRig.hipPivot,
+        leftKnee: leftLegRig.kneePivot,
+        rightLeg: rightLegRig.hipPivot,
+        rightKnee: rightLegRig.kneePivot,
+        leftArm: leftArmRig.armPivot,
+        leftElbow: leftArmRig.elbowPivot,
+        rightArm: rightArmRig.armPivot,
+        rightElbow: rightArmRig.elbowPivot,
+        jerseyMat,
+        solidJerseyMat,
+        shortsMat,
+        socksMat,
+        skinMat,
+        hairMat,
+        bootMat,
+        solidJerseyCol,
+        shortsCol,
+        skinCol,
+        hairCol,
+        bootCol,
+        heightScale,
+        mixer: null,
+        actions: null,
+        activeActionName: null,
+        tagEl,
+        curX: 0,
+        curZ: 0,
+        prevX: 0,
+        prevZ: 0,
+        targetX: 0,
+        targetZ: 0,
+        baseX: 0,
+        baseZ: 0,
+        yaw: isHome ? 0 : Math.PI,
+        stride: Math.random() * 10
+      };
+    }
+
+    // Creación de las 2 plantillas oficiales (Real Madrid vs FC Barcelona) con rasgos realistas
+    const homeSquad = [
+      createPlayer3D("Courtois", 1, "GK", true, true, { skin: 0xf5cba7, hair: 0x3b2314, style: 0, beard: true, height: 1.07 }),
+      createPlayer3D("Carvajal", 2, "RB", true, false, { skin: 0xe5b887, hair: 0x2c1e16, style: 0, beard: true, height: 0.96 }),
+      createPlayer3D("Militao", 3, "CB", true, false, { skin: 0x8d5524, hair: 0x171412, style: 1, beard: false, height: 1.03 }),
+      createPlayer3D("Rüdiger", 22, "CB", true, false, { skin: 0x6b3e26, hair: 0x171412, style: 2, beard: true, height: 1.05 }),
+      createPlayer3D("Mendy", 23, "LB", true, false, { skin: 0x6b3e26, hair: 0x171412, style: 1, beard: false, height: 1.00 }),
+      createPlayer3D("Tchouaméni", 14, "DM", true, false, { skin: 0x6b3e26, hair: 0x171412, style: 1, beard: true, height: 1.04 }),
+      createPlayer3D("Valverde", 8, "CM", true, false, { skin: 0xf1c27d, hair: 0x3b2314, style: 0, beard: false, height: 1.01 }),
+      createPlayer3D("Bellingham", 5, "AM", true, false, { skin: 0xd49b6a, hair: 0x171412, style: 1, beard: false, height: 1.03 }),
+      createPlayer3D("Rodrygo", 11, "RW", true, false, { skin: 0xd49b6a, hair: 0x171412, style: 3, beard: false, height: 0.96 }),
+      createPlayer3D("Mbappé", 9, "ST", true, false, { skin: 0x8d5524, hair: 0x171412, style: 2, beard: false, height: 0.99 }),
+      createPlayer3D("Vinicius Jr", 7, "LW", true, false, { skin: 0x6b3e26, hair: 0x171412, style: 3, beard: false, height: 0.98 })
+    ];
+
+    const awaySquad = [
+      createPlayer3D("Ter Stegen", 1, "GK", false, true, { skin: 0xf5cba7, hair: 0x9a6b32, style: 0, beard: true, height: 1.04 }),
+      createPlayer3D("Koundé", 23, "RB", false, false, { skin: 0x6b3e26, hair: 0x171412, style: 4, beard: false, height: 0.99 }),
+      createPlayer3D("Cubarsí", 2, "CB", false, false, { skin: 0xf5cba7, hair: 0x3b2314, style: 0, beard: false, height: 1.02 }),
+      createPlayer3D("Araujo", 4, "CB", false, false, { skin: 0xd49b6a, hair: 0x171412, style: 1, beard: true, height: 1.05 }),
+      createPlayer3D("Balde", 3, "LB", false, false, { skin: 0x6b3e26, hair: 0x171412, style: 3, beard: false, height: 0.97 }),
+      createPlayer3D("Casadó", 17, "DM", false, false, { skin: 0xf1c27d, hair: 0x3b2314, style: 0, beard: false, height: 0.96 }),
+      createPlayer3D("Pedri", 8, "CM", false, false, { skin: 0xf1c27d, hair: 0x2c1e16, style: 0, beard: false, height: 0.97 }),
+      createPlayer3D("De Jong", 21, "CM", false, false, { skin: 0xf5cba7, hair: 0x9a6b32, style: 0, beard: false, height: 1.01 }),
+      createPlayer3D("Lamine Yamal", 19, "RW", false, false, { skin: 0xd49b6a, hair: 0x171412, style: 3, beard: false, height: 0.99 }),
+      createPlayer3D("Lewandowski", 9, "ST", false, false, { skin: 0xf5cba7, hair: 0x3b2314, style: 0, beard: true, height: 1.03 }),
+      createPlayer3D("Raphinha", 11, "LW", false, false, { skin: 0xd49b6a, hair: 0x171412, style: 1, beard: true, height: 0.98 })
+    ];
+
+    const allPlayers = [...homeSquad, ...awaySquad];
+    const getP = (id) => allPlayers.find(p => p.id === id);
+
+    // =========================================================================
+    // 3B. CARGA DEL MODELO 3D jugador.glb CON THREE.GLTFLoader Y ANIMATIONMIXER
+    // =========================================================================
+    const JUGADOR_GLB_B64 = "Z2xURgIAAADkZQAAQD4AAEpTT057ImFjY2Vzc29ycyI6W3sidHlwZSI6IlZFQzMiLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6MjQsImJ1ZmZlclZpZXciOjAsImJ5dGVPZmZzZXQiOjAsIm1heCI6WzAuMjMsMC41NiwwLjE0XSwibWluIjpbLTAuMjMsMC4wOCwtMC4xNF19LHsidHlwZSI6IlZFQzMiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3IjoxLCJjb3VudCI6MjQsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlNDQUxBUiIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjIsImNvdW50IjozNiwiY29tcG9uZW50VHlwZSI6NTEyM30seyJ0eXBlIjoiVkVDMyIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyNCwiYnVmZmVyVmlldyI6MywiYnl0ZU9mZnNldCI6MCwibWF4IjpbMC4xOCwwLjE0LDAuMTJdLCJtaW4iOlstMC4xOCwtMC4wMiwtMC4xMl19LHsidHlwZSI6IlZFQzMiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo0LCJjb3VudCI6MjQsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlNDQUxBUiIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjUsImNvdW50IjozNiwiY29tcG9uZW50VHlwZSI6NTEyM30seyJ0eXBlIjoiVkVDMyIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyNCwiYnVmZmVyVmlldyI6NiwiYnl0ZU9mZnNldCI6MCwibWF4IjpbMC4yLDAuMSwwLjEzXSwibWluIjpbLTAuMiwtMC4xLC0wLjEzXX0seyJ0eXBlIjoiVkVDMyIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjcsImNvdW50IjoyNCwiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiU0NBTEFSIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6OCwiY291bnQiOjM2LCJjb21wb25lbnRUeXBlIjo1MTIzfSx7InR5cGUiOiJWRUMzIiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjI0LCJidWZmZXJWaWV3Ijo5LCJieXRlT2Zmc2V0IjowLCJtYXgiOlswLjA2NSwtMC4wNiwwLjA2NV0sIm1pbiI6Wy0wLjA2NSwtMC4xNzk5OTk5OTIsLTAuMDY1XX0seyJ0eXBlIjoiVkVDMyIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjEwLCJjb3VudCI6MjQsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlNDQUxBUiIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjExLCJjb3VudCI6MzYsImNvbXBvbmVudFR5cGUiOjUxMjN9LHsidHlwZSI6IlZFQzMiLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6MjQsImJ1ZmZlclZpZXciOjEyLCJieXRlT2Zmc2V0IjowLCJtYXgiOlswLjExNSwwLjE0OTk5OTk5MSwwLjEzXSwibWluIjpbLTAuMTE1LC0wLjExLC0wLjExXX0seyJ0eXBlIjoiVkVDMyIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjEzLCJjb3VudCI6MjQsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlNDQUxBUiIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjE0LCJjb3VudCI6MzYsImNvbXBvbmVudFR5cGUiOjUxMjN9LHsidHlwZSI6IlZFQzMiLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6MjQsImJ1ZmZlclZpZXciOjE1LCJieXRlT2Zmc2V0IjowLCJtYXgiOlswLjEyMjUsMC4xNywwLjExNV0sIm1pbiI6Wy0wLjEyMjUsMC4wNSwtMC4xMzVdfSx7InR5cGUiOiJWRUMzIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MTYsImNvdW50IjoyNCwiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiU0NBTEFSIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MTcsImNvdW50IjozNiwiY29tcG9uZW50VHlwZSI6NTEyM30seyJ0eXBlIjoiVkVDMyIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyNCwiYnVmZmVyVmlldyI6MTgsImJ5dGVPZmZzZXQiOjAsIm1heCI6WzAuMDY3NSwwLDAuMDY3NV0sIm1pbiI6Wy0wLjA2NzUsLTAuMjQsLTAuMDY3NV19LHsidHlwZSI6IlZFQzMiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3IjoxOSwiY291bnQiOjI0LCJjb21wb25lbnRUeXBlIjo1MTI2fSx7InR5cGUiOiJTQ0FMQVIiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3IjoyMCwiY291bnQiOjM2LCJjb21wb25lbnRUeXBlIjo1MTIzfSx7InR5cGUiOiJWRUMzIiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjI0LCJidWZmZXJWaWV3IjoyMSwiYnl0ZU9mZnNldCI6MCwibWF4IjpbMC4wNTUsLTAuMDA0OTk5OTk1LDAuMDU1XSwibWluIjpbLTAuMDU1LC0wLjI1NSwtMC4wNTVdfSx7InR5cGUiOiJWRUMzIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MjIsImNvdW50IjoyNCwiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiU0NBTEFSIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MjMsImNvdW50IjozNiwiY29tcG9uZW50VHlwZSI6NTEyM30seyJ0eXBlIjoiVkVDMyIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyNCwiYnVmZmVyVmlldyI6MjQsImJ5dGVPZmZzZXQiOjAsIm1heCI6WzAuMDQ1LC0wLjIzNSwwLjA0NV0sIm1pbiI6Wy0wLjA0NSwtMC4zMjUsLTAuMDQ1XX0seyJ0eXBlIjoiVkVDMyIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjI1LCJjb3VudCI6MjQsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlNDQUxBUiIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjI2LCJjb3VudCI6MzYsImNvbXBvbmVudFR5cGUiOjUxMjN9LHsidHlwZSI6IlZFQzMiLCJjb21wb25lbnRUeXBlIjo1MTI2LCJjb3VudCI6MjQsImJ1ZmZlclZpZXciOjI3LCJieXRlT2Zmc2V0IjowLCJtYXgiOlswLjA5NzUsMC4wMDk5OTk5OTgsMC4xXSwibWluIjpbLTAuMDk3NSwtMC4yMTAwMDAwMDgsLTAuMV19LHsidHlwZSI6IlZFQzMiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3IjoyOCwiY291bnQiOjI0LCJjb21wb25lbnRUeXBlIjo1MTI2fSx7InR5cGUiOiJTQ0FMQVIiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3IjoyOSwiY291bnQiOjM2LCJjb21wb25lbnRUeXBlIjo1MTIzfSx7InR5cGUiOiJWRUMzIiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjI0LCJidWZmZXJWaWV3IjozMCwiYnl0ZU9mZnNldCI6MCwibWF4IjpbMC4wODI1LC0wLjE2OTk5OTk4NywwLjA4MjVdLCJtaW4iOlstMC4wODI1LC0wLjQxLC0wLjA4MjVdfSx7InR5cGUiOiJWRUMzIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MzEsImNvdW50IjoyNCwiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiU0NBTEFSIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MzIsImNvdW50IjozNiwiY29tcG9uZW50VHlwZSI6NTEyM30seyJ0eXBlIjoiVkVDMyIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyNCwiYnVmZmVyVmlldyI6MzMsImJ5dGVPZmZzZXQiOjAsIm1heCI6WzAuMDY3NSwtMC4wMDk5OTk5OSwwLjA2NzVdLCJtaW4iOlstMC4wNjc1LC0wLjM3LC0wLjA2NzVdfSx7InR5cGUiOiJWRUMzIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MzQsImNvdW50IjoyNCwiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiU0NBTEFSIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MzUsImNvdW50IjozNiwiY29tcG9uZW50VHlwZSI6NTEyM30seyJ0eXBlIjoiVkVDMyIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50IjoyNCwiYnVmZmVyVmlldyI6MzYsImJ5dGVPZmZzZXQiOjAsIm1heCI6WzAuMDYyNSwtMC4zNDI0OTk5NzEsMC4xNzVdLCJtaW4iOlstMC4wNjI1LC0wLjQzNzUsLTAuMDg0OTk5OTldfSx7InR5cGUiOiJWRUMzIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MzcsImNvdW50IjoyNCwiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiU0NBTEFSIiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6MzgsImNvdW50IjozNiwiY29tcG9uZW50VHlwZSI6NTEyM30seyJ0eXBlIjoiU0NBTEFSIiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjMsImJ1ZmZlclZpZXciOjM5LCJieXRlT2Zmc2V0IjowLCJtYXgiOlsxLjJdLCJtaW4iOlswXX0seyJ0eXBlIjoiVkVDMyIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQwLCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiVkVDNCIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQxLCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiVkVDNCIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQyLCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiVkVDNCIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQzLCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiVkVDNCIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQ0LCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiVkVDNCIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQ1LCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiVkVDNCIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQ2LCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiVkVDNCIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQ3LCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiVkVDNCIsImJ5dGVPZmZzZXQiOjAsImJ1ZmZlclZpZXciOjQ4LCJjb3VudCI6MywiY29tcG9uZW50VHlwZSI6NTEyNn0seyJ0eXBlIjoiU0NBTEFSIiwiY29tcG9uZW50VHlwZSI6NTEyNiwiY291bnQiOjUsImJ1ZmZlclZpZXciOjQ5LCJieXRlT2Zmc2V0IjowLCJtYXgiOlswLjY0XSwibWluIjpbMF19LHsidHlwZSI6IlZFQzMiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1MCwiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1MSwiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1MiwiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1MywiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1NCwiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1NSwiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1NiwiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1NywiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1OCwiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlZFQzQiLCJieXRlT2Zmc2V0IjowLCJidWZmZXJWaWV3Ijo1OSwiY291bnQiOjUsImNvbXBvbmVudFR5cGUiOjUxMjZ9LHsidHlwZSI6IlNDQUxBUiIsImNvbXBvbmVudFR5cGUiOjUxMjYsImNvdW50Ijo0LCJidWZmZXJWaWV3Ijo2MCwiYnl0ZU9mZnNldCI6MCwibWF4IjpbMC40Ml0sIm1pbiI6WzBdfSx7InR5cGUiOiJWRUM0IiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6NjEsImNvdW50Ijo0LCJjb21wb25lbnRUeXBlIjo1MTI2fSx7InR5cGUiOiJWRUM0IiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6NjIsImNvdW50Ijo0LCJjb21wb25lbnRUeXBlIjo1MTI2fSx7InR5cGUiOiJWRUM0IiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6NjMsImNvdW50Ijo0LCJjb21wb25lbnRUeXBlIjo1MTI2fSx7InR5cGUiOiJWRUM0IiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6NjQsImNvdW50Ijo0LCJjb21wb25lbnRUeXBlIjo1MTI2fSx7InR5cGUiOiJWRUM0IiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6NjUsImNvdW50Ijo0LCJjb21wb25lbnRUeXBlIjo1MTI2fSx7InR5cGUiOiJWRUM0IiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6NjYsImNvdW50Ijo0LCJjb21wb25lbnRUeXBlIjo1MTI2fSx7InR5cGUiOiJWRUM0IiwiYnl0ZU9mZnNldCI6MCwiYnVmZmVyVmlldyI6NjcsImNvdW50Ijo0LCJjb21wb25lbnRUeXBlIjo1MTI2fV0sImJ1ZmZlcnMiOlt7ImJ5dGVMZW5ndGgiOjEwMTIwfV0sInNjZW5lcyI6W3sibm9kZXMiOlswXSwibmFtZSI6IlBsYXllclNjZW5lIn1dLCJidWZmZXJWaWV3cyI6W3siYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0IjowLCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0IjoyODgsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo3MiwiYnl0ZU9mZnNldCI6NTc2LCJ0YXJnZXQiOjM0OTYzLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0Ijo2NDgsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjkzNiwidGFyZ2V0IjozNDk2MiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjcyLCJieXRlT2Zmc2V0IjoxMjI0LCJ0YXJnZXQiOjM0OTYzLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0IjoxMjk2LCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0IjoxNTg0LCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NzIsImJ5dGVPZmZzZXQiOjE4NzIsInRhcmdldCI6MzQ5NjMsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjE5NDQsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjIyMzIsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo3MiwiYnl0ZU9mZnNldCI6MjUyMCwidGFyZ2V0IjozNDk2MywiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjI4OCwiYnl0ZU9mZnNldCI6MjU5MiwidGFyZ2V0IjozNDk2MiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjI4OCwiYnl0ZU9mZnNldCI6Mjg4MCwidGFyZ2V0IjozNDk2MiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjcyLCJieXRlT2Zmc2V0IjozMTY4LCJ0YXJnZXQiOjM0OTYzLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0IjozMjQwLCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0IjozNTI4LCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NzIsImJ5dGVPZmZzZXQiOjM4MTYsInRhcmdldCI6MzQ5NjMsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjM4ODgsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjQxNzYsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo3MiwiYnl0ZU9mZnNldCI6NDQ2NCwidGFyZ2V0IjozNDk2MywiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjI4OCwiYnl0ZU9mZnNldCI6NDUzNiwidGFyZ2V0IjozNDk2MiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjI4OCwiYnl0ZU9mZnNldCI6NDgyNCwidGFyZ2V0IjozNDk2MiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjcyLCJieXRlT2Zmc2V0Ijo1MTEyLCJ0YXJnZXQiOjM0OTYzLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0Ijo1MTg0LCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0Ijo1NDcyLCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NzIsImJ5dGVPZmZzZXQiOjU3NjAsInRhcmdldCI6MzQ5NjMsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjU4MzIsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjYxMjAsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo3MiwiYnl0ZU9mZnNldCI6NjQwOCwidGFyZ2V0IjozNDk2MywiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjI4OCwiYnl0ZU9mZnNldCI6NjQ4MCwidGFyZ2V0IjozNDk2MiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjI4OCwiYnl0ZU9mZnNldCI6Njc2OCwidGFyZ2V0IjozNDk2MiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjcyLCJieXRlT2Zmc2V0Ijo3MDU2LCJ0YXJnZXQiOjM0OTYzLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0Ijo3MTI4LCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6Mjg4LCJieXRlT2Zmc2V0Ijo3NDE2LCJ0YXJnZXQiOjM0OTYyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NzIsImJ5dGVPZmZzZXQiOjc3MDQsInRhcmdldCI6MzQ5NjMsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjc3NzYsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjoyODgsImJ5dGVPZmZzZXQiOjgwNjQsInRhcmdldCI6MzQ5NjIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo3MiwiYnl0ZU9mZnNldCI6ODM1MiwidGFyZ2V0IjozNDk2MywiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjEyLCJieXRlT2Zmc2V0Ijo4NDI0LCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6MzYsImJ5dGVPZmZzZXQiOjg0MzYsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo0OCwiYnl0ZU9mZnNldCI6ODQ3MiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjQ4LCJieXRlT2Zmc2V0Ijo4NTIwLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NDgsImJ5dGVPZmZzZXQiOjg1NjgsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo0OCwiYnl0ZU9mZnNldCI6ODYxNiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjQ4LCJieXRlT2Zmc2V0Ijo4NjY0LCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NDgsImJ5dGVPZmZzZXQiOjg3MTIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo0OCwiYnl0ZU9mZnNldCI6ODc2MCwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjQ4LCJieXRlT2Zmc2V0Ijo4ODA4LCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6MjAsImJ5dGVPZmZzZXQiOjg4NTYsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo2MCwiYnl0ZU9mZnNldCI6ODg3NiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjgwLCJieXRlT2Zmc2V0Ijo4OTM2LCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6ODAsImJ5dGVPZmZzZXQiOjkwMTYsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo4MCwiYnl0ZU9mZnNldCI6OTA5NiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjgwLCJieXRlT2Zmc2V0Ijo5MTc2LCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6ODAsImJ5dGVPZmZzZXQiOjkyNTYsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo4MCwiYnl0ZU9mZnNldCI6OTMzNiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjgwLCJieXRlT2Zmc2V0Ijo5NDE2LCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6ODAsImJ5dGVPZmZzZXQiOjk0OTYsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo4MCwiYnl0ZU9mZnNldCI6OTU3NiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjE2LCJieXRlT2Zmc2V0Ijo5NjU2LCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NjQsImJ5dGVPZmZzZXQiOjk2NzIsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo2NCwiYnl0ZU9mZnNldCI6OTczNiwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjY0LCJieXRlT2Zmc2V0Ijo5ODAwLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NjQsImJ5dGVPZmZzZXQiOjk4NjQsImJ1ZmZlciI6MH0seyJieXRlTGVuZ3RoIjo2NCwiYnl0ZU9mZnNldCI6OTkyOCwiYnVmZmVyIjowfSx7ImJ5dGVMZW5ndGgiOjY0LCJieXRlT2Zmc2V0Ijo5OTkyLCJidWZmZXIiOjB9LHsiYnl0ZUxlbmd0aCI6NjQsImJ5dGVPZmZzZXQiOjEwMDU2LCJidWZmZXIiOjB9XSwiYXNzZXQiOnsidmVyc2lvbiI6IjIuMCIsImdlbmVyYXRvciI6IkFudGlncmF2aXR5IEZvb3RiYWxsIE1hbmFnZXIgM0QgR0xCIEJ1aWxkZXIifSwibWVzaGVzIjpbeyJuYW1lIjoiVG9yc28iLCJwcmltaXRpdmVzIjpbeyJtYXRlcmlhbCI6MCwiYXR0cmlidXRlcyI6eyJOT1JNQUwiOjEsIlBPU0lUSU9OIjowfSwiaW5kaWNlcyI6Mn0seyJtYXRlcmlhbCI6MCwiYXR0cmlidXRlcyI6eyJOT1JNQUwiOjQsIlBPU0lUSU9OIjozfSwiaW5kaWNlcyI6NX1dfSx7Im5hbWUiOiJQZWx2aXMiLCJwcmltaXRpdmVzIjpbeyJtYXRlcmlhbCI6MSwiYXR0cmlidXRlcyI6eyJOT1JNQUwiOjcsIlBPU0lUSU9OIjo2fSwiaW5kaWNlcyI6OH1dfSx7Im5hbWUiOiJIZWFkIiwicHJpbWl0aXZlcyI6W3sibWF0ZXJpYWwiOjIsImF0dHJpYnV0ZXMiOnsiTk9STUFMIjoxMCwiUE9TSVRJT04iOjl9LCJpbmRpY2VzIjoxMX0seyJtYXRlcmlhbCI6MiwiYXR0cmlidXRlcyI6eyJOT1JNQUwiOjEzLCJQT1NJVElPTiI6MTJ9LCJpbmRpY2VzIjoxNH0seyJtYXRlcmlhbCI6MywiYXR0cmlidXRlcyI6eyJOT1JNQUwiOjE2LCJQT1NJVElPTiI6MTV9LCJpbmRpY2VzIjoxN31dfSx7Im5hbWUiOiJVcHBlckFybSIsInByaW1pdGl2ZXMiOlt7Im1hdGVyaWFsIjowLCJhdHRyaWJ1dGVzIjp7Ik5PUk1BTCI6MTksIlBPU0lUSU9OIjoxOH0sImluZGljZXMiOjIwfV19LHsibmFtZSI6IkZvcmVhcm0iLCJwcmltaXRpdmVzIjpbeyJtYXRlcmlhbCI6MiwiYXR0cmlidXRlcyI6eyJOT1JNQUwiOjIyLCJQT1NJVElPTiI6MjF9LCJpbmRpY2VzIjoyM30seyJtYXRlcmlhbCI6MiwiYXR0cmlidXRlcyI6eyJOT1JNQUwiOjI1LCJQT1NJVElPTiI6MjR9LCJpbmRpY2VzIjoyNn1dfSx7Im5hbWUiOiJUaGlnaCIsInByaW1pdGl2ZXMiOlt7Im1hdGVyaWFsIjoxLCJhdHRyaWJ1dGVzIjp7Ik5PUk1BTCI6MjgsIlBPU0lUSU9OIjoyN30sImluZGljZXMiOjI5fSx7Im1hdGVyaWFsIjoyLCJhdHRyaWJ1dGVzIjp7Ik5PUk1BTCI6MzEsIlBPU0lUSU9OIjozMH0sImluZGljZXMiOjMyfV19LHsibmFtZSI6IkNhbGZCb290IiwicHJpbWl0aXZlcyI6W3sibWF0ZXJpYWwiOjQsImF0dHJpYnV0ZXMiOnsiTk9STUFMIjozNCwiUE9TSVRJT04iOjMzfSwiaW5kaWNlcyI6MzV9LHsibWF0ZXJpYWwiOjUsImF0dHJpYnV0ZXMiOnsiTk9STUFMIjozNywiUE9TSVRJT04iOjM2fSwiaW5kaWNlcyI6Mzh9XX1dLCJzY2VuZSI6MCwibm9kZXMiOlt7InRyYW5zbGF0aW9uIjpbMCwwLDBdLCJyb3RhdGlvbiI6WzAsMCwwLDFdLCJuYW1lIjoiQm9keSIsImNoaWxkcmVuIjpbMSwyLDgsMTBdfSx7InRyYW5zbGF0aW9uIjpbMCwwLjk0LDBdLCJyb3RhdGlvbiI6WzAsMCwwLDFdLCJuYW1lIjoiVG9yc28iLCJtZXNoIjowLCJjaGlsZHJlbiI6WzMsNCw2XX0seyJ0cmFuc2xhdGlvbiI6WzAsMC44NywwXSwicm90YXRpb24iOlswLDAsMCwxXSwibmFtZSI6IlBlbHZpcyIsIm1lc2giOjF9LHsidHJhbnNsYXRpb24iOlswLDAuNzQsMC4wMV0sInJvdGF0aW9uIjpbMCwwLDAsMV0sIm5hbWUiOiJIZWFkIiwibWVzaCI6Mn0seyJ0cmFuc2xhdGlvbiI6Wy0wLjI4NSwwLjQ4NSwwXSwicm90YXRpb24iOlswLDAsMCwxXSwibmFtZSI6IkxlZnRBcm0iLCJtZXNoIjozLCJjaGlsZHJlbiI6WzVdfSx7InRyYW5zbGF0aW9uIjpbMCwtMC4yNDUsMF0sInJvdGF0aW9uIjpbMCwwLDAsMV0sIm5hbWUiOiJMZWZ0RWxib3ciLCJtZXNoIjo0fSx7InRyYW5zbGF0aW9uIjpbMC4yODUsMC40ODUsMF0sInJvdGF0aW9uIjpbMCwwLDAsMV0sIm5hbWUiOiJSaWdodEFybSIsIm1lc2giOjMsImNoaWxkcmVuIjpbN119LHsidHJhbnNsYXRpb24iOlswLC0wLjI0NSwwXSwicm90YXRpb24iOlswLDAsMCwxXSwibmFtZSI6IlJpZ2h0RWxib3ciLCJtZXNoIjo0fSx7InRyYW5zbGF0aW9uIjpbLTAuMTE1LDAuODQsMF0sInJvdGF0aW9uIjpbMCwwLDAsMV0sIm5hbWUiOiJMZWZ0TGVnIiwibWVzaCI6NSwiY2hpbGRyZW4iOls5XX0seyJ0cmFuc2xhdGlvbiI6WzAsLTAuNDEsMF0sInJvdGF0aW9uIjpbMCwwLDAsMV0sIm5hbWUiOiJMZWZ0S25lZSIsIm1lc2giOjZ9LHsidHJhbnNsYXRpb24iOlswLjExNSwwLjg0LDBdLCJyb3RhdGlvbiI6WzAsMCwwLDFdLCJuYW1lIjoiUmlnaHRMZWciLCJtZXNoIjo1LCJjaGlsZHJlbiI6WzExXX0seyJ0cmFuc2xhdGlvbiI6WzAsLTAuNDEsMF0sInJvdGF0aW9uIjpbMCwwLDAsMV0sIm5hbWUiOiJSaWdodEtuZWUiLCJtZXNoIjo2fV0sImFuaW1hdGlvbnMiOlt7InNhbXBsZXJzIjpbeyJpbnB1dCI6MzksImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjQwfSx7ImlucHV0IjozOSwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NDF9LHsiaW5wdXQiOjM5LCJpbnRlcnBvbGF0aW9uIjoiTElORUFSIiwib3V0cHV0Ijo0Mn0seyJpbnB1dCI6MzksImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjQzfSx7ImlucHV0IjozOSwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NDR9LHsiaW5wdXQiOjM5LCJpbnRlcnBvbGF0aW9uIjoiTElORUFSIiwib3V0cHV0Ijo0NX0seyJpbnB1dCI6MzksImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjQ2fSx7ImlucHV0IjozOSwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NDd9LHsiaW5wdXQiOjM5LCJpbnRlcnBvbGF0aW9uIjoiTElORUFSIiwib3V0cHV0Ijo0OH1dLCJuYW1lIjoiSWRsZSIsImNoYW5uZWxzIjpbeyJ0YXJnZXQiOnsibm9kZSI6MCwicGF0aCI6InRyYW5zbGF0aW9uIn0sInNhbXBsZXIiOjB9LHsidGFyZ2V0Ijp7Im5vZGUiOjQsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjoxfSx7InRhcmdldCI6eyJub2RlIjo2LCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6Mn0seyJ0YXJnZXQiOnsibm9kZSI6NSwicGF0aCI6InJvdGF0aW9uIn0sInNhbXBsZXIiOjN9LHsidGFyZ2V0Ijp7Im5vZGUiOjcsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjo0fSx7InRhcmdldCI6eyJub2RlIjo4LCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6NX0seyJ0YXJnZXQiOnsibm9kZSI6MTAsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjo2fSx7InRhcmdldCI6eyJub2RlIjo5LCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6N30seyJ0YXJnZXQiOnsibm9kZSI6MTEsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjo4fV19LHsic2FtcGxlcnMiOlt7ImlucHV0Ijo0OSwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NTB9LHsiaW5wdXQiOjQ5LCJpbnRlcnBvbGF0aW9uIjoiTElORUFSIiwib3V0cHV0Ijo1MX0seyJpbnB1dCI6NDksImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjUyfSx7ImlucHV0Ijo0OSwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NTN9LHsiaW5wdXQiOjQ5LCJpbnRlcnBvbGF0aW9uIjoiTElORUFSIiwib3V0cHV0Ijo1NH0seyJpbnB1dCI6NDksImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjU1fSx7ImlucHV0Ijo0OSwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NTZ9LHsiaW5wdXQiOjQ5LCJpbnRlcnBvbGF0aW9uIjoiTElORUFSIiwib3V0cHV0Ijo1N30seyJpbnB1dCI6NDksImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjU4fSx7ImlucHV0Ijo0OSwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NTl9XSwibmFtZSI6IlJ1biIsImNoYW5uZWxzIjpbeyJ0YXJnZXQiOnsibm9kZSI6MCwicGF0aCI6InRyYW5zbGF0aW9uIn0sInNhbXBsZXIiOjB9LHsidGFyZ2V0Ijp7Im5vZGUiOjEsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjoxfSx7InRhcmdldCI6eyJub2RlIjo4LCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6Mn0seyJ0YXJnZXQiOnsibm9kZSI6MTAsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjozfSx7InRhcmdldCI6eyJub2RlIjo5LCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6NH0seyJ0YXJnZXQiOnsibm9kZSI6MTEsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjo1fSx7InRhcmdldCI6eyJub2RlIjo0LCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6Nn0seyJ0YXJnZXQiOnsibm9kZSI6NiwicGF0aCI6InJvdGF0aW9uIn0sInNhbXBsZXIiOjd9LHsidGFyZ2V0Ijp7Im5vZGUiOjUsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjo4fSx7InRhcmdldCI6eyJub2RlIjo3LCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6OX1dfSx7InNhbXBsZXJzIjpbeyJpbnB1dCI6NjAsImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjYxfSx7ImlucHV0Ijo2MCwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NjJ9LHsiaW5wdXQiOjYwLCJpbnRlcnBvbGF0aW9uIjoiTElORUFSIiwib3V0cHV0Ijo2M30seyJpbnB1dCI6NjAsImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjY0fSx7ImlucHV0Ijo2MCwiaW50ZXJwb2xhdGlvbiI6IkxJTkVBUiIsIm91dHB1dCI6NjV9LHsiaW5wdXQiOjYwLCJpbnRlcnBvbGF0aW9uIjoiTElORUFSIiwib3V0cHV0Ijo2Nn0seyJpbnB1dCI6NjAsImludGVycG9sYXRpb24iOiJMSU5FQVIiLCJvdXRwdXQiOjY3fV0sIm5hbWUiOiJLaWNrIiwiY2hhbm5lbHMiOlt7InRhcmdldCI6eyJub2RlIjoxLCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6MH0seyJ0YXJnZXQiOnsibm9kZSI6OCwicGF0aCI6InJvdGF0aW9uIn0sInNhbXBsZXIiOjF9LHsidGFyZ2V0Ijp7Im5vZGUiOjEwLCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6Mn0seyJ0YXJnZXQiOnsibm9kZSI6OSwicGF0aCI6InJvdGF0aW9uIn0sInNhbXBsZXIiOjN9LHsidGFyZ2V0Ijp7Im5vZGUiOjExLCJwYXRoIjoicm90YXRpb24ifSwic2FtcGxlciI6NH0seyJ0YXJnZXQiOnsibm9kZSI6NCwicGF0aCI6InJvdGF0aW9uIn0sInNhbXBsZXIiOjV9LHsidGFyZ2V0Ijp7Im5vZGUiOjYsInBhdGgiOiJyb3RhdGlvbiJ9LCJzYW1wbGVyIjo2fV19XSwibWF0ZXJpYWxzIjpbeyJwYnJNZXRhbGxpY1JvdWdobmVzcyI6eyJyb3VnaG5lc3NGYWN0b3IiOjAuNTYsImJhc2VDb2xvckZhY3RvciI6WzEsMSwxLDFdLCJtZXRhbGxpY0ZhY3RvciI6MC4wNH0sIm5hbWUiOiJUb3Jzb01hdGVyaWFsIn0seyJwYnJNZXRhbGxpY1JvdWdobmVzcyI6eyJyb3VnaG5lc3NGYWN0b3IiOjAuNjUsImJhc2VDb2xvckZhY3RvciI6WzAuOTQsMC45NiwwLjk4LDFdLCJtZXRhbGxpY0ZhY3RvciI6MC4wNH0sIm5hbWUiOiJTaG9ydHNNYXRlcmlhbCJ9LHsicGJyTWV0YWxsaWNSb3VnaG5lc3MiOnsicm91Z2huZXNzRmFjdG9yIjowLjU1LCJiYXNlQ29sb3JGYWN0b3IiOlswLjkxLDAuNzIsMC41NCwxXSwibWV0YWxsaWNGYWN0b3IiOjAuMDJ9LCJuYW1lIjoiU2tpbk1hdGVyaWFsIn0seyJwYnJNZXRhbGxpY1JvdWdobmVzcyI6eyJyb3VnaG5lc3NGYWN0b3IiOjAuODUsImJhc2VDb2xvckZhY3RvciI6WzAuMTIsMC4wOSwwLjA3LDFdLCJtZXRhbGxpY0ZhY3RvciI6MC4wMn0sIm5hbWUiOiJIYWlyTWF0ZXJpYWwifSx7InBick1ldGFsbGljUm91Z2huZXNzIjp7InJvdWdobmVzc0ZhY3RvciI6MC42OCwiYmFzZUNvbG9yRmFjdG9yIjpbMC45NSwwLjk2LDAuOTgsMV0sIm1ldGFsbGljRmFjdG9yIjowLjA0fSwibmFtZSI6IlNvY2tzTWF0ZXJpYWwifSx7InBick1ldGFsbGljUm91Z2huZXNzIjp7InJvdWdobmVzc0ZhY3RvciI6MC4zNSwiYmFzZUNvbG9yRmFjdG9yIjpbMC4wOCwwLjEsMC4xNCwxXSwibWV0YWxsaWNGYWN0b3IiOjAuMTh9LCJuYW1lIjoiQm9vdE1hdGVyaWFsIn1dfSCIJwAAQklOAB+Fa74K16M9KVwPPh+Faz4K16M9KVwPPh+Faz4pXA8/KVwPPh+Fa74pXA8/KVwPPh+Faz4K16M9KVwPvh+Fa74K16M9KVwPvh+Fa74pXA8/KVwPvh+Faz4pXA8/KVwPvh+Fa74pXA8/KVwPPh+Faz4pXA8/KVwPPh+Faz4pXA8/KVwPvh+Fa74pXA8/KVwPvh+Fa74K16M9KVwPvh+Faz4K16M9KVwPvh+Faz4K16M9KVwPPh+Fa74K16M9KVwPPh+Faz4K16M9KVwPPh+Faz4K16M9KVwPvh+Faz4pXA8/KVwPvh+Faz4pXA8/KVwPPh+Fa74K16M9KVwPvh+Fa74K16M9KVwPPh+Fa74pXA8/KVwPPh+Fa74pXA8/KVwPvgAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAAQACAAAAAgADAAQABQAGAAQABgAHAAgACQAKAAgACgALAAwADQAOAAwADgAPABAAEQASABAAEgATABQAFQAWABQAFgAXAOxROL4K16O8j8L1PexROD4K16O8j8L1PexROD4pXA8+j8L1PexROL4pXA8+j8L1PexROD4K16O8j8L1vexROL4K16O8j8L1vexROL4pXA8+j8L1vexROD4pXA8+j8L1vexROL4pXA8+j8L1PexROD4pXA8+j8L1PexROD4pXA8+j8L1vexROL4pXA8+j8L1vexROL4K16O8j8L1vexROD4K16O8j8L1vexROD4K16O8j8L1PexROL4K16O8j8L1PexROD4K16O8j8L1PexROD4K16O8j8L1vexROD4pXA8+j8L1vexROD4pXA8+j8L1PexROL4K16O8j8L1vexROL4K16O8j8L1PexROL4pXA8+j8L1PexROL4pXA8+j8L1vQAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAAAA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AACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAAQACAAAAAgADAAQABQAGAAQABgAHAAgACQAKAAgACgALAAwADQAOAAwADgAPABAAEQASABAAEgATABQAFQAWABQAFgAXAEjh+r3NzEw9H4XrPUjh+j3NzEw9H4XrPUjh+j17FC4+H4XrPUjh+r17FC4+H4XrPUjh+j3NzEw9cT0Kvkjh+r3NzEw9cT0Kvkjh+r17FC4+cT0Kvkjh+j17FC4+cT0Kvkjh+r17FC4+H4XrPUjh+j17FC4+H4XrPUjh+j17FC4+cT0Kvkjh+r17FC4+cT0Kvkjh+r3NzEw9cT0Kvkjh+j3NzEw9cT0Kvkjh+j3NzEw9H4XrPUjh+r3NzEw9H4XrPUjh+j3NzEw9H4XrPUjh+j3NzEw9cT0Kvkjh+j17FC4+cT0Kvkjh+j17FC4+H4XrPUjh+r3NzEw9cT0Kvkjh+r3NzEw9H4XrPUjh+r17FC4+H4XrPUjh+r17FC4+cT0KvgAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAAQACAAAAAgADAAQABQAGAAQA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w/WovcP1qL2F69G+w/WovcP1qL16FC6+w/WovcP1qD16FC6+w/WovcP1qL16FC6+w/WoPcP1qD16FC6+w/WoPcP1qD16FC6+w/WovcP1qL16FC6+w/WovcP1qL2F69G+w/WovcP1qD2F69G+w/WovcP1qD2F69G+w/WoPcP1qL2F69G+w/WoPcP1qD2F69G+w/WoPcP1qD2F69G+w/WovcP1qD16FC6+w/WovcP1qD16FC6+w/WoPcP1qL2F69G+w/WovcP1qL2F69G+w/WoPcP1qL16FC6+w/WoPcP1qL16FC6+w/WovQAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAAQACAAAAAgADAAQABQAGAAQABgAHAAgACQAKAAgACgALAAwADQAOAAwADgAPABAAEQASABAAEgATABQAFQAWABQAFgAXAHE9ir2kcL2+cT2KPXE9ij2kcL2+cT2KPXE9ij0A1yO8cT2KPXE9ir0A1yO8cT2KPXE9ij2kcL2+cT2KvXE9ir2kcL2+cT2KvXE9ir0A1yO8cT2KvXE9ij0A1yO8cT2KvXE9ir0A1yO8cT2KPXE9ij0A1yO8cT2KPXE9ij0A1yO8cT2KvXE9ir0A1yO8cT2KvXE9ir2kcL2+cT2KvXE9ij2kcL2+cT2KvXE9ij2kcL2+cT2KPXE9ir2kcL2+cT2KPXE9ij2kcL2+cT2KPXE9ij2kcL2+cT2KvXE9ij0A1yO8cT2KvXE9ij0A1yO8cT2KPXE9ir2kcL2+cT2KvXE9ir2kcL2+cT2KPXE9ir0A1yO8cT2KPXE9ir0A1yO8cT2KvQAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAAQACAAAAAgADAAQABQAGAAQABgAHAAgACQAKAAgACgALAAwADQAOAAwADgAPABAAEQASABAAEgATABQAFQAWABQAFgAXAAAAgL0AAOC+MzMzPgAAgD0AAOC+MzMzPgAAgD0oXK++MzMzPgAAgL0oXK++MzMzPgAAgD0AAOC+ehSuvQAAgL0AAOC+ehSuvQAAgL0oXK++ehSuvQAAgD0oXK++ehSuvQAAgL0oXK++MzMzPgAAgD0oXK++MzMzPgAAgD0oXK++ehSuvQAAgL0oXK++ehSuvQAAgL0AAOC+ehSuvQAAgD0AAOC+ehSuvQAAgD0AAOC+MzMzPgAAgL0AAOC+MzMzPgAAgD0AAOC+MzMzPgAAgD0AAOC+ehSuvQAAgD0oXK++ehSuvQAAgD0oXK++MzMzPgAAgL0AAOC+ehSuvQAAgL0AAOC+MzMzPgAAgL0oXK++MzMzPgAAgL0oXK++ehSuvQAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAPwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAAAAAACAvwAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAAAAAAIC/AAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgD8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAA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";
+
+    function decodeBase64ToArrayBuffer(b64) {
+      const bin = atob(b64);
+      const len = bin.length;
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+      return bytes.buffer;
+    }
+
+    function applyGlbModelToPlayers(gltf) {
+      if (!gltf || !gltf.scene) return;
+      const clips = gltf.animations || [];
+      const idleClip = THREE.AnimationClip.findByName(clips, "Idle") || clips[0];
+      const runClip = THREE.AnimationClip.findByName(clips, "Run") || clips[1];
+      const kickClip = THREE.AnimationClip.findByName(clips, "Kick") || clips[2];
+
+      allPlayers.forEach((p, idx) => {
+        const clonedScene = (THREE.SkeletonUtils && THREE.SkeletonUtils.clone)
+          ? THREE.SkeletonUtils.clone(gltf.scene)
+          : gltf.scene.clone(true);
+
+        while (p.bodyGroup.children.length > 0) {
+          p.bodyGroup.remove(p.bodyGroup.children[0]);
+        }
+
+        // Clonar materiales por jugador y aplicar el color/textura de la camiseta del equipo al material del torso
+        clonedScene.traverse((child) => {
+          if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+            const origMat = child.material;
+            const matName = origMat ? origMat.name : "";
+            const nodeName = child.name || "";
+
+            if (matName === "TorsoMaterial" || nodeName.includes("Torso")) {
+              const torsoMat = origMat ? origMat.clone() : new THREE.MeshStandardMaterial();
+              torsoMat.color.setHex(p.solidJerseyCol);
+              torsoMat.roughness = 0.56;
+              torsoMat.metalness = 0.04;
+              child.material = torsoMat;
+              p.torsoGlbMat = torsoMat;
+            } else if (nodeName.includes("UpperArm") || nodeName.includes("Arm")) {
+              const armMat = origMat ? origMat.clone() : new THREE.MeshStandardMaterial();
+              armMat.color.setHex(p.solidJerseyCol);
+              armMat.roughness = 0.58;
+              child.material = armMat;
+            } else if (matName === "ShortsMaterial" || nodeName.includes("Pelvis")) {
+              const shMat = origMat ? origMat.clone() : new THREE.MeshStandardMaterial();
+              shMat.color.setHex(p.shortsCol);
+              shMat.roughness = 0.65;
+              child.material = shMat;
+            } else if (matName === "SkinMaterial") {
+              const skMat = origMat ? origMat.clone() : new THREE.MeshStandardMaterial();
+              skMat.color.setHex(p.skinCol);
+              skMat.roughness = 0.56;
+              child.material = skMat;
+            } else if (matName === "HairMaterial") {
+              const hrMat = origMat ? origMat.clone() : new THREE.MeshStandardMaterial();
+              hrMat.color.setHex(p.hairCol);
+              hrMat.roughness = 0.85;
+              child.material = hrMat;
+            } else if (matName === "SocksMaterial") {
+              const sksMat = origMat ? origMat.clone() : new THREE.MeshStandardMaterial();
+              sksMat.color.setHex(p.solidJerseyCol);
+              sksMat.roughness = 0.68;
+              child.material = sksMat;
+            } else if (matName === "BootMaterial") {
+              const btMat = origMat ? origMat.clone() : new THREE.MeshStandardMaterial();
+              btMat.color.setHex(p.bootCol);
+              btMat.roughness = 0.34;
+              btMat.metalness = 0.18;
+              child.material = btMat;
+            }
+          }
+        });
+
+        // Añadir placa de dorsal/escudo sobre el torso del modelo GLB para conservar dorsales nítidos
+        const torsoNode = clonedScene.getObjectByName("Torso");
+        if (torsoNode && p.jerseyMat) {
+          const kitOverlay = new THREE.Mesh(sharedUpperTorsoGeo, p.jerseyMat);
+          kitOverlay.scale.set(1.13, 1.0, 0.74);
+          kitOverlay.position.set(0, 0.33, 0);
+          kitOverlay.castShadow = true;
+          kitOverlay.receiveShadow = true;
+          torsoNode.add(kitOverlay);
+        }
+
+        p.bodyGroup.add(clonedScene);
+        p.bodyGroup.scale.set(p.heightScale, p.heightScale, p.heightScale);
+
+        p.torsoGroup = clonedScene.getObjectByName("Torso") || p.torsoGroup;
+        p.headGroup = clonedScene.getObjectByName("Head") || p.headGroup;
+        p.leftArm = clonedScene.getObjectByName("LeftArm") || p.leftArm;
+        p.leftElbow = clonedScene.getObjectByName("LeftElbow") || p.leftElbow;
+        p.rightArm = clonedScene.getObjectByName("RightArm") || p.rightArm;
+        p.rightElbow = clonedScene.getObjectByName("RightElbow") || p.rightElbow;
+        p.leftLeg = clonedScene.getObjectByName("LeftLeg") || p.leftLeg;
+        p.leftKnee = clonedScene.getObjectByName("LeftKnee") || p.leftKnee;
+        p.rightLeg = clonedScene.getObjectByName("RightLeg") || p.rightLeg;
+        p.rightKnee = clonedScene.getObjectByName("RightKnee") || p.rightKnee;
+
+        // Vincular AnimationMixer de Three.js a cada uno de los 22 jugadores
+        const mixer = new THREE.AnimationMixer(clonedScene);
+        const actions = {
+          idle: idleClip ? mixer.clipAction(idleClip) : null,
+          run: runClip ? mixer.clipAction(runClip) : null,
+          kick: kickClip ? mixer.clipAction(kickClip) : null
+        };
+        if (actions.idle) {
+          actions.idle.play();
+          actions.idle.time = (idx * 0.19) % 1.2;
+        }
+        if (actions.run) {
+          actions.run.time = (idx * 0.13) % 0.64;
+        }
+        p.mixer = mixer;
+        p.actions = actions;
+        p.activeActionName = "idle";
+      });
+    }
+
+    if (typeof THREE.GLTFLoader === "function") {
+      const gltfLoader = new THREE.GLTFLoader();
+      if (window.location && window.location.protocol === "file:") {
+        gltfLoader.parse(decodeBase64ToArrayBuffer(JUGADOR_GLB_B64), "", applyGlbModelToPlayers);
+      } else {
+        gltfLoader.load(
+          "./jugador.glb",
+          applyGlbModelToPlayers,
+          undefined,
+          () => gltfLoader.parse(decodeBase64ToArrayBuffer(JUGADOR_GLB_B64), "", applyGlbModelToPlayers)
+        );
+      }
+    }
+
+    // =========================================================================
+    // 4. MOTOR AUTÓNOMO A 20 TICKS/SEGUNDO + REPLAY BUFFER (15s) + GEOMETRÍA FIFA
+    // =========================================================================
+    let tacticState = {
+      atkWidth: "wide",     // "wide" (Z=±30.5m) | "center" (Z=±14m)
+      defWidth: "compact",  // "compact" (Z=±15m) | "balanced" (Z=±22.5m) | "wide" (Z=±29.5m)
+      defLine: "mid"        // "high" (X=-4m) | "mid" (X=-22m) | "low" (X=-35m)
+    };
+
+    // Estado físico en tiempo real de los 22 agentes y el balón (X en [-52.5, 52.5], Z en [-34, 34])
+    const simBall = {
+      x: 8.0,
+      y: 0.0,
+      z: 0.0,
+      vx: 0.0,
+      vy: 0.0,
+      vz: 0.0,
+      carrierId: "a_17",
+      passTargetId: null,
+      shotTeam: null,
+      lastTouchTeam: "away",
+      pickupCooldown: 0
+    };
+
+    allPlayers.forEach(p => {
+      p.vx = 0;
+      p.vz = 0;
+      p.maxSpeed = p.isGK ? 6.2 : (["RW", "LW", "ST", "RB", "LB"].includes(p.rolePos) ? 8.1 : 7.4);
+      p.accel = 17.5;
+      p.decisionTimer = 0.25;
+      p.controlTimer = 0;
+      p.tackleCooldown = 0;
+      p.pose = "IDLE";
+    });
+
+    // Buffer circular de grabación de los últimos 15 segundos a 20 ticks/segundo (300 frames)
+    const MAX_REPLAY_FRAMES = 300;
+    let replayBuffer = [];
+    let activeReplay = null; // { frames, cursor, tickRate: 20, label, lastActionFn }
+
+    const toastEl = document.getElementById("tactical-toast");
+    const toastTitle = document.getElementById("toast-title");
+    const toastDesc = document.getElementById("toast-desc");
+    const toastIcon = document.getElementById("toast-icon");
+    let toastTimeout = null;
+
+    function showToast(title, desc, type = "normal") {
+      toastTitle.textContent = title;
+      toastDesc.textContent = desc;
+      toastIcon.textContent = type === "alert" ? "⚠️" : (type === "shield" ? "🛡️" : "⚡");
+      toastEl.className = `fm-glass px-4 py-2 rounded-2xl shadow-2xl flex items-center gap-2.5 transition-all duration-300 opacity-100 translate-y-0 w-full justify-center ${type === 'alert' ? 'border-rose-500' : 'border-amber-400'}`;
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toastEl.className = "fm-glass px-4 py-2 rounded-2xl border border-amber-400 shadow-2xl flex items-center gap-2.5 transition-all duration-300 opacity-0 -translate-y-2 w-full justify-center";
+      }, 5200);
+    }
+
+    const tickerText = document.getElementById("ticker-text");
+    const tickerPhase = document.getElementById("ticker-phase");
+    const tickerTime = document.getElementById("ticker-time");
+
+    function updateTicker(text, phase, timeStr = null) {
+      if (tickerText) tickerText.textContent = text;
+      if (tickerPhase) tickerPhase.textContent = `MODO: ${phase}`;
+      if (tickerTime && timeStr) tickerTime.textContent = timeStr;
+    }
+
+    function setAtkWidth(val) {
+      tacticState.atkWidth = val;
+      document.getElementById("tactic-atk-wide").className = val === "wide" ? "px-2 py-0.5 rounded-md font-bold text-white bg-emerald-600 transition" : "px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition";
+      document.getElementById("tactic-atk-center").className = val === "center" ? "px-2 py-0.5 rounded-md font-bold text-white bg-emerald-600 transition" : "px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition";
+      showToast("TÁCTICA RIVAL ACTUALIZADA", val === "wide" ? "Ataque Abierto por Bandas (Z = ±30.5m). Re-simulando jugada emergente..." : "Ataque Interior (Z = ±14m). Re-simulando jugada emergente...");
+      simulateEmergentOpenPlayHighlight();
+    }
+
+    function setDefWidth(val) {
+      tacticState.defWidth = val;
+      ["compact", "balanced", "wide"].forEach(w => {
+        const el = document.getElementById(`tactic-def-${w}`);
+        el.className = val === w ? "px-2 py-0.5 rounded-md font-bold text-white bg-emerald-600 transition" : "px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition";
+      });
+      if (val === "compact") {
+        showToast("⚠️ DEFENSA CERRADA", "Bloque compacto en Z=±15m. El motor de Pitch Control detectará autopistas libres en las bandas.", "alert");
+      } else if (val === "wide") {
+        showToast("🛡️ CERRAR BANDAS", "Laterales abiertos a Z=±29.5m vigilando los extremos rivales.", "shield");
+      } else {
+        showToast("ANCHURA EQUILIBRADA", "Línea de 4 defensas ocupando 44m de ancho.");
+      }
+      simulateEmergentOpenPlayHighlight();
+    }
+
+    function setDefLine(val) {
+      tacticState.defLine = val;
+      ["high", "mid", "low"].forEach(l => {
+        const el = document.getElementById(`tactic-line-${l}`);
+        el.className = val === l ? "px-2 py-0.5 rounded-md font-bold text-white bg-emerald-600 transition" : "px-2 py-0.5 rounded-md font-bold text-slate-400 hover:text-white transition";
+      });
+      if (val === "high") {
+        showToast("🚩 LÍNEA ADELANTADA (X = -4m)", "45 metros a la espalda de los centrales: la IA buscará pases filtrados al espacio.");
+      } else if (val === "low") {
+        showToast("🧱 BLOQUE BAJO (X = -35m)", "Zaga aculada al borde del área grande cerrando espacios a la espalda.");
+      } else {
+        showToast("BLOQUE MEDIO (X = -22m)", "Altura defensiva estándar.");
+      }
+      simulateEmergentOpenPlayHighlight();
+    }
+
+    // Memoria anti-repetición y estado táctico emergente de la jugada en curso
+    let currentPlayScenario = "WING_OVERLAP_CUTBACK";
+    let currentAttackingSide = "away"; // Alterna dinámicamente entre "home" (Real Madrid -> +52.5) y "away" (Barça -> -52.5)
+    let lastScenarioIndex = -1;
+    simBall.spin = 0;
+
+    const EMERGENT_SCENARIOS = [
+      { id: "WING_OVERLAP_CUTBACK", label: "DOBLAJE Y PASE DE LA MUERTE", desc: "Desborde por banda con doblaje del lateral y llegada en 3 carriles al área" },
+      { id: "ONE_TWO_TIKI_TAKA", label: "PARED INTERIOR (1-2)", desc: "Combinación rápida en tres cuartos con devolución al desmarque de ruptura" },
+      { id: "CUT_INSIDE_FINESSE", label: "DIAGONAL Y ROSCA AL PALO LARGO", desc: "Extremo a pierna cambiada recortando hacia dentro para disparo con efecto" },
+      { id: "COUNTER_ATTACK", label: "TRANSICIÓN Y CONTRAATAQUE", desc: "Robo en campo propio y salida vertical antes del repliegue defensivo" },
+      { id: "FLANK_SWITCH_ISOLATION", label: "CAMBIO DE ORIENTACIÓN", desc: "Sobrecarga en una banda para liberar al extremo contrario en el lado débil" },
+      { id: "CENTRAL_THROUGH_BALL", label: "PASE FILTRADO AL ESPACIO", desc: "Desmarque diagonal a la espalda de los centrales superando el fuera de juego" },
+      { id: "HIGH_PRESS_TURNOVER", label: "ROBO EN PRESIÓN ALTA", desc: "Presión tras pérdida en salida rival y definición inmediata" }
+    ];
+
+    // Calcula las anclas tácticas dinámicas de los 22 jugadores adaptadas a quién ataca y la pizarra
+    function computeDynamicTacticalTargets(atkSide = currentAttackingSide) {
+      const isHomeAtk = atkSide === "home";
+      const atkDir = isHomeAtk ? 1 : -1;
+
+      const wingZ = tacticState.atkWidth === "wide" ? 30.2 : 14.2;
+      let fullbackZ = 22.5;
+      if (tacticState.defWidth === "compact") fullbackZ = 14.5;
+      else if (tacticState.defWidth === "wide") fullbackZ = 29.5;
+
+      let baseDefOffset = 22.0;
+      if (tacticState.defLine === "high") baseDefOffset = 4.0;
+      else if (tacticState.defLine === "low") baseDefOffset = 35.0;
+
+      // Basculación longitudinal y lateral (25% hacia donde está el balón)
+      const ballShiftX = simBall.x * 0.34;
+      const ballShiftZ = simBall.z * 0.25;
+
+      // Coordenada X de la línea defensiva del equipo que defiende
+      const defLineX = isHomeAtk
+        ? Math.max(-2.0, Math.min(46.5, baseDefOffset + ballShiftX * 0.45))
+        : Math.max(-46.5, Math.min(2.0, -baseDefOffset + ballShiftX * 0.45));
+
+      const atkLineX = isHomeAtk
+        ? Math.min(44.5, Math.max(6.0, defLineX + 1.0))
+        : Math.max(-44.5, Math.min(-6.0, defLineX - 1.0));
+
+      const buildAnchorsForTeam = (isHomeTeam, isAttacking) => {
+        const dir = isHomeTeam ? 1 : -1; // +1 ataca derecha, -1 ataca izquierda
+        const ownGoalX = isHomeTeam ? -50.8 : 50.8;
+        const ids = isHomeTeam
+          ? { gk: "h_1", rb: "h_2", cb1: "h_3", cb2: "h_22", lb: "h_23", dm: "h_14", cm1: "h_8", cm2: "h_5", rw: "h_11", st: "h_9", lw: "h_7" }
+          : { gk: "a_1", rb: "a_23", cb1: "a_2", cb2: "a_4", lb: "a_3", dm: "a_17", cm1: "a_8", cm2: "a_21", rw: "a_19", st: "a_9", lw: "a_11" };
+
+        if (!isAttacking) {
+          // Bloque defensivo ordenado según defLine y defWidth
+          return {
+            [ids.gk]: { x: ownGoalX, z: Math.max(-3.2, Math.min(3.2, simBall.z * 0.22)) },
+            [ids.rb]: { x: defLineX, z: (isHomeTeam ? fullbackZ : -fullbackZ) + ballShiftZ * 0.6 },
+            [ids.cb1]: { x: defLineX, z: (isHomeTeam ? fullbackZ * 0.34 : -fullbackZ * 0.34) + ballShiftZ * 0.6 },
+            [ids.cb2]: { x: defLineX, z: (isHomeTeam ? -fullbackZ * 0.34 : fullbackZ * 0.34) + ballShiftZ * 0.6 },
+            [ids.lb]: { x: defLineX, z: (isHomeTeam ? -fullbackZ : fullbackZ) + ballShiftZ * 0.6 },
+            [ids.dm]: { x: defLineX + dir * 10.5, z: ballShiftZ * 0.8 },
+            [ids.cm1]: { x: defLineX + dir * 16.5, z: 12.2 + ballShiftZ * 0.7 },
+            [ids.cm2]: { x: defLineX + dir * 16.5, z: -12.2 + ballShiftZ * 0.7 },
+            [ids.rw]: { x: defLineX + dir * 26.5, z: (isHomeTeam ? 21.5 : -21.5) + ballShiftZ * 0.5 },
+            [ids.st]: { x: defLineX + dir * 30.5, z: ballShiftZ * 0.5 },
+            [ids.lw]: { x: defLineX + dir * 26.5, z: (isHomeTeam ? -21.5 : 21.5) + ballShiftZ * 0.5 }
+          };
+        } else {
+          // Bloque ofensivo con triángulos de apoyo en mediocampo y extremos según atkWidth
+          const backX = -dir * 26.0 + ballShiftX * 0.32;
+          const midX = isHomeTeam ? Math.min(18.0, atkLineX - 18.0) : Math.max(-18.0, atkLineX + 18.0);
+          return {
+            [ids.gk]: { x: ownGoalX, z: 0.0 },
+            [ids.rb]: { x: backX + dir * 6.0, z: (isHomeTeam ? 23.0 : -23.0) + ballShiftZ * 0.5 },
+            [ids.cb1]: { x: backX, z: (isHomeTeam ? 7.5 : -7.5) + ballShiftZ * 0.45 },
+            [ids.cb2]: { x: backX, z: (isHomeTeam ? -7.5 : 7.5) + ballShiftZ * 0.45 },
+            [ids.lb]: { x: backX + dir * 6.0, z: (isHomeTeam ? -23.0 : 23.0) + ballShiftZ * 0.5 },
+            [ids.dm]: { x: midX - dir * 4.0, z: ballShiftZ * 0.65 },
+            [ids.cm1]: { x: midX + dir * 5.0, z: -11.5 + ballShiftZ * 0.65 },
+            [ids.cm2]: { x: midX + dir * 5.0, z: 11.5 + ballShiftZ * 0.65 },
+            [ids.rw]: { x: atkLineX - dir * 1.5, z: isHomeTeam ? wingZ : -wingZ },
+            [ids.st]: { x: atkLineX - dir * 0.8, z: ballShiftZ * 0.3 },
+            [ids.lw]: { x: atkLineX - dir * 1.5, z: isHomeTeam ? -wingZ : wingZ }
+          };
+        }
+      };
+
+      const merged = {
+        ...buildAnchorsForTeam(true, isHomeAtk),
+        ...buildAnchorsForTeam(false, !isHomeAtk)
+      };
+
+      Object.entries(merged).forEach(([id, c]) => {
+        const p = getP(id);
+        if (p) {
+          p.baseX = Math.max(-51.5, Math.min(51.5, c.x));
+          p.baseZ = Math.max(-32.8, Math.min(32.8, c.z));
+          p.targetX = p.baseX;
+          p.targetZ = p.baseZ;
+        }
+      });
+
+      // Fuerza de separación mínima obligatoria (6.8 metros entre compañeros)
+      [homeSquad, awaySquad].forEach(squad => {
+        for (let iter = 0; iter < 2; iter++) {
+          for (let i = 0; i < squad.length; i++) {
+            for (let j = i + 1; j < squad.length; j++) {
+              const p1 = squad[i], p2 = squad[j];
+              if (p1.isGK || p2.isGK) continue;
+              const dx = p1.targetX - p2.targetX;
+              const dz = p1.targetZ - p2.targetZ;
+              const dist = Math.hypot(dx, dz);
+              if (dist < 6.8 && dist > 0.01) {
+                const push = (6.8 - dist) * 0.5;
+                p1.targetX += (dx / dist) * push;
+                p1.targetZ += (dz / dist) * push;
+                p2.targetX -= (dx / dist) * push;
+                p2.targetZ -= (dz / dist) * push;
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function distPointToSeg(px, pz, ax, az, bx, bz) {
+      const abx = bx - ax, abz = bz - az;
+      const lenSq = abx * abx + abz * abz;
+      if (lenSq < 0.0001) return Math.hypot(px - ax, pz - az);
+      const t = Math.max(0, Math.min(1, ((px - ax) * abx + (pz - az) * abz) / lenSq));
+      return Math.hypot(px - (ax + t * abx), pz - (az + t * abz));
+    }
+
+    // Grabación en el buffer circular replayBuffer (máximo 300 ticks = 15 segundos a 20 Hz)
+    function recordReplayTick(tag = "OPEN_PLAY", commentary = null, badge = null) {
+      const frame = {
+        tag,
+        commentary,
+        badge,
+        ball: {
+          x: simBall.x,
+          y: simBall.y,
+          z: simBall.z,
+          carrierId: simBall.carrierId
+        },
+        players: allPlayers.map(p => ({
+          id: p.id,
+          x: p.curX,
+          z: p.curZ,
+          vx: p.vx,
+          vz: p.vz,
+          yaw: p.yaw,
+          pose: p.pose
+        }))
+      };
+      replayBuffer.push(frame);
+      if (replayBuffer.length > MAX_REPLAY_FRAMES) {
+        replayBuffer.shift();
+      }
+    }
+
+    // Movimiento físico natural con aceleración, inercia, giro progresivo y separación
+    function steerAgent(p, destX, destZ, speedRatio, dt) {
+      const dx = destX - p.curX;
+      const dz = destZ - p.curZ;
+      const dist = Math.hypot(dx, dz);
+      let desVx = 0, desVz = 0;
+      if (dist > 0.12) {
+        const slowR = 2.4;
+        const spd = p.maxSpeed * speedRatio * (dist < slowR ? (dist / slowR) : 1.0);
+        desVx = (dx / dist) * spd;
+        desVz = (dz / dist) * spd;
+      }
+
+      // Fuerza de repulsión dinámica entre compañeros (< 6.5m) y contacto físico (< 1.3m)
+      let sepX = 0, sepZ = 0;
+      const isBallActor = (simBall.carrierId === p.id || simBall.passTargetId === p.id || p.isGK || p.giveAndGoTimer > 0);
+      for (let i = 0; i < allPlayers.length; i++) {
+        const o = allPlayers[i];
+        if (o === p) continue;
+        const ox = p.curX - o.curX;
+        const oz = p.curZ - o.curZ;
+        const dSq = ox * ox + oz * oz;
+        if (dSq < 0.0001) continue;
+        if (o.isHome === p.isHome && !isBallActor && !o.isGK && dSq < 42.25) {
+          const d = Math.sqrt(dSq);
+          const push = (6.5 - d) / 6.5;
+          sepX += (ox / d) * push * 3.8;
+          sepZ += (oz / d) * push * 3.8;
+        } else if (dSq < 1.69) {
+          const d = Math.sqrt(dSq);
+          const push = (1.3 - d) / 1.3;
+          sepX += (ox / d) * push * 3.0;
+          sepZ += (oz / d) * push * 3.0;
+        }
+      }
+
+      const stX = (desVx + sepX) - p.vx;
+      const stZ = (desVz + sepZ) - p.vz;
+      const stMag = Math.hypot(stX, stZ);
+      const maxDv = p.accel * dt;
+      if (stMag > maxDv && stMag > 0.0001) {
+        p.vx += (stX / stMag) * maxDv;
+        p.vz += (stZ / stMag) * maxDv;
+      } else {
+        p.vx += stX;
+        p.vz += stZ;
+      }
+
+      p.curX = Math.max(-52.2, Math.min(52.2, p.curX + p.vx * dt));
+      p.curZ = Math.max(-33.6, Math.min(33.6, p.curZ + p.vz * dt));
+      const spdNow = Math.hypot(p.vx, p.vz);
+      const desiredYaw = (p.poseTimer > 0 && typeof p.kickYaw === "number")
+        ? p.kickYaw
+        : (spdNow > 0.38
+          ? Math.atan2(p.vx, p.vz)
+          : Math.atan2(simBall.x - p.curX, simBall.z - p.curZ));
+      let dYaw = desiredYaw - p.yaw;
+      while (dYaw > Math.PI) dYaw -= Math.PI * 2;
+      while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+      p.yaw += dYaw * Math.min(1, dt * 10.5); // Giro humano orgánico y orientado al pase/tiro
+
+      if (p.poseTimer > 0) {
+        p.poseTimer = Math.max(0, p.poseTimer - dt);
+        if (p.poseTimer <= 0) {
+          p.pose = spdNow > 0.42 ? "RUN" : "IDLE";
+          p.kickYaw = null;
+        }
+      } else if (spdNow > 0.42) {
+        p.pose = "RUN";
+      } else {
+        p.pose = "IDLE";
+      }
+      if (p.tackleCooldown > 0) p.tackleCooldown = Math.max(0, p.tackleCooldown - dt);
+      if (p.giveAndGoTimer > 0) p.giveAndGoTimer = Math.max(0, p.giveAndGoTimer - dt);
+      p.dribblePhase = (p.dribblePhase || 0) + spdNow * dt * 2.2;
+    }
+
+    // Evalúa en tiempo real la densidad defensiva y superioridad numérica local (Anti-4v2: evita pases a jugadores rodeados)
+    function evaluateSpatialDensity(tx, tz, mates, opps, excludeCarrier = null, receiver = null) {
+      let oppClose = 0; // Defensas en radio crítico de 4.6m
+      let oppMed = 0;   // Defensas en radio de ayuda de 7.8m
+      let mateClose = receiver ? 1 : 0; // Atacantes en 5.8m (incluyendo al receptor)
+      let nearestOppDist = 99;
+
+      for (let i = 0; i < opps.length; i++) {
+        const o = opps[i];
+        if (o.isGK) continue;
+        const ox = o.curX + (o.vx || 0) * 0.2;
+        const oz = o.curZ + (o.vz || 0) * 0.2;
+        const d = Math.hypot(ox - tx, oz - tz);
+        if (d < nearestOppDist) nearestOppDist = d;
+        if (d < 4.6) oppClose++;
+        if (d < 7.8) oppMed++;
+      }
+
+      for (let i = 0; i < mates.length; i++) {
+        const m = mates[i];
+        if (m === excludeCarrier || m === receiver || m.isGK) continue;
+        const d = Math.hypot(m.curX - tx, m.curZ - tz);
+        if (d < 5.8) mateClose++;
+      }
+
+      // Bloqueo estricto si el receptor está en inferioridad numérica (ej. 4v2, 3v1, 2v1)
+      const isOutnumberedCrowd = (oppClose >= 2 && oppClose > mateClose) || (oppMed >= 3 && oppMed > mateClose + 1);
+      return {
+        oppClose,
+        oppMed,
+        mateClose,
+        nearestOppDist,
+        numericalBalance: mateClose - oppClose,
+        isOutnumberedCrowd
+      };
+    }
+
+    // Comprueba físicamente si un defensor interceptará el pasillo del pase entre (ax,az) y (bx,bz)
+    function isPassCorridorBlocked(ax, az, bx, bz, opps, isLofted = false) {
+      const abx = bx - ax;
+      const abz = bz - az;
+      const dist = Math.hypot(abx, abz);
+      if (dist < 0.5) return false;
+      const ballSpd = isLofted ? Math.min(24.5, 14.2 + dist * 0.28) : Math.min(21.0, 12.2 + dist * 0.36);
+
+      for (let i = 0; i < opps.length; i++) {
+        const o = opps[i];
+        if (o.isGK) continue;
+        const apx = o.curX - ax;
+        const apz = o.curZ - az;
+        const t = (apx * abx + apz * abz) / (dist * dist);
+        if (t < 0.08 || t > 1.02) continue;
+
+        const projX = ax + t * abx;
+        const projZ = az + t * abz;
+        const perpDist = Math.hypot(o.curX - projX, o.curZ - projZ);
+
+        if (!isLofted) {
+          const coneWidth = 1.45 + t * 1.15;
+          if (perpDist < coneWidth) return true;
+          const ballTime = (t * dist) / ballSpd;
+          const oppTime = Math.max(0, perpDist - 0.95) / (o.maxSpeed || 7.4);
+          if (perpDist < 4.2 && oppTime < ballTime * 0.88) return true;
+        } else {
+          if (t > 0.82 && perpDist < 1.85) return true;
+        }
+      }
+      return false;
+    }
+
+    // Evalúa 9 rayos en 360° alrededor del poseedor para conducir hacia el espacio más despejado
+    function findBestOpenSpaceDribble(carrier, mates, opps) {
+      const isHomeAtk = carrier.isHome;
+      const atkDir = isHomeAtk ? 1 : -1;
+      const baseAngle = isHomeAtk ? 0 : Math.PI;
+      const rayOffsets = [0, 0.42, -0.42, 0.88, -0.88, 1.38, -1.38, 2.15, -2.15];
+      const stepDist = 6.4;
+
+      let bestRay = null;
+      let bestScore = -999;
+
+      for (let r = 0; r < rayOffsets.length; r++) {
+        const ang = baseAngle + rayOffsets[r];
+        const tx = carrier.curX + Math.cos(ang) * stepDist;
+        const tz = carrier.curZ + Math.sin(ang) * stepDist;
+        if (tx < -48.5 || tx > 48.5 || tz < -30.5 || tz > 30.5) continue;
+
+        const dens = evaluateSpatialDensity(tx, tz, mates, opps, carrier, null);
+        if (dens.oppClose >= 2 || dens.nearestOppDist < 2.6) continue;
+        if (isPassCorridorBlocked(carrier.curX, carrier.curZ, tx, tz, opps, false)) continue;
+
+        const forwardGain = (tx - carrier.curX) * atkDir;
+        const centerBias = -Math.abs(tz) * 0.14;
+        const score = Math.min(30, dens.nearestOppDist * 3.8) - dens.oppClose * 18.0 - dens.oppMed * 4.5 + forwardGain * 2.1 + centerBias;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestRay = {
+            x: tx,
+            z: tz,
+            score,
+            nearestOppDist: dens.nearestOppDist,
+            forwardGain,
+            isDiagonalCut: Math.abs(carrier.curZ) > 14 && Math.abs(tz) < Math.abs(carrier.curZ) - 2.0
+          };
+        }
+      }
+      return bestRay;
+    }
+
+    // =========================================================================================
+    // FUNCIÓN DE EVALUACIÓN DE OPCIONES DE PASE (evaluatePassOptions) Y DESMARQUE SIN BALÓN
+    // =========================================================================================
+    // Evalúa cada compañero disponible calculando una puntuación basada en:
+    // 1) Distancia al defensa rival más cercano (premia fuertemente el espacio libre y penaliza el 4 vs 2)
+    // 2) Si la línea recta entre pasador y receptor está despejada de rivales
+    // 3) Avance hacia la portería rival
+    function evaluatePassOptions(carrier, mates, opps) {
+      const isHomeAtk = carrier.isHome;
+      const atkDir = isHomeAtk ? 1 : -1;
+      const goalX = isHomeAtk ? 52.5 : -52.5;
+      const goalZ = 0.0;
+      const carrierDistGoal = Math.hypot(goalX - carrier.curX, goalZ - carrier.curZ);
+
+      const defLineVals = opps.filter(o => !o.isGK).map(o => o.curX).sort((a, b) => isHomeAtk ? (b - a) : (a - b));
+      const offsideLineX = defLineVals.length > 0 ? defLineVals[0] : (isHomeAtk ? 35 : -35);
+
+      const inFinalThird = isHomeAtk ? (carrier.curX > 24.0) : (carrier.curX < -24.0);
+      const nearByline = isHomeAtk ? (carrier.curX > 37.5) : (carrier.curX < -37.5);
+      const onWing = Math.abs(carrier.curZ) > 16.5;
+
+      const evaluatedOptions = [];
+
+      for (const m of mates) {
+        if (m === carrier || m.isGK) continue;
+        const pDist = Math.hypot(m.curX - carrier.curX, m.curZ - carrier.curZ);
+        if (pDist < 4.0 || pDist > 48.5) continue;
+
+        const isOffside = isHomeAtk ? (m.curX > offsideLineX + 0.35) : (m.curX < offsideLineX - 0.35);
+        if (isOffside) continue;
+
+        const forwardProgress = (m.curX - carrier.curX) * atkDir;
+        const isOppositeFlank = (carrier.curZ < -8 && m.curZ > 14) || (carrier.curZ > 8 && m.curZ < -14);
+        const isWinger = Math.abs(m.curZ) > 18.0;
+        const inBox = (isHomeAtk ? m.curX > 23.0 : m.curX < -23.0) && Math.abs(m.curZ) < 16.5;
+
+        const candidates = [];
+
+        // A) Pase al pie / bolsillo de apoyo actual
+        candidates.push({
+          x: Math.max(-49, Math.min(49, m.curX + (m.vx || 0) * 0.35)),
+          z: Math.max(-31, Math.min(31, m.curZ + (m.vz || 0) * 0.35)),
+          isLofted: false,
+          spin: 0,
+          kind: forwardProgress < -1.5 ? "RECYCLE" : "PASS",
+          tacticalFit: forwardProgress < -1.5 ? 5.5 : 0
+        });
+
+        // B) Pase al bolsillo de desmarque activo del compañero (unmarkedTarget)
+        if (m.unmarkedTarget) {
+          candidates.push({
+            x: Math.max(-49, Math.min(49, isHomeAtk ? Math.min(offsideLineX - 0.4, m.unmarkedTarget.x) : Math.max(offsideLineX + 0.4, m.unmarkedTarget.x))),
+            z: Math.max(-31, Math.min(31, m.unmarkedTarget.z)),
+            isLofted: false,
+            spin: 0,
+            kind: ((m.unmarkedTarget.x - carrier.curX) * atkDir > 3.5) ? "THROUGH" : "PASS",
+            tacticalFit: 8.5
+          });
+        }
+
+        // C) Devolución de pared 1-2 al espacio
+        if (m.giveAndGoTimer > 0 && m.giveAndGoPartner === carrier) {
+          candidates.push({
+            x: isHomeAtk ? Math.min(offsideLineX - 0.4, m.curX + 5.8) : Math.max(offsideLineX + 0.4, m.curX - 5.8),
+            z: m.curZ * 0.75,
+            isLofted: false,
+            spin: 0,
+            kind: "ONE_TWO",
+            tacticalFit: 15.0
+          });
+        }
+
+        // D) Balón filtrado al hueco (Through Ball)
+        if (forwardProgress > 2.0 && ["ST", "RW", "LW", "AM", "CM"].includes(m.rolePos)) {
+          candidates.push({
+            x: isHomeAtk ? Math.min(45.0, Math.min(offsideLineX + 1.2, m.curX + 7.2)) : Math.max(-45.0, Math.max(offsideLineX - 1.2, m.curX - 7.2)),
+            z: m.curZ * 0.72,
+            isLofted: false,
+            spin: 0,
+            kind: "THROUGH",
+            tacticalFit: tacticState.defLine === "high" ? 13.0 : 9.0
+          });
+        }
+
+        // E) Cambio de orientación al lado débil
+        if (isOppositeFlank && pDist > 18.0) {
+          candidates.push({
+            x: isHomeAtk ? Math.min(offsideLineX - 0.4, m.curX + 4.5) : Math.max(offsideLineX + 0.4, m.curX - 4.5),
+            z: m.curZ,
+            isLofted: true,
+            spin: m.curZ > 0 ? -1.8 : 1.8,
+            kind: "SWITCH",
+            tacticalFit: tacticState.defWidth === "compact" ? 14.0 : 10.0
+          });
+        }
+
+        // F) Apertura a banda / doblaje
+        if (isWinger && forwardProgress > 0.8) {
+          candidates.push({
+            x: isHomeAtk ? Math.min(offsideLineX - 0.4, m.curX + 4.5) : Math.max(offsideLineX + 0.4, m.curX - 4.5),
+            z: m.curZ,
+            isLofted: pDist > 23.0,
+            spin: 0,
+            kind: "WING",
+            tacticalFit: (m.aiState === "OVERLAP" || tacticState.defWidth === "compact") ? 11.0 : 7.5
+          });
+        }
+
+        // G) Pase de la muerte atrás (Cutback) o Centro tenso si el poseedor está en banda en el último tercio
+        if (inFinalThird && onWing && inBox) {
+          const isCutback = nearByline && Math.abs(m.curZ) < 9.5 && (isHomeAtk ? (m.curX >= 30 && m.curX <= 43) : (m.curX <= -30 && m.curX >= -43));
+          candidates.push({
+            x: isCutback
+              ? (m.curX + atkDir * 1.3)
+              : (isHomeAtk ? Math.min(45.5, Math.max(37.5, m.curX + 2.2)) : Math.max(-45.5, Math.min(-37.5, m.curX - 2.2))),
+            z: Math.max(-10.0, Math.min(10.0, m.curZ)),
+            isLofted: !isCutback,
+            spin: !isCutback ? (carrier.curZ > 0 ? -2.2 : 2.2) : 0,
+            kind: isCutback ? "CUTBACK" : "CROSS",
+            tacticalFit: isCutback ? 14.0 : 9.0
+          });
+        }
+
+        let bestCandForMate = null;
+        let bestCandScore = -9999;
+
+        for (const cand of candidates) {
+          const dens = evaluateSpatialDensity(cand.x, cand.z, mates, opps, carrier, m);
+
+          // 1) DISTANCIA AL DEFENSA RIVAL MÁS CERCANO (Premia fuertemente el espacio libre y penaliza el 4 vs 2)
+          const nearestDefDist = dens.nearestOppDist;
+          let spaceScore = Math.min(54.0, nearestDefDist * 5.8)
+            - dens.oppClose * 28.0
+            - dens.oppMed * 7.5
+            + dens.numericalBalance * 10.5;
+
+          if (dens.oppClose === 0 && nearestDefDist >= 5.0) {
+            spaceScore += 24.0;
+          }
+          if (dens.isOutnumberedCrowd || nearestDefDist < 2.35) {
+            spaceScore -= 75.0;
+          }
+
+          // 2) LÍNEA RECTA DESPEJADA ENTRE PASADOR Y RECEPTOR
+          let minLineDist = 99;
+          const cDist = Math.hypot(cand.x - carrier.curX, cand.z - carrier.curZ) || 1;
+          for (const o of opps) {
+            if (o.isGK) continue;
+            const projT = ((o.curX - carrier.curX) * (cand.x - carrier.curX) + (o.curZ - carrier.curZ) * (cand.z - carrier.curZ)) / (cDist * cDist);
+            if (projT >= 0.06 && projT <= 1.02) {
+              const segD = distPointToSeg(o.curX, o.curZ, carrier.curX, carrier.curZ, cand.x, cand.z);
+              if (segD < minLineDist) minLineDist = segD;
+            }
+          }
+          const corridorBlocked = isPassCorridorBlocked(carrier.curX, carrier.curZ, cand.x, cand.z, opps, cand.isLofted);
+          const isLineClear = !corridorBlocked && (cand.isLofted ? minLineDist >= 1.75 : minLineDist >= 2.25);
+
+          let lineClearScore = 0;
+          if (!isLineClear) {
+            lineClearScore = -95.0;
+          } else {
+            lineClearScore = 20.0 + Math.min(18.0, (minLineDist - 2.0) * 3.8);
+          }
+
+          // 3) AVANCE HACIA LA PORTERÍA RIVAL
+          const candDistGoal = Math.hypot(goalX - cand.x, goalZ - cand.z);
+          const goalDistGain = carrierDistGoal - candDistGoal;
+          const forwardXGain = (cand.x - carrier.curX) * atkDir;
+          const advanceScore = goalDistGain * 1.95 + forwardXGain * 1.35;
+
+          const validTacticalBonus = (isLineClear && !dens.isOutnumberedCrowd && dens.oppClose === 0) ? cand.tacticalFit : 0;
+          const totalScore = spaceScore + lineClearScore + advanceScore + validTacticalBonus;
+
+          if (totalScore > bestCandScore) {
+            bestCandScore = totalScore;
+            bestCandForMate = {
+              receiver: m,
+              lead: cand,
+              score: totalScore,
+              spaceScore,
+              lineClearScore,
+              advanceScore,
+              nearestDefenderDist: nearestDefDist,
+              minLineDist,
+              isLineClear,
+              isOutnumberedCrowd: dens.isOutnumberedCrowd
+            };
+          }
+        }
+
+        if (bestCandForMate) {
+          evaluatedOptions.push(bestCandForMate);
+        }
+      }
+
+      evaluatedOptions.sort((a, b) => b.score - a.score);
+      const bestViable = evaluatedOptions.find(opt =>
+        opt.isLineClear &&
+        !opt.isOutnumberedCrowd &&
+        opt.nearestDefenderDist >= 2.3 &&
+        opt.score > -10
+      ) || null;
+
+      return {
+        bestOption: bestViable,
+        allOptions: evaluatedOptions
+      };
+    }
+
+    // Desmarque activo para compañeros sin balón: busca bolsillos de espacio lejos de los defensas y con línea de pase abierta
+    function findUnmarkedOffBallSpace(player, baseTargetX, baseTargetZ, carrier, mates, opps, offsideLineX) {
+      const isHomeAtk = player.isHome;
+      const atkDir = isHomeAtk ? 1 : -1;
+      const goalX = isHomeAtk ? 52.5 : -52.5;
+      const refX = carrier ? carrier.curX : simBall.x;
+      const refZ = carrier ? carrier.curZ : simBall.z;
+
+      // 1. Vector de repulsión directa para separarse de cualquier defensa cercano (< 6.5m)
+      let repulseX = 0, repulseZ = 0;
+      for (const o of opps) {
+        if (o.isGK) continue;
+        const dx = player.curX - o.curX;
+        const dz = player.curZ - o.curZ;
+        const d = Math.hypot(dx, dz);
+        if (d < 6.5 && d > 0.05) {
+          const strength = ((6.5 - d) / 6.5) * 4.8;
+          repulseX += (dx / d) * strength;
+          repulseZ += (dz / d) * strength;
+        }
+      }
+
+      const centerX = Math.max(-48.5, Math.min(48.5, baseTargetX + repulseX * 0.65));
+      const centerZ = Math.max(-30.5, Math.min(30.5, baseTargetZ + repulseZ * 0.85));
+
+      const offsets = [
+        { dx: 0, dz: 0 },
+        { dx: atkDir * 5.2, dz: 0 },
+        { dx: atkDir * 4.8, dz: 5.5 },
+        { dx: atkDir * 4.8, dz: -5.5 },
+        { dx: 0, dz: 6.5 },
+        { dx: 0, dz: -6.5 },
+        { dx: -atkDir * 3.8, dz: 4.5 },
+        { dx: -atkDir * 3.8, dz: -4.5 },
+        { dx: repulseX * 1.2, dz: repulseZ * 1.2 }
+      ];
+
+      let bestSpot = { x: centerX, z: centerZ, score: -9999 };
+
+      for (const off of offsets) {
+        let cx = centerX + off.dx;
+        let cz = centerZ + off.dz;
+        cx = isHomeAtk ? Math.min(cx, offsideLineX - 0.85) : Math.max(cx, offsideLineX + 0.85);
+        cx = Math.max(-49.0, Math.min(49.0, cx));
+        cz = Math.max(-31.0, Math.min(31.0, cz));
+
+        let nearestDef = 99;
+        let defCrowding = 0;
+        for (const o of opps) {
+          if (o.isGK) continue;
+          const d = Math.hypot(o.curX - cx, o.curZ - cz);
+          if (d < nearestDef) nearestDef = d;
+          if (d < 5.0) defCrowding += (5.0 - d) * 6.5;
+        }
+
+        let mateCrowding = 0;
+        for (const m of mates) {
+          if (m === player || m.isGK) continue;
+          const mx = m.unmarkedTarget ? m.unmarkedTarget.x : m.curX;
+          const mz = m.unmarkedTarget ? m.unmarkedTarget.z : m.curZ;
+          const dm = Math.hypot(mx - cx, mz - cz);
+          if (dm < 6.8) mateCrowding += (6.8 - dm) * 8.0;
+        }
+
+        let minPassLineDist = 99;
+        const distFromBall = Math.hypot(cx - refX, cz - refZ);
+        if (distFromBall > 3.5 && distFromBall < 42.0) {
+          for (const o of opps) {
+            if (o.isGK) continue;
+            const segD = distPointToSeg(o.curX, o.curZ, refX, refZ, cx, cz);
+            if (segD < minPassLineDist) minPassLineDist = segD;
+          }
+        }
+        const lineBonus = minPassLineDist >= 2.6 ? Math.min(18.0, minPassLineDist * 3.2) : -22.0;
+
+        const distGoal = Math.hypot(goalX - cx, -cz);
+        const baseDistGoal = Math.hypot(goalX - baseTargetX, -baseTargetZ);
+        const advanceBonus = (baseDistGoal - distGoal) * 1.45;
+        const driftPenalty = Math.hypot(cx - baseTargetX, cz - baseTargetZ) * 0.85;
+
+        const score = Math.min(42.0, nearestDef * 5.2)
+          - defCrowding
+          - mateCrowding
+          + lineBonus
+          + advanceBonus
+          - driftPenalty;
+
+        if (score > bestSpot.score) {
+          bestSpot = { x: cx, z: cz, score, nearestDef };
+        }
+      }
+
+      player.unmarkedTarget = bestSpot;
+      return bestSpot;
+    }
+
+    // Evaluación en Tiempo Real (Tick a Tick): usa evaluatePassOptions + Pitch Control + Narración Espejo
+    function evaluatePitchControlDecision(carrier) {
+      const isHomeAtk = carrier.isHome;
+      const atkDir = isHomeAtk ? 1 : -1;
+      const goalX = isHomeAtk ? 52.5 : -52.5;
+      const goalZ = 0.0;
+      const mates = isHomeAtk ? homeSquad : awaySquad;
+      const opps = isHomeAtk ? awaySquad : homeSquad;
+
+      const distGoal = Math.hypot(goalX - carrier.curX, goalZ - carrier.curZ);
+
+      let minFrontOpp = 99;
+      let nearestAnyOpp = 99;
+      for (const o of opps) {
+        if (o.isGK) continue;
+        const d = Math.hypot(o.curX - carrier.curX, o.curZ - carrier.curZ);
+        if (d < nearestAnyOpp) nearestAnyOpp = d;
+        const segD = distPointToSeg(o.curX, o.curZ, carrier.curX, carrier.curZ, goalX, goalZ);
+        const inFront = isHomeAtk ? (o.curX > carrier.curX - 0.5) : (o.curX < carrier.curX + 0.5);
+        if (inFront && segD < 2.9 && d < minFrontOpp) minFrontOpp = d;
+      }
+
+      // 1. Disparo a puerta (solo si existe pasillo de tiro real sin bloqueo frontal)
+      const shotRange = 21.5;
+      const isWideAngle = Math.abs(carrier.curZ) > 14.5 && (isHomeAtk ? carrier.curX > 38.5 : carrier.curX < -38.5);
+      const hasClearShotLane = minFrontOpp >= 1.95 || (distGoal < 11.5 && minFrontOpp >= 1.35);
+      if (!carrier.isGK && !isWideAngle && distGoal < shotRange && hasClearShotLane) {
+        const oppGK = opps.find(o => o.isGK);
+        const isFinesse = Math.abs(carrier.curZ) > 7.2 && distGoal > 13.0;
+        const aimZ = isFinesse
+          ? (carrier.curZ > 0 ? -2.85 : 2.85)
+          : ((oppGK && oppGK.curZ > 0) ? (-2.55 + Math.random() * 0.8) : (2.55 - Math.random() * 0.8));
+        const dx = goalX - carrier.curX;
+        const dz = aimZ - carrier.curZ;
+        const d = Math.hypot(dx, dz) || 1;
+        const shotSpd = isFinesse ? 23.8 : 26.2;
+        simBall.carrierId = null;
+        simBall.passTargetId = null;
+        simBall.shotTeam = isHomeAtk ? "home" : "away";
+        simBall.pickupCooldown = 0.12;
+        simBall.vx = (dx / d) * shotSpd;
+        simBall.vz = (dz / d) * shotSpd;
+        simBall.vy = isFinesse ? 1.85 : (1.25 + Math.random() * 1.0);
+        simBall.spin = isFinesse ? (carrier.curZ > 0 ? -3.1 : 3.1) : ((Math.random() - 0.5) * 0.9);
+        const isAerialHeader = simBall.y > 0.7 && distGoal < 13.5;
+        carrier.pose = isAerialHeader ? "HEADER" : "SHOOT";
+        carrier.poseTimer = 0.38;
+        carrier.kickYaw = Math.atan2(dx, dz);
+        return {
+          text: isAerialHeader
+            ? `💥 ¡${carrier.name} gana el salto en el área y conecta un testarazo a portería!`
+            : (isFinesse
+              ? `✨ ¡${carrier.name} ve hueco a ${Math.round(distGoal)}m y busca el palo largo con rosca!`
+              : `🚀 ¡${carrier.name} encuentra pasillo abierto a ${Math.round(distGoal)}m y suelta un latigazo!`),
+          badge: isAerialHeader ? "REMATE AÉREO" : "DISPARO A PUERTA"
+        };
+      }
+
+      // 2. Evaluar todas las opciones de pase mediante evaluatePassOptions
+      const { bestOption, allOptions } = evaluatePassOptions(carrier, mates, opps);
+
+      // 3. Evaluar el mejor vector de conducción al espacio libre en 360°
+      const bestDribbleRay = !carrier.isGK ? findBestOpenSpaceDribble(carrier, mates, opps) : null;
+
+      // 4. Comparar en tiempo real: ¿Es mejor conducir al espacio abierto o ejecutar el pase al compañero libre?
+      if (bestDribbleRay && !carrier.isGK) {
+        const passScore = bestOption ? bestOption.score : -999;
+        const shouldDribble = !bestOption ||
+          (bestDribbleRay.nearestOppDist >= 5.2 && bestDribbleRay.forwardGain > 2.5 && (bestDribbleRay.score + 24.0 > passScore) && distGoal < 42.0);
+        if (shouldDribble) {
+          carrier.openDribbleTarget = bestDribbleRay;
+          carrier.aiState = bestDribbleRay.isDiagonalCut ? "CUT_INSIDE" : "DRIVE";
+          return {
+            text: bestDribbleRay.isDiagonalCut
+              ? `⚡ ${carrier.name} recorta en diagonal hacia dentro buscando el espacio libre.`
+              : `⚡ ${carrier.name} ve vigiladas las referencias de pase y conduce al espacio abierto.`,
+            badge: "CONDUCCIÓN"
+          };
+        }
+      }
+
+      const chosenPass = bestOption || allOptions.find(opt => opt.isLineClear && opt.nearestDefenderDist >= 2.2) || null;
+      if (chosenPass) {
+        const bestMate = chosenPass.receiver;
+        const bestCand = chosenPass.lead;
+        carrier.openDribbleTarget = null;
+        const dx = bestCand.x - carrier.curX;
+        const dz = bestCand.z - carrier.curZ;
+        const dist = Math.hypot(dx, dz) || 1;
+        const pSpd = bestCand.isLofted ? Math.min(24.5, 14.2 + dist * 0.28) : Math.min(21.0, 12.2 + dist * 0.36);
+        simBall.carrierId = null;
+        simBall.passTargetId = bestMate.id;
+        simBall.pickupCooldown = 0.15;
+        simBall.vx = (dx / dist) * pSpd;
+        simBall.vz = (dz / dist) * pSpd;
+        simBall.vy = bestCand.isLofted ? Math.min(6.4, 2.5 + dist * 0.09) : 0.06;
+        simBall.spin = bestCand.spin;
+        carrier.pose = "PASS";
+        carrier.poseTimer = 0.34;
+        carrier.kickYaw = Math.atan2(dx, dz);
+
+        if (bestCand.kind !== "ONE_TWO" && dist < 17.5 && (bestMate.curX - carrier.curX) * atkDir > 2.0 && Math.random() < 0.52) {
+          carrier.giveAndGoTimer = 1.75;
+          carrier.giveAndGoPartner = bestMate;
+        }
+
+        if (bestCand.kind === "CUTBACK") {
+          return { text: `🎯 ¡Pase de la muerte atrás de ${carrier.name}! ${bestMate.name} se desmarca libre en el punto de penalti.`, badge: "PASE DE LA MUERTE" };
+        }
+        if (bestCand.kind === "CROSS") {
+          return { text: `🎯 ¡Centro con rosca de ${carrier.name} al espacio del área buscando a ${bestMate.name}!`, badge: "CENTRO AL ÁREA" };
+        }
+        if (bestCand.kind === "ONE_TWO") {
+          return { text: `✨ ¡Pared al primer toque! ${carrier.name} devuelve al espacio para la ruptura de ${bestMate.name}.`, badge: "PARED 1-2" };
+        }
+        if (bestCand.kind === "SWITCH") {
+          return { text: `⚡ ¡Cambio de orientación de ${carrier.name}! Abre al lado débil donde ${bestMate.name} recibe libre (${chosenPass.nearestDefenderDist.toFixed(1)}m de margen).`, badge: "CAMBIO DE ORIENTACIÓN" };
+        }
+        if (bestCand.kind === "THROUGH") {
+          return { text: `🎯 ¡Balón filtrado de ${carrier.name} por línea despejada hacia el desmarque de ${bestMate.name}!`, badge: "PASE FILTRADO" };
+        }
+        if (bestCand.kind === "WING") {
+          return { text: `🚀 ${carrier.name} abre a la banda para la subida libre de ${bestMate.name}.`, badge: "ATAQUE BANDA" };
+        }
+        if (bestCand.kind === "RECYCLE") {
+          return { text: `🧠 ${carrier.name} descarta el pase a delanteros marcados y descarga con ${bestMate.name} libre de marca.`, badge: "CIRCULACIÓN" };
+        }
+        return { text: `👟 ${carrier.name} conecta por línea limpia con ${bestMate.name} libre de marca.`, badge: "CONSTRUCCIÓN" };
+      }
+
+      return null;
+    }
+
+    // Avanza 1 tick de física autónoma a 20 Hz (dt = 0.05s) con movimientos naturales y espejo de narración
+    function stepAutonomousTick(dt = 0.05) {
+      computeDynamicTacticalTargets(currentAttackingSide);
+      if (simBall.pickupCooldown > 0) simBall.pickupCooldown = Math.max(0, simBall.pickupCooldown - dt);
+
+      const carrier = simBall.carrierId ? getP(simBall.carrierId) : null;
+      const isHomeAtk = carrier ? carrier.isHome : (currentAttackingSide === "home");
+      const atkDir = isHomeAtk ? 1 : -1;
+      const atkSquad = isHomeAtk ? homeSquad : awaySquad;
+      const defSquad = isHomeAtk ? awaySquad : homeSquad;
+
+      // Detectar si un lateral debe hacer doblaje (OVERLAP) al extremo portador
+      let overlapFB = null;
+      if (carrier && !carrier.isGK && Math.abs(carrier.curZ) > 13.5 && carrier.curX * atkDir > 0) {
+        const topSide = carrier.curZ > 0;
+        overlapFB = atkSquad.find(m => m !== carrier && ["RB", "LB"].includes(m.rolePos) && (topSide ? m.curZ > 0 : m.curZ < 0)) || null;
+      }
+
+      const ballInWideFinalThird = (simBall.x * atkDir > 22.0) && Math.abs(simBall.z) > 16.0;
+      const boxRunners = atkSquad.filter(m => m !== carrier && !m.isGK && ["ST", "RW", "LW", "AM", "CM"].includes(m.rolePos)).slice(0, 3);
+
+      let tickComment = null;
+      let tickBadge = null;
+
+      for (const p of allPlayers) {
+        if (p === carrier) {
+          if (p.controlTimer > 0) {
+            p.controlTimer = Math.max(0, p.controlTimer - dt);
+          } else {
+            p.decisionTimer -= dt;
+            if (p.decisionTimer <= 0) {
+              p.decisionTimer = 0.32;
+              const decisionEvent = evaluatePitchControlDecision(p);
+              if (decisionEvent) {
+                tickComment = decisionEvent.text;
+                tickBadge = decisionEvent.badge;
+              }
+            }
+          }
+          if (simBall.carrierId === p.id) {
+            // Conducción dirigida al rayo de espacio libre 360° calculado en tiempo real
+            let driveX = atkDir * 44.0;
+            let driveZ = p.curZ * 0.55;
+            if (p.openDribbleTarget) {
+              driveX = p.openDribbleTarget.x;
+              driveZ = p.openDribbleTarget.z;
+            } else if (p.aiState === "CUT_INSIDE") {
+              driveX = Math.max(-44, Math.min(44, p.curX + atkDir * 8.5));
+              driveZ = p.curZ > 0 ? Math.max(-2, p.curZ - 10.0) : Math.min(2, p.curZ + 10.0);
+            } else {
+              let evadeZ = 0;
+              for (const o of defSquad) {
+                if (o.isGK) continue;
+                const d = Math.hypot(o.curX - p.curX, o.curZ - p.curZ);
+                const ahead = (o.curX - p.curX) * atkDir > -0.5 && (o.curX - p.curX) * atkDir < 6.5;
+                if (ahead && d < 6.0) {
+                  evadeZ += (p.curZ >= o.curZ ? 5.5 : -5.5) * (1 - d / 6.0);
+                }
+              }
+              driveX = Math.max(-46, Math.min(46, p.curX + atkDir * 12.0));
+              driveZ = Math.max(-29, Math.min(29, p.curZ * 0.72 + evadeZ));
+            }
+            steerAgent(p, driveX, driveZ, p.controlTimer > 0 ? 0.72 : 0.96, dt);
+          }
+          continue;
+        }
+
+        if (!simBall.carrierId && simBall.passTargetId === p.id) {
+          const predX = simBall.x + simBall.vx * 0.22;
+          const predZ = simBall.z + simBall.vz * 0.22;
+          steerAgent(p, predX, predZ, 1.0, dt);
+          continue;
+        }
+
+        const isDefendingPlayer = (p.isHome !== isHomeAtk);
+
+        // Guardameta: sigue la bisectriz y se lanza ante disparos
+        if (p.isGK) {
+          const gkGoalX = p.isHome ? -51.4 : 51.4;
+          if (simBall.shotTeam && ((p.isHome && simBall.vx < -2) || (!p.isHome && simBall.vx > 2))) {
+            const tCross = Math.max(0.05, Math.min(1.5, (gkGoalX - simBall.x) / simBall.vx));
+            const predZ = Math.max(-3.6, Math.min(3.6, simBall.z + simBall.vz * tCross));
+            p.pose = "DIVE";
+            p.poseTimer = 0.45;
+            steerAgent(p, gkGoalX, predZ, 1.05, dt);
+          } else {
+            steerAgent(p, p.targetX, p.targetZ, 0.85, dt);
+          }
+          continue;
+        }
+
+        if (isDefendingPlayer) {
+          let closestDef = null, minD = 999;
+          for (const m of defSquad) {
+            if (m.isGK) continue;
+            const d = Math.hypot(m.curX - simBall.x, m.curZ - simBall.z);
+            if (d < minD) { minD = d; closestDef = m; }
+          }
+          if (p === closestDef) {
+            const ownGoalX = p.isHome ? -52.5 : 52.5;
+            const gx = ownGoalX - simBall.x, gz = 0 - simBall.z;
+            const gl = Math.hypot(gx, gz) || 1;
+            steerAgent(p, simBall.x + (gx / gl) * 0.55, simBall.z + (gz / gl) * 0.55, 1.0, dt);
+
+            if (carrier && p.tackleCooldown <= 0 && Math.hypot(p.curX - carrier.curX, p.curZ - carrier.curZ) < 1.55) {
+              p.tackleCooldown = 0.85;
+              const winProb = (tacticState.defWidth === "wide" && Math.abs(carrier.curZ) > 18) ? 0.78 : 0.42;
+              if (Math.random() < winProb) {
+                const prevName = carrier.name;
+                simBall.carrierId = p.id;
+                simBall.passTargetId = null;
+                simBall.lastTouchTeam = p.isHome ? "home" : "away";
+                simBall.pickupCooldown = 0.22;
+                currentAttackingSide = p.isHome ? "home" : "away";
+                p.pose = "SLIDE_TACKLE";
+                p.poseTimer = 0.42;
+                p.controlTimer = 0.24;
+                p.decisionTimer = 0.38;
+                tickComment = `🛡️ ¡Anticipación y robo físico de ${p.name} sobre ${prevName}!`;
+                tickBadge = "ROBO DEFENSIVO";
+              }
+            }
+            continue;
+          }
+
+          // Marcaje inteligente en el área: los centrales siguen a los rematadores cubriendo el lado de portería
+          const ballNearOwnBox = (p.isHome ? simBall.x < -18 : simBall.x > 18);
+          if (ballNearOwnBox && ["CB", "RB", "LB"].includes(p.rolePos)) {
+            let nearestRunner = null, bestRD = 14.0;
+            for (const r of boxRunners) {
+              const rd = Math.hypot(r.curX - p.curX, r.curZ - p.curZ);
+              if (rd < bestRD) { bestRD = rd; nearestRunner = r; }
+            }
+            if (nearestRunner) {
+              const goalSideX = nearestRunner.curX + (p.isHome ? -1.4 : 1.4);
+              const goalSideZ = nearestRunner.curZ * 0.92;
+              steerAgent(p, goalSideX, goalSideZ, 0.94, dt);
+              continue;
+            }
+          }
+
+          steerAgent(p, p.targetX, p.targetZ, 0.84, dt);
+        } else {
+          // Jugador atacante sin balón: busca activamente zonas libres lejos de los defensas con línea de pase abierta
+          const defLineVals = defSquad.filter(o => !o.isGK).map(o => o.curX).sort((a, b) => isHomeAtk ? (b - a) : (a - b));
+          const offsideLineX = defLineVals.length > 0 ? defLineVals[0] : (isHomeAtk ? 35 : -35);
+
+          if (p.giveAndGoTimer > 0) {
+            const freeWallSpot = findUnmarkedOffBallSpace(p, p.curX + atkDir * 9.5, p.curZ * 0.75, carrier, atkSquad, defSquad, offsideLineX);
+            steerAgent(p, freeWallSpot.x, freeWallSpot.z, 0.99, dt);
+          } else if (p === overlapFB) {
+            p.aiState = "OVERLAP";
+            const overX = Math.max(-47, Math.min(47, carrier.curX + atkDir * 9.5));
+            const overZ = carrier.curZ > 0 ? 29.5 : -29.5;
+            const freeOverlapSpot = findUnmarkedOffBallSpace(p, overX, overZ, carrier, atkSquad, defSquad, offsideLineX);
+            steerAgent(p, freeOverlapSpot.x, freeOverlapSpot.z, 0.98, dt);
+          } else if (ballInWideFinalThird && boxRunners.includes(p)) {
+            const bIdx = boxRunners.indexOf(p);
+            const ballPosZ = simBall.z > 0;
+            let bx, bz;
+            if (bIdx === 0) {
+              bx = atkDir * 44.0; bz = ballPosZ ? 4.5 : -4.5; // Primer palo
+            } else if (bIdx === 1) {
+              bx = atkDir * 42.8; bz = ballPosZ ? -5.5 : 5.5; // Segundo palo
+            } else {
+              bx = atkDir * 37.5; bz = 0.0; // Punto de penalti (Cutback)
+            }
+            const freeBoxSpot = findUnmarkedOffBallSpace(p, bx, bz, carrier, atkSquad, defSquad, offsideLineX);
+            steerAgent(p, freeBoxSpot.x, freeBoxSpot.z, 0.96, dt);
+          } else if (["ST", "RW", "LW", "AM"].includes(p.rolePos)) {
+            const freeAtkSpot = findUnmarkedOffBallSpace(p, p.targetX + atkDir * 4.5, p.targetZ, carrier, atkSquad, defSquad, offsideLineX);
+            steerAgent(p, freeAtkSpot.x, freeAtkSpot.z, 0.93, dt);
+          } else {
+            const freeSupportSpot = findUnmarkedOffBallSpace(p, p.targetX, p.targetZ, carrier, atkSquad, defSquad, offsideLineX);
+            steerAgent(p, freeSupportSpot.x, freeSupportSpot.z, 0.84, dt);
+          }
+        }
+      }
+
+      // Física del balón en 3D con control amortiguado (sin teletransporte) y toques de conducción rítmicos
+      const activeCarrier = simBall.carrierId ? getP(simBall.carrierId) : null;
+      if (activeCarrier) {
+        const cSpd = Math.hypot(activeCarrier.vx, activeCarrier.vz);
+        const touchNudge = cSpd > 0.6 ? (0.48 + 0.28 * Math.max(0, Math.sin(activeCarrier.dribblePhase || 0))) : 0.52;
+        const targetBx = activeCarrier.curX + Math.sin(activeCarrier.yaw) * touchNudge;
+        const targetBz = activeCarrier.curZ + Math.cos(activeCarrier.yaw) * touchNudge;
+        const lerpBall = Math.min(1, dt * 15.5);
+        simBall.x += (targetBx - simBall.x) * lerpBall;
+        simBall.z += (targetBz - simBall.z) * lerpBall;
+        simBall.y = Math.max(0, simBall.y * 0.65);
+        simBall.vx = activeCarrier.vx;
+        simBall.vz = activeCarrier.vz;
+        simBall.vy = 0;
+        simBall.spin = 0;
+        simBall.lastTouchTeam = activeCarrier.isHome ? "home" : "away";
+      } else {
+        if (simBall.spin && Math.abs(simBall.spin) > 0.05) {
+          const spdH = Math.hypot(simBall.vx, simBall.vz);
+          if (spdH > 3.0) {
+            const nx = -simBall.vz / spdH;
+            const nz = simBall.vx / spdH;
+            simBall.vx += nx * simBall.spin * dt * 1.45;
+            simBall.vz += nz * simBall.spin * dt * 1.45;
+          }
+          simBall.spin *= Math.exp(-1.05 * dt);
+        }
+
+        simBall.x += simBall.vx * dt;
+        simBall.z += simBall.vz * dt;
+        simBall.y += simBall.vy * dt;
+        simBall.vy -= 9.81 * dt;
+        if (simBall.y <= 0) {
+          simBall.y = 0;
+          if (simBall.vy < -1.2) simBall.vy = -simBall.vy * 0.42;
+          else simBall.vy = 0;
+        }
+        const damp = simBall.y < 0.2 ? Math.exp(-1.1 * dt) : Math.exp(-0.22 * dt);
+        simBall.vx *= damp;
+        simBall.vz *= damp;
+
+        if (Math.abs(simBall.x) >= 52.5) {
+          const inMouth = Math.abs(simBall.z) < 3.66 && simBall.y < 2.44;
+          return {
+            climax: inMouth ? "GOAL" : "OUT",
+            comment: inMouth
+              ? "⚽ ¡GOOOOL! El balón cruza físicamente la línea de meta entre los tres palos."
+              : "💨 El disparo cruza la línea de fondo rozando el poste.",
+            badge: inMouth ? "¡GOL!" : "FUERA DE META"
+          };
+        }
+
+        if (simBall.pickupCooldown <= 0) {
+          const bSpeed = Math.hypot(simBall.vx, simBall.vz);
+          for (const p of allPlayers) {
+            const d = Math.hypot(p.curX - simBall.x, p.curZ - simBall.z);
+            const reach = p.isGK ? 1.32 : 1.08;
+            const maxH = p.isGK ? 2.44 : 1.95;
+            if (d <= reach && simBall.y <= maxH) {
+              if (simBall.shotTeam) {
+                if (p.isGK && ((p.isHome && simBall.shotTeam === "away") || (!p.isHome && simBall.shotTeam === "home"))) {
+                  p.pose = "DIVE";
+                  p.poseTimer = 0.50;
+                  simBall.vx = (p.isHome ? 1 : -1) * 8.0;
+                  simBall.vz = (simBall.z >= 0 ? 1 : -1) * 10.0;
+                  simBall.vy = 2.0;
+                  simBall.shotTeam = null;
+                  simBall.pickupCooldown = 0.25;
+                  return {
+                    climax: "SAVE",
+                    comment: `🧤 ¡PARADÓN FÍSICO DE ${p.name.toUpperCase()}! Desvía el disparo bajo palos.`,
+                    badge: "PARADÓN"
+                  };
+                } else if (!p.isGK && ((p.isHome && simBall.shotTeam === "away") || (!p.isHome && simBall.shotTeam === "home")) && bSpeed > 9) {
+                  p.pose = "SLIDE_TACKLE";
+                  p.poseTimer = 0.45;
+                  simBall.vx = -simBall.vx * 0.35;
+                  simBall.vz = -simBall.vz * 0.35;
+                  simBall.shotTeam = null;
+                  simBall.pickupCooldown = 0.25;
+                  return {
+                    climax: "BLOCK",
+                    comment: `🛡️ ¡BLOQUEO DEFENSIVO DE ${p.name.toUpperCase()}! Corta la trayectoria del tiro.`,
+                    badge: "BLOQUEO"
+                  };
+                }
+              } else {
+                const wasIntercept = simBall.lastTouchTeam && ((p.isHome && simBall.lastTouchTeam === "away") || (!p.isHome && simBall.lastTouchTeam === "home"));
+                simBall.carrierId = p.id;
+                simBall.passTargetId = null;
+                simBall.pickupCooldown = 0.16;
+                currentAttackingSide = p.isHome ? "home" : "away";
+                p.controlTimer = 0.22;
+                p.decisionTimer = 0.34;
+                const goalX = p.isHome ? 52.5 : -52.5;
+                // Remate de primeras si recibe centro o pase de la muerte dentro del área
+                if (!p.isGK && Math.abs(goalX - p.curX) < 16.5 && p.isHome === isHomeAtk) {
+                  p.controlTimer = 0.04;
+                  p.decisionTimer = 0.06;
+                }
+                if (wasIntercept) {
+                  tickComment = `🛡️ ¡${p.name} lee la línea de pase e intercepta el envío!`;
+                  tickBadge = "INTERCEPCIÓN";
+                }
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      return { climax: null, comment: tickComment, badge: tickBadge };
+    }
+
+    // =========================================================================
+    // 5. GENERADORES DE JUGADAS EMERGENTES EN TIEMPO REAL Y BALÓN PARADO FÍSICO
+    // =========================================================================
+
+    function simulateEmergentOpenPlayHighlight() {
+      replayBuffer = [];
+
+      // Alternar orgánicamente posesión inicial sin ningún guion ni resultado precalculado
+      lastScenarioIndex = (lastScenarioIndex + 1) % 6;
+      currentAttackingSide = (lastScenarioIndex % 2 === 0) ? "away" : "home";
+      const isHomeAtk = currentAttackingSide === "home";
+      const atkDir = isHomeAtk ? 1 : -1;
+
+      const startZones = [
+        { x: atkDir * 4.0, z: 0.0, carrier: isHomeAtk ? "h_8" : "a_8" },
+        { x: atkDir * 10.0, z: 21.0, carrier: isHomeAtk ? "h_11" : "a_11" },
+        { x: atkDir * 10.0, z: -21.0, carrier: isHomeAtk ? "h_7" : "a_19" },
+        { x: -atkDir * 12.0, z: 6.0, carrier: isHomeAtk ? "h_14" : "a_21" },
+        { x: atkDir * 14.0, z: -8.0, carrier: isHomeAtk ? "h_5" : "a_8" },
+        { x: atkDir * 6.0, z: 16.0, carrier: isHomeAtk ? "h_2" : "a_23" }
+      ];
+      const zone = startZones[lastScenarioIndex];
+      const startBallX = zone.x + (Math.random() - 0.5) * 4.0;
+      const startBallZ = zone.z + (Math.random() - 0.5) * 4.0;
+
+      simBall.x = startBallX;
+      simBall.z = startBallZ;
+      simBall.y = 0;
+      simBall.vx = 0;
+      simBall.vz = 0;
+      simBall.vy = 0;
+      simBall.spin = 0;
+      simBall.passTargetId = null;
+      simBall.shotTeam = null;
+
+      computeDynamicTacticalTargets(currentAttackingSide);
+
+      // Posicionar a los 22 jugadores con ligera variabilidad orgánica de partido vivo
+      allPlayers.forEach(p => {
+        p.curX = Math.max(-51.0, Math.min(51.0, p.targetX + (p.isGK ? 0 : (Math.random() - 0.5) * 2.4)));
+        p.curZ = Math.max(-32.5, Math.min(32.5, p.targetZ + (p.isGK ? 0 : (Math.random() - 0.5) * 2.4)));
+        p.vx = 0;
+        p.vz = 0;
+        p.pose = "IDLE";
+        p.aiState = "NORMAL";
+        p.openDribbleTarget = null;
+        p.decisionTimer = 0.16;
+        p.controlTimer = 0;
+        p.giveAndGoTimer = 0;
+        p.giveAndGoPartner = null;
+      });
+
+      const initiator = getP(zone.carrier) || getP(isHomeAtk ? "h_5" : "a_8");
+      initiator.curX = startBallX;
+      initiator.curZ = startBallZ;
+      simBall.carrierId = initiator.id;
+      simBall.lastTouchTeam = currentAttackingSide;
+
+      const atkTeamLabel = isHomeAtk ? "REAL MADRID" : "FC BARCELONA";
+      recordReplayTick(
+        "OPEN_PLAY",
+        `⚽ ${initiator.name} (${atkTeamLabel}) levanta la cabeza y escanea la densidad defensiva rival en tiempo real.`,
+        "INICIO JUGADA"
+      );
+
+      let climaxEvent = null;
+      for (let t = 0; t < 240; t++) {
+        const res = stepAutonomousTick(0.05);
+        recordReplayTick("OPEN_PLAY", res.comment, res.badge);
+        if (res.climax) {
+          climaxEvent = res;
+          break;
+        }
+      }
+
+      // Grabar 30 ticks adicionales (1.5s) de continuación física post-desenlace
+      for (let f = 0; f < 30; f++) {
+        simBall.x = Math.max(-54.4, Math.min(54.4, simBall.x + simBall.vx * 0.05));
+        simBall.z = Math.max(-35.5, Math.min(35.5, simBall.z + simBall.vz * 0.05));
+        simBall.y = Math.max(0, simBall.y + simBall.vy * 0.05);
+        simBall.vy = simBall.y > 0 ? simBall.vy - 9.81 * 0.05 : 0;
+        simBall.vx *= 0.90;
+        simBall.vz *= 0.90;
+        allPlayers.forEach(p => {
+          p.vx *= 0.90;
+          p.vz *= 0.90;
+          p.curX += p.vx * 0.05;
+          p.curZ += p.vz * 0.05;
+        });
+        recordReplayTick("FOLLOW_THROUGH", null, null);
+      }
+
+      activeReplay = {
+        frames: replayBuffer.slice(),
+        cursor: 0,
+        lastCommentIdx: -1,
+        tickRate: 20,
+        label: "SIMULACIÓN TICK A TICK",
+        isOpenPlay: true,
+        loopsDone: 0,
+        lastActionFn: simulateEmergentOpenPlayHighlight
+      };
+    }
+
+    // 2. FALTA DIRECTA FIFA: Estrictamente FUERA del área con barrera vectorial a 9.15m y resolución por física tick a tick
+    function simulateFifaDirectFreeKick() {
+      replayBuffer = [];
+      currentAttackingSide = "away";
+
+      const ballPos = {
+        x: -29.5 - Math.random() * 4.2,
+        z: (Math.random() < 0.5 ? 1 : -1) * (6.5 + Math.random() * 9.5)
+      };
+      const goalPos = { x: -52.5, z: 0.0 };
+
+      const vx = goalPos.x - ballPos.x;
+      const vz = goalPos.z - ballPos.z;
+      const vLen = Math.hypot(vx, vz) || 1;
+      const ux = vx / vLen;
+      const uz = vz / vLen;
+      const nx = -uz;
+      const nz = ux;
+
+      computeDynamicTacticalTargets("away");
+      allPlayers.forEach(p => {
+        p.curX = p.targetX;
+        p.curZ = p.targetZ;
+        p.vx = 0;
+        p.vz = 0;
+        p.pose = "IDLE";
+      });
+
+      const taker = getP("a_11"); // Raphinha
+      taker.curX = ballPos.x - ux * 1.5;
+      taker.curZ = ballPos.z - uz * 1.5;
+      taker.yaw = Math.atan2(ux, uz);
+
+      const wallCenter = {
+        x: ballPos.x + ux * 9.15,
+        z: ballPos.z + uz * 9.15
+      };
+      const wallIds = ["h_14", "h_8", "h_5", "h_11"];
+      wallIds.forEach((id, idx) => {
+        const wp = getP(id);
+        const offset = (idx - 1.5) * 0.78;
+        wp.curX = wallCenter.x + nx * offset;
+        wp.curZ = wallCenter.z + nz * offset;
+        wp.yaw = Math.atan2(-ux, -uz);
+      });
+
+      const gk = getP("h_1");
+      gk.curX = -52.1;
+      gk.curZ = ballPos.z > 0 ? -1.15 : 1.15;
+      gk.yaw = Math.atan2(-ux, -uz);
+
+      const lineX = Math.min(-36.5, wallCenter.x - 1.8);
+      ["a_9", "a_19", "a_8", "a_21"].forEach((id, i) => {
+        const ap = getP(id);
+        ap.curX = lineX;
+        ap.curZ = -10 + i * 6.5;
+        ap.yaw = Math.atan2(-1, 0);
+      });
+      ["h_2", "h_3", "h_22", "h_23"].forEach((id, i) => {
+        const dp = getP(id);
+        dp.curX = lineX - 1.4;
+        dp.curZ = -10.5 + i * 6.8;
+        dp.yaw = Math.atan2(1, 0);
+      });
+
+      simBall.x = ballPos.x;
+      simBall.z = ballPos.z;
+      simBall.y = 0;
+      simBall.vx = 0;
+      simBall.vz = 0;
+      simBall.vy = 0;
+      simBall.spin = 0;
+      simBall.carrierId = null;
+      simBall.shotTeam = null;
+
+      // Carrera de impulso (22 ticks)
+      const startTx = taker.curX, startTz = taker.curZ;
+      for (let t = 0; t < 22; t++) {
+        if (t >= 8) {
+          const r = (t - 8) / 14;
+          taker.curX = startTx + (ballPos.x - startTx) * (r * 0.85);
+          taker.curZ = startTz + (ballPos.z - startTz) * (r * 0.85);
+          taker.pose = "RUN";
+        }
+        recordReplayTick(
+          "FREE_KICK_SETUP",
+          t === 0 ? `🎯 Falta Directa fuera del área (${Math.round(vLen)}m). Barrera vectorial a 9.15m exactos.` : null,
+          t === 0 ? "FALTA DIRECTA (9.15M)" : null
+        );
+      }
+
+      // Lanzamiento físico real con velocidad 3D y efecto Magnus (sin resultado precalculado)
+      taker.pose = "SHOOT";
+      taker.poseTimer = 0.45;
+      const aimZ = (ballPos.z > 0 ? 2.45 : -2.45) + (Math.random() - 0.5) * 0.65;
+      const dx = goalPos.x - ballPos.x;
+      const dz = aimZ - ballPos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const fkSpeed = 24.5;
+      simBall.vx = (dx / d) * fkSpeed;
+      simBall.vz = (dz / d) * fkSpeed;
+      simBall.vy = 5.15;
+      simBall.spin = ballPos.z > 0 ? -3.2 : 3.2;
+      simBall.shotTeam = "away";
+      simBall.pickupCooldown = 0.12;
+
+      recordReplayTick("FREE_KICK_KICK", `🚀 ¡${taker.name} golpea con rosca buscando superar la barrera a 9.15m!`, "DISPARO");
+
+      for (let f = 0; f < 40; f++) {
+        if (f >= 3 && f <= 11) {
+          wallIds.forEach(id => { getP(id).pose = "HEADER"; getP(id).poseTimer = 0.25; });
+        }
+        const res = stepAutonomousTick(0.05);
+        recordReplayTick("FREE_KICK_LIVE", res.comment, res.badge);
+        if (res.climax) break;
+      }
+
+      for (let f = 0; f < 24; f++) {
+        simBall.x = Math.max(-54.2, simBall.x + simBall.vx * 0.05);
+        simBall.z = Math.max(-35.0, Math.min(35.0, simBall.z + simBall.vz * 0.05));
+        simBall.y = Math.max(0, simBall.y + simBall.vy * 0.05);
+        simBall.vy = simBall.y > 0 ? simBall.vy - 9.81 * 0.05 : 0;
+        simBall.vx *= 0.88;
+        simBall.vz *= 0.88;
+        recordReplayTick("FREE_KICK_FOLLOW");
+      }
+
+      activeReplay = {
+        frames: replayBuffer.slice(),
+        cursor: 0,
+        lastCommentIdx: -1,
+        tickRate: 20,
+        label: "FALTA DIRECTA FIFA (9.15M)",
+        lastActionFn: simulateFifaDirectFreeKick
+      };
+    }
+
+    // 3. PENALTI REGLAMENTARIO FIFA: Balón en (-41.5, 0), Portero en (-52.5, 0), Lanzador a 3m (-38.5, 0) y resolución física
+    function simulateFifaPenalty() {
+      replayBuffer = [];
+      currentAttackingSide = "away";
+      const penX = -41.5, penZ = 0.0;
+      const goalX = -52.5;
+
+      const gk = getP("h_1");
+      gk.curX = -52.35;
+      gk.curZ = 0.0;
+      gk.vx = 0;
+      gk.vz = 0;
+      gk.yaw = Math.atan2(1, 0);
+      gk.pose = "IDLE";
+
+      const taker = getP("a_9"); // Lewandowski
+      taker.curX = -38.5;
+      taker.curZ = 0.0;
+      taker.vx = 0;
+      taker.vz = 0;
+      taker.yaw = Math.atan2(-1, 0);
+      taker.pose = "IDLE";
+
+      const awayGK = getP("a_1");
+      awayGK.curX = 50.5;
+      awayGK.curZ = 0.0;
+      awayGK.yaw = Math.atan2(-1, 0);
+
+      const restPlayers = allPlayers.filter(p => p !== gk && p !== taker && p !== awayGK);
+      restPlayers.forEach((p, idx) => {
+        const zSlot = ((idx - 9) * 3.1);
+        let px = -34.8 + (idx % 2) * 1.3;
+        const dToPen = Math.hypot(px - penX, zSlot - penZ);
+        if (dToPen < 9.55) {
+          px = penX + Math.sqrt(Math.max(1, 9.6 * 9.6 - zSlot * zSlot));
+        }
+        p.curX = px;
+        p.curZ = zSlot;
+        p.vx = 0;
+        p.vz = 0;
+        p.pose = "IDLE";
+        p.yaw = Math.atan2(penX - px, penZ - zSlot);
+      });
+
+      simBall.x = penX;
+      simBall.z = penZ;
+      simBall.y = 0;
+      simBall.vx = 0;
+      simBall.vz = 0;
+      simBall.vy = 0;
+      simBall.spin = 0;
+      simBall.carrierId = null;
+      simBall.shotTeam = null;
+
+      for (let t = 0; t < 22; t++) {
+        if (t >= 8) {
+          const r = (t - 8) / 14;
+          taker.curX = -38.5 + (penX - (-38.5)) * (r * 0.86);
+          taker.pose = "RUN";
+        }
+        recordReplayTick(
+          "PENALTY_RUNUP",
+          t === 0 ? "🥅 Penalti reglamentario FIFA: balón en (-41.5, 0), portero sobre la línea (-52.5, 0) y 20 jugadores fuera del área." : null,
+          t === 0 ? "PENALTI FIFA" : null
+        );
+      }
+
+      // Lanzamiento con velocidad física real hacia uno de los postes
+      taker.pose = "SHOOT";
+      taker.poseTimer = 0.42;
+      const targetZ = (Math.random() < 0.5 ? -1 : 1) * (2.35 + Math.random() * 0.65);
+      const dx = goalX - penX;
+      const dz = targetZ - penZ;
+      const d = Math.hypot(dx, dz) || 1;
+      const penSpeed = 27.2;
+      simBall.vx = (dx / d) * penSpeed;
+      simBall.vz = (dz / d) * penSpeed;
+      simBall.vy = 1.85 + Math.random() * 0.9;
+      simBall.shotTeam = "away";
+      simBall.pickupCooldown = 0.06;
+
+      recordReplayTick("PENALTY_KICK", `🚀 ¡${taker.name} ejecuta el lanzamiento desde los 11 metros!`, "DISPARO PENALTI");
+
+      for (let f = 0; f < 26; f++) {
+        const res = stepAutonomousTick(0.05);
+        recordReplayTick("PENALTY_LIVE", res.comment, res.badge);
+        if (res.climax) break;
+      }
+
+      for (let f = 0; f < 24; f++) {
+        simBall.x = Math.max(-54.2, simBall.x + simBall.vx * 0.05);
+        simBall.z = Math.max(-35.0, Math.min(35.0, simBall.z + simBall.vz * 0.05));
+        simBall.y = Math.max(0, simBall.y + simBall.vy * 0.05);
+        simBall.vy = simBall.y > 0 ? simBall.vy - 9.81 * 0.05 : 0;
+        simBall.vx *= 0.88;
+        simBall.vz *= 0.88;
+        recordReplayTick("PENALTY_FOLLOW");
+      }
+
+      activeReplay = {
+        frames: replayBuffer.slice(),
+        cursor: 0,
+        lastCommentIdx: -1,
+        tickRate: 20,
+        label: "PENALTI REGLAMENTARIO FIFA",
+        lastActionFn: simulateFifaPenalty
+      };
+    }
+
+    // 4. CÓRNER REGLAMENTARIO FIFA: Balón en (-52.5, +34) y resolución 100% física tick a tick en el área
+    function simulateFifaCorner() {
+      replayBuffer = [];
+      currentAttackingSide = "away";
+      const cornerX = -52.5, cornerZ = 34.0;
+
+      const taker = getP("a_8"); // Pedri
+      taker.curX = -51.7;
+      taker.curZ = 33.2;
+      taker.vx = 0;
+      taker.vz = 0;
+      taker.yaw = Math.atan2(8.0, -33.2);
+      taker.pose = "IDLE";
+
+      const gk = getP("h_1");
+      gk.curX = -51.6;
+      gk.curZ = 0.6;
+      gk.vx = 0;
+      gk.vz = 0;
+      gk.yaw = Math.atan2(1, 0.5);
+      gk.pose = "IDLE";
+
+      const awayGK = getP("a_1");
+      awayGK.curX = 50.5;
+      awayGK.curZ = 0.0;
+
+      const atkBox = [
+        { id: "a_9", x: -43.5, z: -1.0 },
+        { id: "a_4", x: -45.2, z: 3.4 },
+        { id: "a_2", x: -41.5, z: -2.8 },
+        { id: "a_21", x: -44.2, z: -4.8 },
+        { id: "a_19", x: -34.5, z: 4.5 },
+        { id: "a_11", x: -34.0, z: -4.0 },
+        { id: "a_17", x: -26.0, z: 0.0 },
+        { id: "a_23", x: -10.0, z: -8.0 },
+        { id: "a_3", x: -10.0, z: 8.0 }
+      ];
+      atkBox.forEach(b => {
+        const p = getP(b.id);
+        p.curX = b.x;
+        p.curZ = b.z;
+        p.vx = 0;
+        p.vz = 0;
+        p.pose = "IDLE";
+        p.yaw = Math.atan2(-52.5 - b.x, 0 - b.z);
+      });
+
+      const defBox = [
+        { id: "h_2", x: -48.5, z: 3.4 },
+        { id: "h_3", x: -45.5, z: -0.4 },
+        { id: "h_22", x: -46.8, z: 2.8 },
+        { id: "h_14", x: -42.8, z: -2.0 },
+        { id: "h_23", x: -45.8, z: -4.0 },
+        { id: "h_8", x: -36.5, z: 3.8 },
+        { id: "h_5", x: -35.8, z: -3.2 },
+        { id: "h_11", x: -28.0, z: 2.0 },
+        { id: "h_7", x: -18.0, z: -5.0 },
+        { id: "h_9", x: -12.0, z: 0.0 }
+      ];
+      defBox.forEach(b => {
+        const p = getP(b.id);
+        p.curX = b.x;
+        p.curZ = b.z;
+        p.vx = 0;
+        p.vz = 0;
+        p.pose = "IDLE";
+        p.yaw = Math.atan2(cornerX - b.x, cornerZ - b.z);
+      });
+
+      simBall.x = cornerX;
+      simBall.z = cornerZ;
+      simBall.y = 0;
+      simBall.vx = 0;
+      simBall.vz = 0;
+      simBall.vy = 0;
+      simBall.spin = 0;
+      simBall.carrierId = null;
+      simBall.shotTeam = null;
+
+      for (let t = 0; t < 16; t++) {
+        recordReplayTick(
+          "CORNER_SETUP",
+          t === 0 ? "🚩 Saque de esquina reglamentario desde (-52.5, +34.0) hacia el corazón del área." : null,
+          t === 0 ? "CÓRNER FIFA" : null
+        );
+      }
+
+      // Centro físico real con velocidad y efecto Magnus hacia el punto de remate
+      taker.pose = "PASS";
+      taker.poseTimer = 0.42;
+      const headerTarget = getP("a_9");
+      const meetX = -45.5, meetZ = -0.5;
+      const dx = meetX - cornerX;
+      const dz = meetZ - cornerZ;
+      const dist = Math.hypot(dx, dz) || 1;
+      const crossSpd = 21.8;
+      simBall.vx = (dx / dist) * crossSpd;
+      simBall.vz = (dz / dist) * crossSpd;
+      simBall.vy = 5.4;
+      simBall.spin = -2.1;
+      simBall.passTargetId = headerTarget.id;
+      simBall.lastTouchTeam = "away";
+      simBall.pickupCooldown = 0.18;
+
+      recordReplayTick("CORNER_CROSS", `🎯 ¡${taker.name} cuelga el córner con rosca buscando el desmarque en el área!`, "CENTRO CÓRNER");
+
+      for (let f = 0; f < 65; f++) {
+        const res = stepAutonomousTick(0.05);
+        recordReplayTick("CORNER_LIVE", res.comment, res.badge);
+        if (res.climax) break;
+      }
+
+      for (let f = 0; f < 24; f++) {
+        simBall.x = Math.max(-54.2, simBall.x + simBall.vx * 0.05);
+        simBall.z = Math.max(-35.0, Math.min(35.0, simBall.z + simBall.vz * 0.05));
+        simBall.y = Math.max(0, simBall.y + simBall.vy * 0.05);
+        simBall.vy = simBall.y > 0 ? simBall.vy - 9.81 * 0.05 : 0;
+        simBall.vx *= 0.88;
+        simBall.vz *= 0.88;
+        recordReplayTick("CORNER_FOLLOW");
+      }
+
+      activeReplay = {
+        frames: replayBuffer.slice(),
+        cursor: 0,
+        lastCommentIdx: -1,
+        tickRate: 20,
+        label: "CÓRNER REGLAMENTARIO FIFA",
+        lastActionFn: simulateFifaCorner
+      };
+    }
+
+    // =========================================================================
+    // 6. REPRODUCTOR 3D INTERPOLADO A 60 FPS DESDE EL REPLAY BUFFER (20 HZ) + CINEMÁTICA FM27
+    // =========================================================================
+    let lastTime = performance.now();
+    let prevBallX3D = 0;
+    let prevBallZ3D = 0;
+    let smoothFocusX = 0;
+    let smoothFocusZ = 0;
+
+    // Interpolador cúbico Catmull-Rom para trayectorias C1 continuas sin vértices poligonales a 20 Hz
+    function catmullRom(p0, p1, p2, p3, t) {
+      const v0 = (p2 - p0) * 0.5;
+      const v1 = (p3 - p1) * 0.5;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      return (2 * p1 - 2 * p2 + v0 + v1) * t3 + (-3 * p1 + 3 * p2 - 2 * v0 - v1) * t2 + v0 * t + p1;
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const now = performance.now();
+      const nowSec = now * 0.001;
+      const dt = Math.min((now - lastTime) / 1000, 0.05);
+      lastTime = now;
+
+      // Factor de amortiguación exponencial para articulaciones a 60 FPS (evita tirones entre poses)
+      const jointBlend = 1 - Math.exp(-16.0 * dt);
+      const lerpVal = (cur, target, b = jointBlend) => cur + (target - cur) * b;
+
+      // Animación de ambiente del estadio (Vallas LED y banderines de córner)
+      if (adTex) adTex.offset.x = (nowSec * 0.028) % 1;
+      cornerFlags.forEach((fl, i) => {
+        fl.rotation.y = Math.sin(nowSec * 4.5 + i) * 0.22;
+      });
+
+      if (activeReplay && activeReplay.frames.length > 0) {
+        activeReplay.cursor += dt * activeReplay.tickRate;
+        const frames = activeReplay.frames;
+        const maxIdx = frames.length - 1;
+        const idx1 = Math.max(0, Math.min(maxIdx, Math.floor(activeReplay.cursor)));
+        const idx2 = Math.min(maxIdx, idx1 + 1);
+        const idx0 = Math.max(0, idx1 - 1);
+        const idx3 = Math.min(maxIdx, idx2 + 1);
+        const alpha = Math.max(0, Math.min(1, activeReplay.cursor - idx1));
+
+        const f0 = frames[idx0];
+        const fA = frames[idx1];
+        const fB = frames[idx2];
+        const f3 = frames[idx3];
+
+        // Espejo de narración en tiempo real: emitir cada comentario y badge en el tick exacto en que ocurre en el campo
+        const prevCommentIdx = typeof activeReplay.lastCommentIdx === "number" ? activeReplay.lastCommentIdx : -1;
+        if (idx1 > prevCommentIdx) {
+          for (let k = prevCommentIdx + 1; k <= idx1; k++) {
+            const fk = frames[k];
+            if (fk && fk.commentary) {
+              const liveBadge = fk.badge || activeReplay.label;
+              activeReplay.currentLiveBadge = liveBadge;
+              updateTicker(fk.commentary, liveBadge, `${(activeReplay.cursor / 20).toFixed(1)}s / ${(frames.length / 20).toFixed(1)}s`);
+              showToast(`⚡ ${liveBadge}`, fk.commentary);
+            }
+          }
+          activeReplay.lastCommentIdx = idx1;
+        } else {
+          updateTicker(tickerText.textContent, activeReplay.currentLiveBadge || activeReplay.label, `${(activeReplay.cursor / 20).toFixed(1)}s / ${(frames.length / 20).toFixed(1)}s`);
+        }
+
+        // Interpolar balón con spline cúbica Catmull-Rom + giro físico realista
+        const bx = catmullRom(f0.ball.x, fA.ball.x, fB.ball.x, f3.ball.x, alpha);
+        const by = ballRadius + Math.max(0, catmullRom(f0.ball.y, fA.ball.y, fB.ball.y, f3.ball.y, alpha));
+        const bz = catmullRom(f0.ball.z, fA.ball.z, fB.ball.z, f3.ball.z, alpha);
+
+        ballMesh.position.set(bx, by, bz);
+        ballMesh.rotation.z -= (bx - prevBallX3D) * 2.2;
+        ballMesh.rotation.x += (bz - prevBallZ3D) * 2.2;
+        prevBallX3D = bx;
+        prevBallZ3D = bz;
+
+        ballShadow.position.set(bx, 0.025, bz);
+        const shadowScale = Math.max(0.3, 1 - (by - ballRadius) * 0.15);
+        ballShadow.scale.set(shadowScale, shadowScale, 1);
+        ballShadowMat.opacity = Math.max(0.12, 0.45 * shadowScale);
+
+        if (fB.ball.carrierId) {
+          const cObj = getP(fB.ball.carrierId);
+          if (cObj) {
+            carrierRing.visible = true;
+            carrierRing.position.set(cObj.curX, 0.035, cObj.curZ);
+            const pulse = 1 + Math.sin(now * 0.008) * 0.08;
+            carrierRing.scale.set(pulse, pulse, 1);
+          }
+        } else {
+          carrierRing.visible = false;
+        }
+
+        // Interpolar los 22 jugadores a 60 FPS con spline cúbica y amortiguación articular continua
+        allPlayers.forEach((p, idx) => {
+          const s0 = f0.players[idx] || fA.players[idx];
+          const sA = fA.players[idx];
+          const sB = fB.players[idx];
+          const s3 = f3.players[idx] || fB.players[idx];
+          if (!sA || !sB) return;
+
+          const newX = catmullRom(s0.x, sA.x, sB.x, s3.x, alpha);
+          const newZ = catmullRom(s0.z, sA.z, sB.z, s3.z, alpha);
+          const frameVx = (newX - p.curX) / Math.max(0.004, dt);
+          const frameVz = (newZ - p.curZ) / Math.max(0.004, dt);
+          p.curX = newX;
+          p.curZ = newZ;
+          p.root.position.set(p.curX, 0, p.curZ);
+
+          // Orientación suave del cuerpo
+          let dYaw = sB.yaw - sA.yaw;
+          while (dYaw > Math.PI) dYaw -= Math.PI * 2;
+          while (dYaw < -Math.PI) dYaw += Math.PI * 2;
+          const targetYaw = sA.yaw + dYaw * alpha;
+          let yawDelta = targetYaw - p.yaw;
+          while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
+          while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
+          p.yaw += yawDelta * Math.min(1, dt * 14.0);
+          p.bodyGroup.rotation.y = p.yaw;
+
+          // Cabeza siguiendo suavemente el balón
+          if (p.headGroup) {
+            const ballYaw = Math.atan2(bx - p.curX, bz - p.curZ);
+            const headDelta = Math.atan2(Math.sin(ballYaw - p.yaw), Math.cos(ballYaw - p.yaw));
+            const targetHeadY = Math.max(-0.65, Math.min(0.65, headDelta * 0.65));
+            p.headGroup.rotation.y = lerpVal(p.headGroup.rotation.y, targetHeadY, jointBlend * 0.7);
+          }
+
+          const simSpd = Math.hypot(sA.vx + (sB.vx - sA.vx) * alpha, sA.vz + (sB.vz - sA.vz) * alpha);
+          const speed = Math.max(simSpd, Math.hypot(frameVx, frameVz) * 0.85);
+          const pose = alpha < 0.5 ? sA.pose : sB.pose;
+
+          // Si el jugador tiene AnimationMixer cargado desde jugador.glb, vincularlo a su velocidad y golpeo de balón
+          if (p.mixer && p.actions) {
+            const isSpecialPose = (pose === "SLIDE_TACKLE" || pose === "DIVE" || pose === "HEADER");
+            if (!isSpecialPose) {
+              let desiredAction = "idle";
+              if (pose === "SHOOT" || pose === "PASS") {
+                desiredAction = "kick";
+              } else if (speed > 0.32) {
+                desiredAction = "run";
+              }
+
+              if (p.activeActionName !== desiredAction) {
+                const prevAct = p.actions[p.activeActionName];
+                const nextAct = p.actions[desiredAction];
+                if (nextAct) {
+                  nextAct.reset();
+                  if (prevAct) {
+                    nextAct.crossFadeFrom(prevAct, 0.12, false);
+                  }
+                  nextAct.play();
+                }
+                p.activeActionName = desiredAction;
+              }
+
+              if (desiredAction === "run" && p.actions.run) {
+                p.actions.run.timeScale = Math.max(0.65, Math.min(1.90, speed / 4.2));
+              } else if (desiredAction === "kick" && p.actions.kick) {
+                p.actions.kick.timeScale = pose === "SHOOT" ? 1.25 : 1.05;
+              } else if (desiredAction === "idle" && p.actions.idle) {
+                p.actions.idle.timeScale = 1.0;
+              }
+
+              p.mixer.update(dt);
+              p.bodyGroup.position.y = lerpVal(p.bodyGroup.position.y, 0);
+              p.bodyGroup.rotation.x = lerpVal(p.bodyGroup.rotation.x, 0);
+              p.bodyGroup.rotation.z = lerpVal(p.bodyGroup.rotation.z, 0);
+            } else {
+              // Poses especiales de portero (DIVE), entrada (SLIDE_TACKLE) o salto de cabeza (HEADER)
+              let tBodyY = 0, tBodyRX = 0, tBodyRZ = 0;
+              if (pose === "SLIDE_TACKLE") {
+                tBodyY = -0.35;
+                tBodyRX = -0.90;
+              } else if (pose === "DIVE") {
+                const dir = p.isHome ? (bz >= p.curZ ? -1 : 1) : (bz >= p.curZ ? 1 : -1);
+                tBodyY = 0.35;
+                tBodyRZ = dir * 1.25;
+              } else if (pose === "HEADER") {
+                tBodyY = 0.46;
+              }
+              p.bodyGroup.position.y = lerpVal(p.bodyGroup.position.y, tBodyY);
+              p.bodyGroup.rotation.x = lerpVal(p.bodyGroup.rotation.x, tBodyRX);
+              p.bodyGroup.rotation.z = lerpVal(p.bodyGroup.rotation.z, tBodyRZ);
+            }
+          } else {
+          // Ángulos articulares objetivo para este frame (fallback procedural)
+          let tBodyY = 0, tBodyRX = 0, tBodyRZ = 0;
+          let tTorsoRX = 0, tTorsoRY = 0;
+          let tLLegX = 0, tRLegX = 0, tLKneeX = 0.12, tRKneeX = 0.12;
+          let tLArmX = 0, tRArmX = 0, tLArmZ = -0.09, tRArmZ = 0.09;
+          let tLElbowX = -0.38, tRElbowX = -0.38;
+
+          if (pose === "SLIDE_TACKLE") {
+            tBodyY = -0.35;
+            tBodyRX = -0.90;
+            tLLegX = -1.12;
+            tRLegX = 0.45;
+            tLKneeX = 0.15;
+            tRKneeX = 1.25;
+            tLArmX = -0.50;
+            tRArmX = 0.65;
+            tLElbowX = -0.60;
+            tRElbowX = -0.80;
+          } else if (pose === "DIVE") {
+            const dir = p.isHome ? (bz >= p.curZ ? -1 : 1) : (bz >= p.curZ ? 1 : -1);
+            tBodyY = 0.35;
+            tBodyRZ = dir * 1.25;
+            tLArmX = -2.60;
+            tRArmX = -2.60;
+            tLElbowX = -0.15;
+            tRElbowX = -0.15;
+            tLLegX = 0.22;
+            tRLegX = -0.18;
+            tLKneeX = 0.35;
+            tRKneeX = 0.45;
+          } else if (pose === "HEADER") {
+            tBodyY = 0.46;
+            tTorsoRX = 0.20;
+            tLLegX = -0.22;
+            tRLegX = 0.18;
+            tLKneeX = 0.70;
+            tRKneeX = 0.70;
+            tLArmX = -0.45;
+            tRArmX = -0.45;
+            tLArmZ = -0.55;
+            tRArmZ = 0.55;
+            tLElbowX = -0.75;
+            tRElbowX = -0.75;
+          } else if (pose === "SHOOT" || pose === "PASS") {
+            tTorsoRX = -0.10;
+            tTorsoRY = -0.26;
+            tLLegX = 0.28;
+            tLKneeX = 0.22;
+            tRLegX = pose === "SHOOT" ? -1.05 : -0.78;
+            tRKneeX = 0.28;
+            tLArmX = 0.65;
+            tRArmX = -0.75;
+            tLArmZ = -0.22;
+            tRArmZ = 0.22;
+            tLElbowX = -0.90;
+            tRElbowX = -0.85;
+          } else if (speed > 0.32) {
+            const normSpd = Math.min(1.25, speed / 6.5);
+            p.stride += dt * (4.8 + speed * 1.48);
+            const amp = Math.min(0.92, 0.26 + normSpd * 0.48);
+            const s = Math.sin(p.stride);
+            const c = Math.cos(p.stride);
+
+            tLLegX = s * amp;
+            tRLegX = -s * amp;
+            tLKneeX = Math.max(0.08, (-s * 0.85 + 0.45) * Math.min(1.15, normSpd + 0.3));
+            tRKneeX = Math.max(0.08, (s * 0.85 + 0.45) * Math.min(1.15, normSpd + 0.3));
+
+            tLArmX = -s * amp * 0.72;
+            tRArmX = s * amp * 0.72;
+            tLElbowX = -0.92 - Math.max(0, -s) * 0.35;
+            tRElbowX = -0.92 - Math.max(0, s) * 0.35;
+
+            tBodyY = Math.abs(c) * 0.065;
+            tTorsoRX = Math.min(0.22, normSpd * 0.14);
+            tTorsoRY = s * 0.14 * Math.min(1, normSpd);
+          } else {
+            tLArmX = Math.sin(nowSec * 2.4 + idx) * 0.05;
+            tRArmX = -Math.sin(nowSec * 2.4 + idx) * 0.05;
+            tBodyY = Math.sin(nowSec * 2.8 + idx) * 0.012;
+          }
+
+          // Aplicar transición suave amortiguada a todas las articulaciones (Cero saltos bruscos)
+          p.bodyGroup.position.y = lerpVal(p.bodyGroup.position.y, tBodyY);
+          p.bodyGroup.rotation.x = lerpVal(p.bodyGroup.rotation.x, tBodyRX);
+          p.bodyGroup.rotation.z = lerpVal(p.bodyGroup.rotation.z, tBodyRZ);
+          if (p.torsoGroup) {
+            p.torsoGroup.rotation.x = lerpVal(p.torsoGroup.rotation.x, tTorsoRX);
+            p.torsoGroup.rotation.y = lerpVal(p.torsoGroup.rotation.y, tTorsoRY);
+          }
+          p.leftLeg.rotation.x = lerpVal(p.leftLeg.rotation.x, tLLegX);
+          p.rightLeg.rotation.x = lerpVal(p.rightLeg.rotation.x, tRLegX);
+          if (p.leftKnee) p.leftKnee.rotation.x = lerpVal(p.leftKnee.rotation.x, tLKneeX);
+          if (p.rightKnee) p.rightKnee.rotation.x = lerpVal(p.rightKnee.rotation.x, tRKneeX);
+          p.leftArm.rotation.x = lerpVal(p.leftArm.rotation.x, tLArmX);
+          p.rightArm.rotation.x = lerpVal(p.rightArm.rotation.x, tRArmX);
+          p.leftArm.rotation.z = lerpVal(p.leftArm.rotation.z, tLArmZ);
+          p.rightArm.rotation.z = lerpVal(p.rightArm.rotation.z, tRArmZ);
+          if (p.leftElbow) p.leftElbow.rotation.x = lerpVal(p.leftElbow.rotation.x, tLElbowX);
+          if (p.rightElbow) p.rightElbow.rotation.x = lerpVal(p.rightElbow.rotation.x, tRElbowX);
+          }
+
+          const isCarrier = (p.id === fB.ball.carrierId);
+          const isNearBall = Math.hypot(p.curX - bx, p.curZ - bz) < 9.0;
+          if (isCarrier || isNearBall) {
+            p.tagEl.style.display = "block";
+            const screenPos = p.root.position.clone();
+            screenPos.y = 2.25;
+            screenPos.project(camera);
+            const x2d = (screenPos.x * 0.5 + 0.5) * window.innerWidth;
+            const y2d = (-screenPos.y * 0.5 + 0.5) * window.innerHeight;
+            p.tagEl.style.left = `${x2d}px`;
+            p.tagEl.style.top = `${y2d}px`;
+          } else {
+            p.tagEl.style.display = "none";
+          }
+        });
+
+        if (activeReplay.cursor >= frames.length - 1) {
+          if (activeReplay.isOpenPlay) {
+            simulateEmergentOpenPlayHighlight();
+          } else {
+            activeReplay.cursor = 0;
+          }
+        }
+      }
+
+      // Seguimiento suave de cámara con doble interpolación exponencial (lerp sin tirones independiente de FPS)
+      const ballX = ballMesh.position.x;
+      const ballZ = ballMesh.position.z;
+      const focusLerp = 1 - Math.exp(-3.8 * dt);
+      smoothFocusX += (ballX - smoothFocusX) * focusLerp;
+      smoothFocusZ += (ballZ - smoothFocusZ) * focusLerp;
+
+      if (activeCameraMode === "broadcast") {
+        const areaZoom = Math.max(0, Math.min(1, (Math.abs(smoothFocusX) - 22) / 28));
+        const targetCamX = smoothFocusX * 0.46;
+        const targetCamY = 34.0 - areaZoom * 2.5;
+        const targetCamZ = (56.0 - areaZoom * 3.8) + smoothFocusZ * 0.14;
+        const camPosLerp = 1 - Math.exp(-3.0 * dt);
+        const camLookLerp = 1 - Math.exp(-3.8 * dt);
+
+        camera.position.x += (targetCamX - camera.position.x) * camPosLerp;
+        camera.position.y += (targetCamY - camera.position.y) * camPosLerp;
+        camera.position.z += (targetCamZ - camera.position.z) * camPosLerp;
+
+        camLookTarget.x += (smoothFocusX * 0.50 - camLookTarget.x) * camLookLerp;
+        camLookTarget.y += (0.8 - camLookTarget.y) * camLookLerp;
+        camLookTarget.z += (smoothFocusZ * 0.16 - 1.2 - camLookTarget.z) * camLookLerp;
+        camera.lookAt(camLookTarget);
+      } else if (activeCameraMode === "closeup") {
+        const targetCamX = smoothFocusX + 8.5;
+        const targetCamY = 7.2;
+        const targetCamZ = smoothFocusZ + 14.5;
+        const camPosLerp = 1 - Math.exp(-3.8 * dt);
+        const camLookLerp = 1 - Math.exp(-4.8 * dt);
+
+        camera.position.x += (targetCamX - camera.position.x) * camPosLerp;
+        camera.position.y += (targetCamY - camera.position.y) * camPosLerp;
+        camera.position.z += (targetCamZ - camera.position.z) * camPosLerp;
+
+        camLookTarget.x += (smoothFocusX - camLookTarget.x) * camLookLerp;
+        camLookTarget.y += (1.15 - camLookTarget.y) * camLookLerp;
+        camLookTarget.z += (smoothFocusZ - camLookTarget.z) * camLookLerp;
+        camera.lookAt(camLookTarget);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    // =========================================================================
+    // 7. LISTENERS DE LA INTERFAZ Y BOTONES
+    // =========================================================================
+    const btnWingConceded = document.getElementById("btn-play-wing-conceded");
+    const btnWingBlocked = document.getElementById("btn-play-wing-blocked");
+    const btnHighlineBreak = document.getElementById("btn-play-highline-break");
+    const btnLowblockWall = document.getElementById("btn-play-lowblock-wall");
+
+    function setActiveBtn(activeBtn) {
+      [btnWingConceded, btnWingBlocked, btnHighlineBreak, btnLowblockWall].forEach(b => {
+        b.classList.remove("btn-active", "btn-alert-active");
+      });
+      activeBtn.classList.add("btn-active");
+    }
+
+    btnWingConceded.onclick = () => {
+      setActiveBtn(btnWingConceded);
+      simulateEmergentOpenPlayHighlight();
+    };
+
+    btnWingBlocked.onclick = () => {
+      setActiveBtn(btnWingBlocked);
+      simulateFifaDirectFreeKick();
+    };
+
+    btnHighlineBreak.onclick = () => {
+      setActiveBtn(btnHighlineBreak);
+      simulateFifaPenalty();
+    };
+
+    btnLowblockWall.onclick = () => {
+      setActiveBtn(btnLowblockWall);
+      simulateFifaCorner();
+    };
+
+    document.getElementById("btn-replay").onclick = () => {
+      if (activeReplay && activeReplay.lastActionFn) {
+        activeReplay.lastActionFn();
+      } else {
+        simulateEmergentOpenPlayHighlight();
+      }
+    };
+
+    const camNameEl = document.getElementById("cam-name");
+    document.getElementById("btn-toggle-cam").onclick = () => {
+      if (activeCameraMode === "broadcast") {
+        activeCameraMode = "closeup";
+        camNameEl.textContent = "Plano Corto FM27";
+      } else if (activeCameraMode === "closeup") {
+        activeCameraMode = "tactical";
+        camNameEl.textContent = "Cenital Táctica";
+        camera.position.set(0, 75, 8);
+        camera.lookAt(0, 0, 0);
+      } else if (activeCameraMode === "tactical") {
+        activeCameraMode = "endzone";
+        camNameEl.textContent = "Tras Portería";
+        camera.position.set(-66, 14, 0);
+        camera.lookAt(0, 1.5, 0);
+      } else {
+        activeCameraMode = "broadcast";
+        camNameEl.textContent = "TV Panorámica";
+        camera.position.set(0, 34, 56);
+        camera.lookAt(0, 0.8, -1.2);
+      }
+    };
+
+    document.getElementById("btn-toggle-fullscreen").onclick = () => {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      } else {
+        document.exitFullscreen().catch(() => {});
+      }
+    };
+
+    window.addEventListener("resize", () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // Arrancar simulando la primera jugada autónoma en el buffer circular a 20 Hz
+    setActiveBtn(btnWingConceded);
+    simulateEmergentOpenPlayHighlight();
+    animate();
+  </script>
+</body>
+</html>

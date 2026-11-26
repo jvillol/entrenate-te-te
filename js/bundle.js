@@ -1178,7 +1178,7 @@ const TACTICAL_PRESETS = {
     desc: "Posesión paciente, pase corto, ritmo pausado y contrapresión instantánea tras pérdida",
     inPossession: { passingStyle: "short", tempo: "slow", width: "balanced" },
     inTransition: { loss: "counterpress", win: "hold" },
-    outOfPossession: { defensiveLine: "high", pressing: "high" }
+    outOfPossession: { defensiveLine: "high", pressing: "high", defenseWidth: "balanced" }
   },
   gegenpress: {
     id: "gegenpress",
@@ -1187,7 +1187,7 @@ const TACTICAL_PRESETS = {
     desc: "Ritmo asfixiante, recuperación inmediata tras pérdida y transiciones verticales rápidas",
     inPossession: { passingStyle: "mixed", tempo: "fast", width: "wide" },
     inTransition: { loss: "counterpress", win: "counter" },
-    outOfPossession: { defensiveLine: "high", pressing: "high" }
+    outOfPossession: { defensiveLine: "high", pressing: "high", defenseWidth: "wide" }
   },
   counter_attack: {
     id: "counter_attack",
@@ -1196,7 +1196,7 @@ const TACTICAL_PRESETS = {
     desc: "Bloque bajo ordenado, repliegue rápido y salida vertical fulgurante al espacio",
     inPossession: { passingStyle: "direct", tempo: "fast", width: "wide" },
     inTransition: { loss: "regroup", win: "counter" },
-    outOfPossession: { defensiveLine: "low", pressing: "mid" }
+    outOfPossession: { defensiveLine: "low", pressing: "mid", defenseWidth: "compact" }
   },
   catenaccio: {
     id: "catenaccio",
@@ -1205,7 +1205,7 @@ const TACTICAL_PRESETS = {
     desc: "Bloque muy bajo, cerrojo en el área, repliegue masivo y balones largos sin riesgos",
     inPossession: { passingStyle: "direct", tempo: "slow", width: "center" },
     inTransition: { loss: "regroup", win: "hold" },
-    outOfPossession: { defensiveLine: "low", pressing: "low" }
+    outOfPossession: { defensiveLine: "low", pressing: "low", defenseWidth: "compact" }
   },
   wing_play: {
     id: "wing_play",
@@ -1214,7 +1214,7 @@ const TACTICAL_PRESETS = {
     desc: "Apertura a extremos y carrileros para doblar y colgar centros al área",
     inPossession: { passingStyle: "mixed", tempo: "normal", width: "wide" },
     inTransition: { loss: "regroup", win: "counter" },
-    outOfPossession: { defensiveLine: "mid", pressing: "mid" }
+    outOfPossession: { defensiveLine: "mid", pressing: "mid", defenseWidth: "balanced" }
   },
   direct_football: {
     id: "direct_football",
@@ -1223,7 +1223,7 @@ const TACTICAL_PRESETS = {
     desc: "Balones largos directos a la referencia ofensiva, segundas jugadas y verticalidad",
     inPossession: { passingStyle: "direct", tempo: "fast", width: "center" },
     inTransition: { loss: "counterpress", win: "counter" },
-    outOfPossession: { defensiveLine: "mid", pressing: "high" }
+    outOfPossession: { defensiveLine: "mid", pressing: "high", defenseWidth: "balanced" }
   }
 };
 const TACTICAL_OPTIONS = {
@@ -1262,6 +1262,11 @@ const TACTICAL_OPTIONS = {
     { id: "low", label: "Baja / Contención", desc: "Esperar en zona, mantener líneas juntas y no desgastarse", icon: "🧘" },
     { id: "mid", label: "Media", desc: "Presión estándar al entrar en zona activa", icon: "🏃" },
     { id: "high", label: "Asfixiante / Alta", desc: "Acosar la salida de balón rival en su propio campo", icon: "🔥" }
+  ],
+  defenseWidth: [
+    { id: "compact", label: "Cerrado por Dentro", desc: "Línea estrecha (30m) para blindar el área; deja espacio en bandas", icon: "🛡️" },
+    { id: "balanced", label: "Equilibrada", desc: "Anchura estándar de la zaga (42-46m)", icon: "📐" },
+    { id: "wide", label: "Cerrar Bandas", desc: "Laterales pegados a la cal para secar extremos y tapar centros", icon: "↔️" }
   ]
 };
 function getDefaultTacticalInstructions() {
@@ -1269,7 +1274,7 @@ function getDefaultTacticalInstructions() {
     preset: "tiki_taka",
     inPossession: { passingStyle: "short", tempo: "slow", width: "balanced" },
     inTransition: { loss: "counterpress", win: "hold" },
-    outOfPossession: { defensiveLine: "high", pressing: "high" }
+    outOfPossession: { defensiveLine: "high", pressing: "high", defenseWidth: "balanced" }
   };
 }
 function detectMatchingPreset(instructions) {
@@ -2088,8 +2093,8 @@ class MatchSimulator {
     this.awayPlayersOnPitch.forEach(p => initPlayerMatchStats(p, true));
     this.awayBench.forEach(p => initPlayerMatchStats(p, false));
 
-    // Inicializar cómputo del partido: FAST_SIM (entre jugadas en 2D) y HIGHLIGHT_PLAYING (jugadas clave en 3D)
-    this.useRealTime = false;
+    // Inicializar cómputo del partido: Motor Autónomo 20 Ticks/Seg + Replay Buffer Circular (15s = 300 ticks)
+    this.useRealTime = true;
     this.matchSecond = 0;
     this.highlightInterval = null;
     this.realTimeMinute = 0;
@@ -2099,6 +2104,13 @@ class MatchSimulator {
     this.possessionTimeAway = 0.5;
     this.foulCooldown = 0;
     this.setPieceCooldown = 0;
+    this.replayBuffer = [];
+    this.maxReplayBufferFrames = 300; // 15 segundos a 20 ticks/segundo
+    this.activeReplay = null;
+    this.lastHighlightMinute = -4;
+    this._liveAtkMomentum = { home: 0.5, away: 0.5 };
+    this._pendingTickOutcome = null;
+    this._recordingReplayOnly = false;
     this.ball = {
       x: 50, y: 50, z: 0,
       targetX: 50, targetY: 50, targetZ: 0,
@@ -2289,6 +2301,7 @@ class MatchSimulator {
     const wasVisualActive = this.isHighlightRunning || this.isSetPieceRunning;
     this.isHighlightRunning = false;
     this.isSetPieceRunning = false;
+    this.activeReplay = null;
     if (wasVisualActive && this.onHighlightEnd) {
       this.onHighlightEnd();
     }
@@ -3017,7 +3030,7 @@ class MatchSimulator {
     const updated2D = newPitch.map((p, idx) => {
       const existing = old2D.find(item => item.player.id === p.id);
       const coord = newCoords[idx] || { x: isHome ? 25 : 75, y: 50 };
-      const fresh = this._createPhysicsPlayer(p, idx, coord, side);
+      const fresh = this._createPhysicsPlayer(p, idx, coord, teamSide);
       if (existing) {
         fresh.curX = existing.curX;
         fresh.curY = existing.curY;
@@ -3439,29 +3452,20 @@ class MatchSimulator {
     // Ventaja base ambiental del estadio local en posesión (+0.4% comedido, strictly <= 0.5%)
     const probHomePoss = Math.max(0.20, Math.min(0.80, (midHome / (midHome + midAway)) + 0.004 + possModHome - possModAway));
 
-    let currentPoss = Math.random() < probHomePoss ? "home" : "away";
-
-    // 1. TRANSICIÓN TRAS PÉRDIDA: CONTRAPRESIÓN INSTANTÁNEA
-    if (this.lastPossession === "home" && currentPoss === "away") {
-      if (this.homeInstructions?.inTransition?.loss === "counterpress" && Math.random() < 0.35) {
-        currentPoss = "home"; // ¡Robo inmediato arriba!
-        this.triggerAlert("CONTRAPRESIÓN", `💥 ¡Presión tras pérdida de ${this.homeTeam.shortName}! Robo en campo rival`, "home", 2500);
-      }
-    } else if (this.lastPossession === "away" && currentPoss === "home") {
-      if (this.awayInstructions?.inTransition?.loss === "counterpress" && Math.random() < 0.35) {
-        currentPoss = "away"; // ¡Robo inmediato arriba!
-        this.triggerAlert("CONTRAPRESIÓN", `💥 ¡Presión tras pérdida de ${this.awayTeam.shortName}! Robo en campo rival`, "away", 2500);
-      }
-    }
-
-    // 2. TRANSICIÓN TRAS RECUPERACIÓN: CONTRAATAQUE VERTICAL
-    if (this.lastPossession !== currentPoss) {
-      const activeInst = currentPoss === "home" ? this.homeInstructions : this.awayInstructions;
-      const activeTeam = currentPoss === "home" ? this.homeTeam : this.awayTeam;
-      if (activeInst?.inTransition?.win === "counter" && Math.random() < 0.42) {
-        this.triggerAlert("CONTRAATAQUE", `🏹 ¡Contraataque veloz de ${activeTeam.shortName}!`, currentPoss, 2500);
-      }
-    }
+    // Si el balón ya está en juego o en posesión de un equipo, NO reasignar posesión por sorteo en cada minuto;
+    // la posesión cambia únicamente por robos físicos (_attemptTackle), intercepciones (_stepBallPhysics) o saques físicos.
+    const ballAlreadyInPlay = Boolean(
+      this.ball && (
+        this.ball.carrier ||
+        this.ball.passTarget ||
+        this.ball.shotTeam ||
+        this.ball.possession ||
+        Math.hypot(this.ball.vx || 0, this.ball.vy || 0) > 0.35
+      )
+    );
+    let currentPoss = ballAlreadyInPlay
+      ? (this.ball.carrier?.side || this.ball.passTeam || this.ball.possession || this.lastPossession || "home")
+      : (Math.random() < probHomePoss ? "home" : "away");
 
     this.lastPossession = currentPoss;
     this.ball.possession = currentPoss;
@@ -3476,160 +3480,65 @@ class MatchSimulator {
     this.stats.possession.home = Math.round((this.stats.possessionTicks.home / totalTicks) * 100);
     this.stats.possession.away = 100 - this.stats.possession.home;
 
-    // Probabilidad de ocasión de gol en este minuto
-    const chanceRoll = Math.random();
+    // Modificadores tácticos de ímpetu ofensivo en la simulación autónoma a 20 ticks/segundo
+    const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.003 : 0;
+    let homeChanceMult = 0.25 + lateHomeSurge;
+    if (this.minute <= 15) homeChanceMult *= 0.85;
+    const leadDiffHome = this.homeScore - this.awayScore;
+    if (leadDiffHome >= 3) homeChanceMult *= 0.40;
+    else if (leadDiffHome >= 2) homeChanceMult *= 0.65;
 
-    if (currentPoss === "home") {
-      // Posición del balón en el campo atacando hacia la derecha (x: 50 -> 90)
-      const widthInst = this.homeInstructions?.inPossession?.width || "balanced";
-      let ballYTarget = 20 + Math.random() * 60;
-      if (widthInst === "wide") {
-        ballYTarget = Math.random() < 0.5 ? (12 + Math.random() * 20) : (68 + Math.random() * 20);
-      } else if (widthInst === "center") {
-        ballYTarget = 36 + Math.random() * 28;
-      }
+    let awayChanceMult = 0.24;
+    if (this.minute <= 15) awayChanceMult *= 0.85;
+    const leadDiffAway = this.awayScore - this.homeScore;
+    if (leadDiffAway >= 3) awayChanceMult *= 0.40;
+    else if (leadDiffAway >= 2) awayChanceMult *= 0.65;
 
-      this.ball.targetX = 65 + Math.random() * 28;
-      this.ball.targetY = ballYTarget;
+    if (this.activeShout) {
+      if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.20;
+      else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.70;
+      else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.75;
 
-      // Ocasión de ataque local (calibrado para generar entre 6 y 12 ocasiones por parte según táctica)
-      const lateHomeSurge = (this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.003 : 0;
-      let homeChanceMult = 0.25 + lateHomeSurge;
-      if (this.minute <= 15) homeChanceMult *= 0.85; // Ajuste táctico de tanteo inicial
-      const leadDiffHome = this.homeScore - this.awayScore;
-      if (leadDiffHome >= 3) homeChanceMult *= 0.40; // Freno natural a goleadas desorbitadas (6-0)
-      else if (leadDiffHome >= 2) homeChanceMult *= 0.65;
+      if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.20;
+      else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.70;
+      else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.75;
+    }
 
-      if (this.activeShout) {
-        if (this.userSide === "home" && this.activeShout.id === "SHOOT_ON_SIGHT") homeChanceMult *= 1.20;
-        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.70;
-        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") homeChanceMult *= 0.75;
-      }
-
-      if (this.activeAssistantAdvice) {
-        const isUserHome = this.userSide === "home";
-        const cat = this.activeAssistantAdvice.category;
-        const isGood = this.activeAssistantAdvice.isGoodReading;
-        if (isGood) {
-          if (cat === "OFFENSIVE" || cat === "HIGH_PRESS" || cat === "WIDE_PLAY") {
-            homeChanceMult *= (isUserHome ? 1.15 : 1.0);
-          } else if (cat === "DEFENSIVE" || cat === "COUNTER" || cat === "HOLD_LEAD") {
-            homeChanceMult *= (!isUserHome ? 0.85 : 1.0);
-          } else if (cat === "SUBSTITUTION") {
-            homeChanceMult *= (isUserHome ? 1.10 : 0.90);
-          }
-        } else {
-          // Lectura errónea del asistente: el rival encuentra huecos (+10% peligro)
-          homeChanceMult *= (!isUserHome ? 1.10 : 1.0);
-        }
-      }
-      const attackScore = (homeAtk / (homeAtk + awayDef)) * homeChanceMult;
-      if (chanceRoll < attackScore) {
-        this.executeKeyHighlight("home", () => {
-          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
-            this.halfTimeTriggered = true;
-            this.isHalfTime = true;
-            this.pause();
-            this.onHalfTime(this.getState());
-            return;
-          }
-          if (this.pauseRequested) {
-            this.pauseRequested = false;
-            this.pause();
-            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
-            return;
-          }
-          if (this.isRunning && !this.isFinished) {
-            this.loop();
-          }
-        });
-        return !this.isSkippingToEnd;
-      } else if (chanceRoll < attackScore + 0.035) {
-        // Balón parado (Córner o Falta peligrosa calibrado a ritmo real de partido)
-        const isCorner = Math.random() < 0.65;
-        if (this.triggerSetPiece("home", isCorner ? "CORNER" : "FREE_KICK")) {
-          return true;
+    if (this.activeAssistantAdvice) {
+      const isUserHome = this.userSide === "home";
+      const isUserAway = this.userSide === "away";
+      const cat = this.activeAssistantAdvice.category;
+      const isGood = this.activeAssistantAdvice.isGoodReading;
+      if (isGood) {
+        if (cat === "OFFENSIVE" || cat === "HIGH_PRESS" || cat === "WIDE_PLAY") {
+          homeChanceMult *= (isUserHome ? 1.15 : 1.0);
+          awayChanceMult *= (isUserAway ? 1.15 : 1.0);
+        } else if (cat === "DEFENSIVE" || cat === "COUNTER" || cat === "HOLD_LEAD") {
+          homeChanceMult *= (!isUserHome ? 0.85 : 1.0);
+          awayChanceMult *= (!isUserAway ? 0.85 : 1.0);
+        } else if (cat === "SUBSTITUTION") {
+          homeChanceMult *= (isUserHome ? 1.10 : 0.90);
+          awayChanceMult *= (isUserAway ? 1.10 : 0.90);
         }
       } else {
-        // Pase o centro medio
-        this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
-      }
-    } else {
-      // Balón atacando hacia la izquierda (x: 50 -> 10)
-      const widthInstAway = this.awayInstructions?.inPossession?.width || "balanced";
-      let ballYTargetAway = 20 + Math.random() * 60;
-      if (widthInstAway === "wide") {
-        ballYTargetAway = Math.random() < 0.5 ? (12 + Math.random() * 20) : (68 + Math.random() * 20);
-      } else if (widthInstAway === "center") {
-        ballYTargetAway = 36 + Math.random() * 28;
-      }
-
-      this.ball.targetX = 35 - Math.random() * 28;
-      this.ball.targetY = ballYTargetAway;
-
-      let awayChanceMult = 0.24;
-      if (this.minute <= 15) awayChanceMult *= 0.85; // Ajuste táctico de tanteo inicial
-      const leadDiffAway = this.awayScore - this.homeScore;
-      if (leadDiffAway >= 3) awayChanceMult *= 0.40; // Freno natural a goleadas desorbitadas
-      else if (leadDiffAway >= 2) awayChanceMult *= 0.65;
-
-      if (this.activeShout) {
-        if (this.userSide === "away" && this.activeShout.id === "SHOOT_ON_SIGHT") awayChanceMult *= 1.20;
-        else if (this.userSide === "away" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.70;
-        else if (this.userSide === "home" && this.activeShout.id === "WASTE_TIME") awayChanceMult *= 0.75;
-      }
-
-      if (this.activeAssistantAdvice) {
-        const isUserAway = this.userSide === "away";
-        const cat = this.activeAssistantAdvice.category;
-        const isGood = this.activeAssistantAdvice.isGoodReading;
-        if (isGood) {
-          if (cat === "OFFENSIVE" || cat === "HIGH_PRESS" || cat === "WIDE_PLAY") {
-            awayChanceMult *= (isUserAway ? 1.15 : 1.0);
-          } else if (cat === "DEFENSIVE" || cat === "COUNTER" || cat === "HOLD_LEAD") {
-            awayChanceMult *= (!isUserAway ? 0.85 : 1.0);
-          } else if (cat === "SUBSTITUTION") {
-            awayChanceMult *= (isUserAway ? 1.10 : 0.90);
-          }
-        } else {
-          // Lectura errónea del asistente: el rival encuentra huecos (+10% peligro)
-          awayChanceMult *= (!isUserAway ? 1.10 : 1.0);
-        }
-      }
-      const attackScore = (awayAtk / (awayAtk + homeDef)) * awayChanceMult;
-      if (chanceRoll < attackScore) {
-        this.executeKeyHighlight("away", () => {
-          if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
-            this.halfTimeTriggered = true;
-            this.isHalfTime = true;
-            this.pause();
-            this.onHalfTime(this.getState());
-            return;
-          }
-          if (this.pauseRequested) {
-            this.pauseRequested = false;
-            this.pause();
-            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
-            return;
-          }
-          if (this.isRunning && !this.isFinished) {
-            this.loop();
-          }
-        });
-        return !this.isSkippingToEnd;
-      } else if (chanceRoll < attackScore + 0.035) {
-        // Balón parado (Córner o Falta peligrosa calibrado a ritmo real de partido)
-        const isCorner = Math.random() < 0.65;
-        if (this.triggerSetPiece("away", isCorner ? "CORNER" : "FREE_KICK")) {
-          return true;
-        }
-      } else {
-        this.ball.targetZ = Math.random() < 0.3 ? 4 + Math.random() * 6 : 0;
+        homeChanceMult *= (!isUserHome ? 1.10 : 1.0);
+        awayChanceMult *= (!isUserAway ? 1.10 : 1.0);
       }
     }
 
-    // Posibles faltas y tarjetas (afectadas por la intensidad de presión y estado del césped por clima)
-    const baseFoulChance = 0.065 * (this.weather?.foulMod || 1.0);
+    const homeAttackScore = (homeAtk / (homeAtk + awayDef)) * homeChanceMult;
+    const awayAttackScore = (awayAtk / (awayAtk + homeDef)) * awayChanceMult;
+
+    // 1. MOTOR DE FÍSICA Y AGENTES A 20 TICKS/SEGUNDO (Cero plantillas enlatadas)
+    // En FAST_SIM avanzamos el motor físico autónomo calculando ticks de dt = 0.05s (20 Hz)
+    // y grabando el buffer circular replayBuffer (últimos 15 segundos = 300 ticks).
+    const emergentPaused = this._runAutonomousMinuteTicks(currentPoss, homeAttackScore, awayAttackScore);
+    if (emergentPaused) {
+      return !this.isSkippingToEnd;
+    }
+
+    // Posibles faltas y tarjetas en disputas del centro del campo
+    const baseFoulChance = 0.052 * (this.weather?.foulMod || 1.0);
     const pressingHome = this.homeInstructions?.outOfPossession?.pressing || "mid";
     const pressingAway = this.awayInstructions?.outOfPossession?.pressing || "mid";
     const pressFoulMod = (pressingHome === "high" || pressingAway === "high") ? 1.30 : ((pressingHome === "low" && pressingAway === "low") ? 0.65 : 1.0);
@@ -3638,8 +3547,7 @@ class MatchSimulator {
       const foulTeam = Math.random() > 0.5 ? "home" : "away";
       const userFoulMod = (this.activeTeamTalk ? this.activeTeamTalk.foulMod : 1.0) * (this.activeShout ? this.activeShout.foulMod : 1.0);
       if (foulTeam === this.userSide && userFoulMod < 1.0 && Math.random() > userFoulMod) {
-        // El jugador frena la entrada a tiempo gracias a la charla / orden de banda
-        this.update2DPositions();
+        this._syncMetersTo2D();
         return false;
       }
       this.stats.fouls[foulTeam]++;
@@ -3666,7 +3574,7 @@ class MatchSimulator {
           this.awayPlayersOnPitch = this.awayPlayersOnPitch.filter(p => p.id !== committingPlayer.id);
           this.away2D = this.away2D.filter(p => p.player?.id !== committingPlayer.id);
         }
-        this.update2DPositions();
+        this._syncMetersTo2D();
         this.triggerAlert("ROJA DIRECTA", `🟥 ¡ROJA DIRECTA para ${committingPlayer.name} (${foulTeamObj.shortName})!`, foulTeam, 4000);
         this.events.push({
           minute: this.minute,
@@ -3680,7 +3588,6 @@ class MatchSimulator {
         this.onCard({ type: "RED", player: committingPlayer, teamSide: foulTeam, minute: this.minute });
       } else if (isYellow && committingPlayer) {
         if (this.matchCards.yellows[committingPlayer.id]) {
-          // Segunda amarilla y expulsión
           this.adjustPlayerRating(committingPlayer, -1.2);
           this.stats.yellowCards[foulTeam]++;
           this.stats.redCards[foulTeam]++;
@@ -3692,7 +3599,7 @@ class MatchSimulator {
             this.awayPlayersOnPitch = this.awayPlayersOnPitch.filter(p => p.id !== committingPlayer.id);
             this.away2D = this.away2D.filter(p => p.player?.id !== committingPlayer.id);
           }
-          this.update2DPositions();
+          this._syncMetersTo2D();
           this.triggerAlert("EXPULSIÓN", `🟥 ¡Segunda amarilla y EXPULSIÓN para ${committingPlayer.name} (${foulTeamObj.shortName})!`, foulTeam, 4000);
           this.events.push({
             minute: this.minute,
@@ -3705,7 +3612,6 @@ class MatchSimulator {
           });
           this.onCard({ type: "SECOND_YELLOW", player: committingPlayer, teamSide: foulTeam, minute: this.minute });
         } else {
-          // Primera amarilla
           this.adjustPlayerRating(committingPlayer, -0.4);
           this.stats.yellowCards[foulTeam]++;
           this.matchCards.yellows[committingPlayer.id] = { player: committingPlayer, minute: this.minute, team: foulTeam };
@@ -3722,7 +3628,7 @@ class MatchSimulator {
         }
       }
 
-      // Riesgo de lesión por agresividad o entrada dura del rival
+      // Riesgo de lesión por entrada dura
       const foulTeamMentality = foulTeam === "home" ? this.homeMentality : this.awayMentality;
       const aggMod = (foulTeamMentality === "very_offensive" || foulTeamMentality === "offensive") ? 1.4 : 1.0;
       const injuryFoulChance = (isYellow ? 0.075 : 0.018) * aggMod;
@@ -3737,18 +3643,36 @@ class MatchSimulator {
       }
 
       if (foulInjuryPaused && !this.isSkippingToEnd) {
-        this.update2DPositions();
+        this._syncMetersTo2D();
         return true;
       }
 
-      if (Math.random() < 0.40 && !this.isHighlightRunning && !this.isSetPieceRunning) {
-        if (this.triggerSetPiece(victimTeam, "FREE_KICK")) {
-          return true;
+      // Si la falta ocurre en zona peligrosa o dentro del área:
+      // - Dentro del área rival (|X| > 36 y |Z| < 20.16) -> PENALTI
+      // - Fuera del área en campo rival -> FALTA DIRECTA
+      if (!this.isHighlightRunning && !this.isSetPieceRunning && (this.minute - this.lastHighlightMinute >= 2)) {
+        const bxCentered = (this.ball.xm ?? 52.5) - 52.5;
+        const bzCentered = (this.ball.ym ?? 34.0) - 34.0;
+        const isVictimHome = victimTeam === "home";
+        const inRivalBox = isVictimHome
+          ? (bxCentered > 36.0 && Math.abs(bzCentered) < 20.16)
+          : (bxCentered < -36.0 && Math.abs(bzCentered) < 20.16);
+
+        if (inRivalBox) {
+          this.lastHighlightMinute = this.minute;
+          if (this.triggerSetPiece(victimTeam, "PENALTY")) {
+            return true;
+          }
+        } else if (Math.random() < 0.28) {
+          this.lastHighlightMinute = this.minute;
+          if (this.triggerSetPiece(victimTeam, "FREE_KICK")) {
+            return true;
+          }
         }
       }
     }
 
-    // Lance fortuito aislado del juego (esguince, mala caída por puro azar)
+    // Lance fortuito aislado del juego
     if (Math.random() < 0.0006) {
       const side = Math.random() > 0.5 ? "home" : "away";
       const pitch = side === "home" ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
@@ -3756,7 +3680,7 @@ class MatchSimulator {
       if (eligible.length > 0) {
         const victim = eligible[Math.floor(Math.random() * eligible.length)];
         if (this.triggerPlayerInjury(victim, side, "random") && !this.isSkippingToEnd) {
-          this.update2DPositions();
+          this._syncMetersTo2D();
           return true;
         }
       }
@@ -3764,21 +3688,276 @@ class MatchSimulator {
 
     // Comprobar y realizar posibles cambios tácticos de la IA rival
     if (this.checkAISubstitutions() && !this.isSkippingToEnd) {
-      this.update2DPositions();
+      this._syncMetersTo2D();
       return true;
     }
 
-    // Actualizar coordenadas 3D de los jugadores hacia el balón para visualización dinámica
-    this.update2DPositions();
+    this._syncMetersTo2D();
     return false;
   }
 
-  // Ejecución de jugada clave guiada y sincronizada al 100% con el visor 3D
-  executeKeyHighlight(attackingSide, onComplete) {
-    this.isHighlightRunning = true;
-    this.speed = 1; // Ritmo televisivo real (1s real = 1s de partido)
+  // =========================================================================================
+  // 2. BUFFER DE GRABACIÓN Y REPRODUCCIÓN 3D (replayBuffer - 15 SEGUNDOS A 20 TICKS/SEGUNDO)
+  // =========================================================================================
+  _setTickCommentary(text, badge = "MATCH ENGINE") {
+    if (!text) return;
+    this._currentTickCommentary = { text, badge };
+    if (!this._recordingReplayOnly && !this._tactical2DOnly) {
+      this._emitCommentary(text, badge, 1.4);
+    }
+  }
 
-    // Reloj en tiempo real: 1 segundo real = 1 segundo de partido durante la jugada clave
+  _recordReplayFrame(eventTag = null) {
+    const snapTeam = (arr) => arr.map(item => ({
+      id: item.player?.id,
+      xm: item.xm ?? 52.5,
+      ym: item.ym ?? 34.0,
+      vx: item.vx ?? 0,
+      vy: item.vy ?? 0,
+      facing: item.facing ?? 0,
+      pose: item.pose || "idle",
+      aiState: item.aiState || "POSITIONING"
+    }));
+
+    const frame = {
+      minute: this.minute,
+      second: this.matchSecond || 0,
+      eventTag,
+      commentary: this._currentTickCommentary || null,
+      ball: {
+        xm: this.ball.xm ?? 52.5,
+        ym: this.ball.ym ?? 34.0,
+        zm: this.ball.zm ?? 0,
+        vx: this.ball.vx ?? 0,
+        vy: this.ball.vy ?? 0,
+        vz: this.ball.vz ?? 0,
+        possession: this.ball.possession,
+        carrierId: this.ball.carrier?.player?.id || null
+      },
+      home: snapTeam(this.home2D),
+      away: snapTeam(this.away2D)
+    };
+
+    this._currentTickCommentary = null;
+    this.replayBuffer.push(frame);
+    if (this.replayBuffer.length > this.maxReplayBufferFrames) {
+      this.replayBuffer.shift();
+    }
+    return frame;
+  }
+
+  // Avanza el motor autónomo a 20 ticks/segundo durante FAST_SIM grabando en replayBuffer.
+  // Si emerge una ocasión clara de gol, falta peligrosa, penalti o córner, pausa FAST_SIM
+  // y lanza la reproducción de los últimos 12-15 segundos reales del buffer en 3D.
+  _runAutonomousMinuteTicks(currentPoss, homeAttackScore, awayAttackScore) {
+    const dt = 0.05; // 20 ticks por segundo (50ms físicos por tick)
+    const ticksPerSimStep = 90; // 4,5 segundos continuos de simulación por pulso (90 ticks a 20 Hz)
+
+    // NO reasignar this.ball.carrier por sorteo de posesión en cada minuto si el balón ya está en juego o en posesión de un equipo;
+    // solo inicializar en el saque inicial si aún no se ha puesto el balón en movimiento.
+    const ballInPlayOrPossession = Boolean(
+      this.ball.carrier ||
+      this.ball.passTarget ||
+      this.ball.shotTeam ||
+      this.ball.lastTouchPlayer ||
+      Math.hypot(this.ball.vx || 0, this.ball.vy || 0) > 0.25
+    );
+    if (!ballInPlayOrPossession) {
+      const initSide = this.ball.possession || currentPoss || "home";
+      const teamArr = initSide === "home" ? this.home2D : this.away2D;
+      const fielders = teamArr.filter(p => !p.isKeeper);
+      if (fielders.length > 0) {
+        fielders.sort((a, b) => Math.hypot(a.xm - this.ball.xm, a.ym - this.ball.ym) - Math.hypot(b.xm - this.ball.xm, b.ym - this.ball.ym));
+        this.ball.carrier = fielders[0];
+        this.ball.possession = initSide;
+        this.ball.lastTouchTeam = initSide;
+        this.ball.lastTouchPlayer = fielders[0];
+      }
+    }
+
+    this._liveAtkMomentum = {
+      home: homeAttackScore,
+      away: awayAttackScore,
+      preferredPoss: currentPoss
+    };
+
+    this._recordingReplayOnly = true;
+    this._pendingTickOutcome = null;
+
+    // Asegurar que el replayBuffer acumule al menos 150 frames (7.5 segundos reales, dentro del rango 120-180 frames = 6 a 9s)
+    // de elaboración de la jugada previos a cualquier disparo/ocasión para que en el 3D se vea toda la construcción táctica.
+    const minBuildupFramesBeforeClimax = 150;
+
+    let triggeredOutcome = null;
+    for (let t = 0; t < ticksPerSimStep; t++) {
+      this.stepRealTimePhysics(dt);
+      this._recordReplayFrame();
+
+      if (this._pendingTickOutcome) {
+        if (this.replayBuffer.length >= minBuildupFramesBeforeClimax) {
+          triggeredOutcome = this._pendingTickOutcome;
+          this._pendingTickOutcome = null;
+          break;
+        } else {
+          // Si aún no hay al menos 120-180 frames de elaboración grabados en el buffer, seguir acumulando elaboración
+          this._pendingTickOutcome = null;
+        }
+      }
+    }
+
+    this._recordingReplayOnly = false;
+
+    if (!triggeredOutcome) {
+      return false;
+    }
+
+    // Cooldown mínimo entre jugadas reproducidas para mantener ritmo televisivo (6-10 jugadas por parte)
+    if (triggeredOutcome.outcome !== "GOAL" && triggeredOutcome.outcome !== "PENALTY" && (this.minute - this.lastHighlightMinute < 3)) {
+      return false;
+    }
+    this.lastHighlightMinute = this.minute;
+
+    // Si la jugada emergente desembocó en PENALTI o FALTA DIRECTA en zona peligrosa:
+    if (triggeredOutcome.outcome === "PENALTY") {
+      if (this.triggerSetPiece(triggeredOutcome.attackingSide, "PENALTY")) {
+        return true;
+      }
+      return false;
+    }
+    if (triggeredOutcome.outcome === "FREE_KICK") {
+      if (this.triggerSetPiece(triggeredOutcome.attackingSide, "FREE_KICK", triggeredOutcome.spot)) {
+        return true;
+      }
+      return false;
+    }
+
+    // Grabar 34 ticks adicionales (1.7 segundos) de continuación física tras el impacto/desenlace
+    // (celebración, balón entrando en la red, despeje del portero o salida por línea de fondo)
+    const climaxFrameIndex = Math.max(0, this.replayBuffer.length - 1);
+    for (let f = 0; f < 34; f++) {
+      this._stepFollowThroughTick(dt, triggeredOutcome);
+      this._recordReplayFrame("FOLLOW_THROUGH");
+    }
+
+    // Extraer los últimos 12-15 segundos (hasta 280 frames a 20 Hz = 14s) para reproducir en el visor 3D
+    const takeFrames = Math.min(this.replayBuffer.length, 280);
+    const startIdx = Math.max(0, this.replayBuffer.length - takeFrames);
+    const playbackFrames = this.replayBuffer.slice(startIdx);
+    const relativeClimaxIdx = Math.max(0, climaxFrameIndex - startIdx);
+
+    this.startReplayHighlight(playbackFrames, relativeClimaxIdx, triggeredOutcome, () => {
+      if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
+        this.halfTimeTriggered = true;
+        this.isHalfTime = true;
+        this.pause();
+        this.onHalfTime(this.getState());
+        return;
+      }
+      if (this.pauseRequested) {
+        this.pauseRequested = false;
+        this.pause();
+        this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
+        return;
+      }
+      if (this.isRunning && !this.isFinished) {
+        this.loop();
+      }
+    });
+
+    return true;
+  }
+
+  // Avanza la inercia física posterior al remate (balón en la red, rechace o salida de fondo)
+  _stepFollowThroughTick(dt, outcomeInfo) {
+    this.ball.xm += (this.ball.vx || 0) * dt;
+    this.ball.ym += (this.ball.vy || 0) * dt;
+    this.ball.zm = Math.max(0, (this.ball.zm || 0) + (this.ball.vz || 0) * dt);
+    if (this.ball.zm > 0) {
+      this.ball.vz = (this.ball.vz || 0) - 9.81 * dt;
+    } else {
+      this.ball.vz = 0;
+      this.ball.vx = (this.ball.vx || 0) * 0.88;
+      this.ball.vy = (this.ball.vy || 0) * 0.88;
+    }
+
+    if (outcomeInfo.outcome === "GOAL") {
+      // Frenado contra la red de la portería (profundidad 2.2m detrás de la línea de gol)
+      if (this.ball.xm > 107.0) { this.ball.xm = 107.0; this.ball.vx = 0; this.ball.vy *= 0.5; }
+      if (this.ball.xm < -2.0) { this.ball.xm = -2.0; this.ball.vx = 0; this.ball.vy *= 0.5; }
+      this.ball.ym = Math.max(30.4, Math.min(37.6, this.ball.ym));
+    } else {
+      this.ball.xm = Math.max(-3.5, Math.min(108.5, this.ball.xm));
+      this.ball.ym = Math.max(-2.5, Math.min(70.5, this.ball.ym));
+    }
+
+    // Los jugadores desaceleran suavemente siguiendo la acción
+    const stepTeamFollow = (arr) => {
+      for (const p of arr) {
+        p.vx = (p.vx || 0) * 0.90;
+        p.vy = (p.vy || 0) * 0.90;
+        p.xm = Math.max(1, Math.min(104, (p.xm || 52.5) + p.vx * dt));
+        p.ym = Math.max(1, Math.min(67, (p.ym || 34.0) + p.vy * dt));
+        if (outcomeInfo.shooter && p.player?.id === outcomeInfo.shooter.id && outcomeInfo.outcome === "GOAL") {
+          p.pose = "celebrate";
+        } else {
+          p.pose = Math.hypot(p.vx, p.vy) > 1.2 ? "run" : "idle";
+        }
+      }
+    };
+    stepTeamFollow(this.home2D);
+    stepTeamFollow(this.away2D);
+  }
+
+  // Inicia la reproducción en el visor 3D a velocidad 1x de los frames grabados en replayBuffer
+  startReplayHighlight(frames, climaxFrameIndex, outcomeInfo, onComplete) {
+    if (!frames || frames.length === 0) {
+      if (onComplete) onComplete();
+      return;
+    }
+
+    this.isHighlightRunning = true;
+    this.speed = 1;
+
+    const attackingSide = outcomeInfo.attackingSide || "home";
+    const isHome = attackingSide === "home";
+    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
+    const defTeam = isHome ? this.awayTeam : this.homeTeam;
+    const shooter = outcomeInfo.shooter || (isHome ? this.homePlayersOnPitch[9] : this.awayPlayersOnPitch[9]) || this.homePlayersOnPitch[0];
+    const passer = outcomeInfo.passer || null;
+    const defender = outcomeInfo.defender || (isHome ? this.awayPlayersOnPitch[3] : this.homePlayersOnPitch[3]) || this.awayPlayersOnPitch[0];
+    const goalkeeper = outcomeInfo.goalkeeper || (isHome ? this.awayPlayersOnPitch[0] : this.homePlayersOnPitch[0]);
+    const outcome = outcomeInfo.outcome || "WIDE";
+
+    const firstLiveCommentFrame = frames.find(f => f.commentary && f.commentary.text);
+    const buildNote = firstLiveCommentFrame
+      ? firstLiveCommentFrame.commentary.text
+      : (outcomeInfo.buildNote || `⚡ ${atkTeam.shortName} mueve el balón buscando espacios ante el bloque de ${defTeam.shortName}.`);
+    const shotNote = outcomeInfo.shotNote || `🎯 ¡${shooter?.name || "El atacante"} finaliza la jugada ante ${goalkeeper?.name || "el portero"}!`;
+
+    this.activeReplay = {
+      frames,
+      cursor: 0,
+      lastCommentFrameIdx: -1,
+      tickRate: 20, // 20 ticks por segundo (velocidad 1x real)
+      climaxFrameIndex,
+      climaxCommitted: false,
+      outcomeInfo: {
+        ...outcomeInfo,
+        attackingSide,
+        atkTeam,
+        defTeam,
+        shooter,
+        passer,
+        defender,
+        goalkeeper,
+        outcome,
+        buildNote,
+        shotNote
+      },
+      onComplete
+    };
+
+    // Reloj de partido en tiempo real (1s real = 1s de partido) durante la reproducción
     if (this.highlightInterval) {
       clearInterval(this.highlightInterval);
       this.highlightInterval = null;
@@ -3793,807 +3972,308 @@ class MatchSimulator {
         this.minute++;
       }
       if (this.onTick) this.onTick(this.getState());
-    }, Math.max(100, Math.round(1000 / (this.userSpeed || 1))));
+    }, 1000);
 
-    const isHome = attackingSide === "home";
-    const defSide = isHome ? "away" : "home";
-    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
-    const defTeam = isHome ? this.awayTeam : this.homeTeam;
-    const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
-    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
-    const teamInst = isHome ? this.homeInstructions : this.awayInstructions;
-
-    const atk2D = isHome ? this.home2D : this.away2D;
-    const def2D = isHome ? this.away2D : this.home2D;
-
-    // 1. CAPTURAR LA SITUACIÓN EXACTA EN VIVO DEL BALÓN Y JUGADORES EN EL CÉSPED
-    const liveBallX = typeof this.ball.x === "number" ? Math.max(5, Math.min(95, this.ball.x)) : (isHome ? 46 : 54);
-    const liveBallY = typeof this.ball.y === "number" ? Math.max(8, Math.min(92, this.ball.y)) : 50;
-    const prevPossession = this.ball.possession; // Quién tenía el balón antes de generarse la jugada
-
-    // Progreso horizontal del equipo atacante (0 = propia línea de fondo, 100 = línea de gol rival)
-    const relProgress = isHome ? liveBallX : (100 - liveBallX);
-    const isFlankLeft = liveBallY < 38;
-    const isFlankRight = liveBallY > 62;
-    const isCenterLane = !isFlankLeft && !isFlankRight;
-    const isTurnoverFromOpponent = prevPossession === defSide;
-
-    // 2. DETERMINAR EL ORIGEN Y PATRÓN ORGÁNICO REAL DE LA JUGADA
-    let playPattern = "TIKI_TAKA_CENTRAL";
-    let situationalContext = "BUILDUP"; // "COUNTER", "HIGH_PRESS", "WING_LEFT", "WING_RIGHT", "CENTRAL"
-
-    if (relProgress < 38 || (isTurnoverFromOpponent && relProgress < 48)) {
-      situationalContext = "COUNTER";
-      playPattern = Math.random() < 0.65 ? "COUNTER_THROUGH_BALL" : "TIKI_TAKA_CENTRAL";
-    } else if (isTurnoverFromOpponent && relProgress >= 58) {
-      situationalContext = "HIGH_PRESS";
-      playPattern = "HIGH_PRESS_TURNOVER";
-    } else if (isFlankLeft) {
-      situationalContext = "WING_LEFT";
-      const roll = Math.random();
-      if (roll < 0.38) playPattern = "NEAR_WING_CUTBACK";
-      else if (roll < 0.72) playPattern = "WING_CROSS_HEADER";
-      else playPattern = "INSIDE_FORWARD_CURLED_SHOT";
-    } else if (isFlankRight) {
-      situationalContext = "WING_RIGHT";
-      const roll = Math.random();
-      if (roll < 0.42) playPattern = "WING_CROSS_HEADER";
-      else if (roll < 0.75) playPattern = "OVERLAPPING_FULLBACK_CROSS";
-      else playPattern = "INDIVIDUAL_SLALOM";
-    } else {
-      situationalContext = "CENTRAL";
-      const roll = Math.random();
-      if (roll < 0.30) playPattern = "TIKI_TAKA_CENTRAL";
-      else if (roll < 0.55) playPattern = "CHIPPED_PASS_OVER_DEFENSE";
-      else if (roll < 0.78) playPattern = "THIRD_MAN_TRIANGLE";
-      else if (roll < 0.90) playPattern = "LONG_RANGE_BOMB";
-      else playPattern = "FALSE_NINE_DROP_AND_SPLIT";
-    }
-
-    this.lastHighlightPattern = playPattern;
-    const patternSeed = Math.random();
-
-    // 3. SELECCIÓN DE JUGADORES ORGÁNICOS BASADOS EN QUIÉN ESTABA CERCA DEL BALÓN
-    const fieldAtk = atkPlayers.filter(p => p.pos !== "POR");
-
-    // Ordenar jugadores atacantes por proximidad física real a donde estaba el balón
-    const atkByProximity = fieldAtk.slice().sort((a, b) => {
-      const itemA = atk2D.find(p => p.player?.id === a.id);
-      const itemB = atk2D.find(p => p.player?.id === b.id);
-      const distA = Math.hypot((itemA?.curX ?? 50) - liveBallX, (itemA?.curY ?? 50) - liveBallY);
-      const distB = Math.hypot((itemB?.curX ?? 50) - liveBallX, (itemB?.curY ?? 50) - liveBallY);
-      return distA - distB;
-    });
-
-    // Comprobar si el robo viene de un marcaje individual al hombre exitoso
-    const markingMap = isHome ? this.homeManMarking : this.awayManMarking;
-    let manMarkingHero = null;
-    if (isTurnoverFromOpponent && markingMap) {
-      for (const markerId in markingMap) {
-        const markerObj = fieldAtk.find(p => p.id === markerId);
-        if (markerObj) {
-          const targetObj = defPlayers.find(p => p.id === markingMap[markerId].targetId);
-          if (targetObj) {
-            manMarkingHero = { marker: markerObj, target: targetObj };
-            break;
-          }
-        }
-      }
-    }
-
-    // Iniciador del ataque (pivot): el jugador que estaba exactamente en la zona del balón o el marcador
-    const pivot = manMarkingHero ? manMarkingHero.marker : (atkByProximity[0] || fieldAtk[0]);
-    const pivot2DInit = atk2D.find(p => p.player?.id === pivot.id) || { curX: liveBallX, curY: liveBallY };
-
-    // Pasador / Conductor: elegido orgánicamente según su posición real en el campo respecto al balón y la portería rival
-    let passerCandidates = fieldAtk.filter(p => p.id !== pivot.id);
-    passerCandidates.sort((a, b) => {
-      const pA = atk2D.find(item => item.player?.id === a.id);
-      const pB = atk2D.find(item => item.player?.id === b.id);
-      const xA = pA?.curX ?? 50, yA = pA?.curY ?? 50;
-      const xB = pB?.curX ?? 50, yB = pB?.curY ?? 50;
-      // Priorizar jugadores que estén a distancia de pase realista (8-28m) y progresando hacia campo rival
-      const progA = isHome ? (xA - pivot2DInit.curX) : (pivot2DInit.curX - xA);
-      const progB = isHome ? (xB - pivot2DInit.curX) : (pivot2DInit.curX - xB);
-      const distA = Math.hypot(xA - liveBallX, yA - liveBallY);
-      const distB = Math.hypot(xB - liveBallX, yB - liveBallY);
-      const scoreA = -Math.abs(distA - 16) + (progA > -4 ? 10 : -8) + (isFlankLeft && yA < 42 ? 12 : 0) + (isFlankRight && yA > 58 ? 12 : 0);
-      const scoreB = -Math.abs(distB - 16) + (progB > -4 ? 10 : -8) + (isFlankLeft && yB < 42 ? 12 : 0) + (isFlankRight && yB > 58 ? 12 : 0);
-      return scoreB - scoreA;
-    });
-    const passer = passerCandidates[0] || (fieldAtk.find(p => p.id !== pivot.id) || fieldAtk[1] || pivot);
-    const passer2DInit = atk2D.find(p => p.player?.id === passer.id) || { curX: liveBallX, curY: liveBallY };
-
-    // Rematador: Jugador ofensivo mejor posicionado en vanguardia o atacando el área desde su coordenada real
-    const shooterCandidates = fieldAtk.filter(p => p.id !== pivot.id && p.id !== passer.id);
-    shooterCandidates.sort((a, b) => {
-      const pA = atk2D.find(item => item.player?.id === a.id);
-      const pB = atk2D.find(item => item.player?.id === b.id);
-      const xA = pA?.curX ?? 50, yA = pA?.curY ?? 50;
-      const xB = pB?.curX ?? 50, yB = pB?.curY ?? 50;
-      const goalDistA = Math.hypot((isHome ? 94 : 6) - xA, 50 - yA);
-      const goalDistB = Math.hypot((isHome ? 94 : 6) - xB, 50 - yB);
-      const roleBonusA = ["DC", "EI", "ED", "MCO"].includes(a.pos) ? 14 : 0;
-      const roleBonusB = ["DC", "EI", "ED", "MCO"].includes(b.pos) ? 14 : 0;
-      return (goalDistA - roleBonusA) - (goalDistB - roleBonusB);
-    });
-    const shooter = shooterCandidates[0] || fieldAtk[0];
-
-    // Apoyo real en la jugada (ordenados por cercanía al eje de ataque)
-    const restAtk = fieldAtk.filter(p => p.id !== pivot.id && p.id !== passer.id && p.id !== shooter.id);
-    restAtk.sort((a, b) => {
-      const pA = atk2D.find(item => item.player?.id === a.id);
-      const pB = atk2D.find(item => item.player?.id === b.id);
-      const dA = Math.hypot((pA?.curX ?? 50) - passer2DInit.curX, (pA?.curY ?? 50) - passer2DInit.curY);
-      const dB = Math.hypot((pB?.curX ?? 50) - passer2DInit.curX, (pB?.curY ?? 50) - passer2DInit.curY);
-      return dA - dB;
-    });
-    const supportAttacker = restAtk[0] || pivot;
-    const atkBox1 = restAtk[1] || supportAttacker;
-    const atkBox2 = restAtk[2] || pivot;
-
-    // Defensores rivales implicados (los que defienden esa zona real)
-    const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
-    const fieldDef = defPlayers.filter(p => p.id !== goalkeeper.id);
-    const defByProximity = fieldDef.slice().sort((a, b) => {
-      const itemA = def2D.find(p => p.player?.id === a.id);
-      const itemB = def2D.find(p => p.player?.id === b.id);
-      const distA = Math.hypot((itemA?.curX ?? 50) - liveBallX, (itemA?.curY ?? 50) - liveBallY);
-      const distB = Math.hypot((itemB?.curX ?? 50) - liveBallX, (itemB?.curY ?? 50) - liveBallY);
-      return distA - distB;
-    });
-
-    const defender = defByProximity[0] || fieldDef[0] || defPlayers[1];
-    const defender2 = defByProximity[1] || fieldDef[1] || defPlayers[2];
-    const restDefs = fieldDef.filter(p => p.id !== defender.id && p.id !== defender2.id);
-    const defFieldPlayers = [
-      restDefs[0] || defender2,
-      defender,
-      defender2,
-      restDefs[1] || defender,
-      restDefs[2] || defender2,
-      restDefs[3] || defender,
-      restDefs[4] || defender2,
-      restDefs[5] || defender
-    ];
-
-    const pivotRole = this.getPlayerRole(pivot, attackingSide);
-    const passerRole = this.getPlayerRole(passer, attackingSide);
-    const shooterRole = this.getPlayerRole(shooter, attackingSide);
-    const supportRole = this.getPlayerRole(supportAttacker, attackingSide);
-    const defenderRole = this.getPlayerRole(defender, defSide);
-
-    const pivotItem = atk2D.find(p => p.player?.id === pivot.id) || atk2D[0];
-    const passerItem = atk2D.find(p => p.player?.id === passer.id);
-    const shooterItem = atk2D.find(p => p.player?.id === shooter.id);
-    const defItem = def2D.find(p => p.player?.id === defender.id) || def2D.find(p => !p.isKeeper);
-    const gkItem = def2D.find(p => p.isKeeper) || def2D[0];
-
-    const fmtP = (p, role) => `${p.name} (#${p.number}${role?.tag ? ` · ${role.tag}` : ""})`;
-    const fmtShort = (p) => `${p.name} (#${p.number})`;
-
-    // 4. COORDENADAS ORGÁNICAS SIN TELETRANSPORTE (NACIDAS DEL BALÓN Y JUGADORES EN VIVO)
-    const passerStartX = passerItem?.curX ?? liveBallX;
-    const passerStartY = passerItem?.curY ?? liveBallY;
-    const shooterStartX = shooterItem?.curX ?? (isHome ? 78 : 22);
-    const shooterStartY = shooterItem?.curY ?? 50;
-
-    // Coordenadas de progresión (midX, midY) avanzando naturalmente desde la posición real del pasador y del balón
-    let midX;
-    if (isHome) {
-      midX = Math.min(84, Math.max(60, Math.max(liveBallX + 12, passerStartX + 8) + Math.random() * 6));
-    } else {
-      midX = Math.max(16, Math.min(40, Math.min(liveBallX - 12, passerStartX - 8) - Math.random() * 6));
-    }
-
-    let midY = (liveBallY * 0.45 + passerStartY * 0.55);
-    if (isFlankLeft) {
-      midY = Math.max(10, Math.min(34, midY + (Math.random() * 6 - 3)));
-    } else if (isFlankRight) {
-      midY = Math.max(66, Math.min(90, midY + (Math.random() * 6 - 3)));
-    } else {
-      midY = Math.max(26, Math.min(74, midY + (Math.random() * 10 - 5)));
-    }
-
-    // Coordenadas de remate en el área rival (boxX, boxY) conectadas al desmarque real del delantero
-    const isLongShot = playPattern === "LONG_RANGE_BOMB" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
-    const boxX = isHome
-      ? (isLongShot ? (79 + Math.random() * 4) : (85.5 + Math.random() * 6.5))
-      : (isLongShot ? (21 - Math.random() * 4) : (14.5 - Math.random() * 6.5));
-    const boxY = Math.max(35, Math.min(65, shooterStartY * 0.38 + 50 * 0.62 + (Math.random() * 12 - 6)));
-
-    // 5. DETERMINAR RESULTADO Y EFECTIVIDAD CON FACTOR CAMPO, CLIMA Y ENTRENAMIENTO
-    const shooterSho = shooter.sho !== undefined ? shooter.sho : 75;
-    const weatherShotBonus = isLongShot ? (this.weather?.longShotBonus || 0) : ((this.weather?.longShotBonus || 0) * 0.45);
-    const userFinishingBonus = (attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 3.5 : 0;
-    const homeGroundShotBonus = isHome ? 0.2 : 0;
-    const lateHomeShotSurge = (isHome && this.minute >= 70 && this.homeScore <= this.awayScore) ? 0.1 : 0;
-    const roarBoost = (attackingSide === "home" && this.activeCrowdRoar) ? 0.2 : 0;
-    const shotQuality = shooterSho + weatherShotBonus + userFinishingBonus + homeGroundShotBonus + lateHomeShotSurge + roarBoost + (Math.random() * 26 - 13);
-
-    const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
-    const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
-    const userDefBonus = (defSide === this.userSide && this.weeklyTraining === "defensive") ? 3.5 : 0;
-    const homeGkSaveBonus = (!isHome) ? 0.2 : 0;
-    const gkSavePower = (gkSkill * gkFitness) + userDefBonus + homeGkSaveBonus + (Math.random() * 24 - 12);
-
-    // Presión y taponamiento defensivo en el área (bloqueo por el central)
-    const defBlockSkill = defender.def !== undefined ? defender.def : 75;
-    const blockProb = Math.min(0.24, Math.max(0.08, (defBlockSkill - 55) * 0.0055));
-    const isDefenderBlock = Math.random() < blockProb;
-
-    // Precisión del remate: en el fútbol profesional ~62% de tiros limpios van a portería (+0.3% de local, strictly <= 0.5%)
-    const onTargetProb = 0.62 + (isHome ? 0.003 : 0) + ((attackingSide === this.userSide && this.weeklyTraining === "finishing") ? 0.04 : 0);
-    const onTarget = !isDefenderBlock && (Math.random() < onTargetProb);
-
-    let outcome = "GOAL";
-    const cornersPool = ["TOP_RIGHT", "TOP_LEFT", "BOTTOM_RIGHT", "BOTTOM_LEFT"];
-    const targetCorner = cornersPool[Math.floor(Math.random() * cornersPool.length)];
-
-    let wideDirection = "RIGHT";
-    const wideRand = Math.random();
-    if (wideRand < 0.42) wideDirection = "RIGHT";
-    else if (wideRand < 0.84) wideDirection = "LEFT";
-    else wideDirection = "HIGH";
-
-    if (isDefenderBlock) {
-      outcome = "BLOCK";
-    } else if (!onTarget) {
-      outcome = Math.random() < 0.18 ? "POST" : "WIDE";
-    } else {
-      // Duelo directo entre rematador y guardameta:
-      // En la élite, un tiro a puerta tiene una probabilidad realista de gol del ~32-38%
-      const skillGap = (shotQuality - gkSavePower) * 0.012;
-      const goalProbOnTarget = Math.max(0.15, Math.min(0.48, 0.35 + skillGap));
-      const isGoal = Math.random() < goalProbOnTarget;
-      if (isGoal) {
-        outcome = "GOAL";
-      } else {
-        outcome = "SAVE";
-      }
-    }
-
-    // 6. GENERAR COMENTARIOS DINÁMICOS Y CONECTADOS AL CONTEXTO VIVO DEL PARTIDO
-    const isWet = this.weather?.id === "rain";
-    const isCrowdRoaring = Boolean(this.activeCrowdRoar);
-    const isLateEqualizerSearch = isHome && this.minute >= 75 && this.homeScore <= this.awayScore;
-
-    let buildHeadline = "INICIO DE JUGADA";
-    let buildText = "";
-    if (manMarkingHero) {
-      buildHeadline = "MARCAJE AL HOMBRE IMPECABLE";
-      buildText = `🎯 ¡Anticipación colosal! ${fmtP(manMarkingHero.marker, pivotRole)} seca a ${fmtShort(manMarkingHero.target)} en su propia salida y recupera el esférico.`;
-    } else if (situationalContext === "COUNTER") {
-      buildHeadline = "TRANSICIÓN RELÁMPAGO";
-      buildText = `🏹 Recuperación en campo propio: ${fmtP(pivot, pivotRole)} corta la ofensiva rival y lanza una contra directa a máxima velocidad.`;
-    } else if (situationalContext === "HIGH_PRESS") {
-      buildHeadline = "PRESIÓN ALTA ASFIXIANTE";
-      buildText = `🔥 ¡Presión en bloque alto! ${fmtP(pivot, pivotRole)} muerde la salida de ${defTeam.shortName} forzando el robo en tres cuartos.`;
-    } else if (situationalContext === "WING_LEFT") {
-      buildHeadline = "DESBORDE POR COSTADO IZQUIERDO";
-      buildText = `⚡ Circulación orientada al flanco izquierdo: ${fmtP(pivot, pivotRole)} abre el juego hacia la subida de ${fmtShort(passer)}.`;
-    } else if (situationalContext === "WING_RIGHT") {
-      buildHeadline = "APERTURA A BANDA DERECHA";
-      buildText = `⚡ Cambio de orientación preciso: ${fmtP(pivot, pivotRole)} cambia el frente hacia el carril diestro para ${fmtShort(passer)}.`;
-    } else {
-      buildHeadline = "ELABORACIÓN EN LA FRONTAL";
-      buildText = `🧠 Paciencia y toque: ${fmtP(pivot, pivotRole)} asocia en la medular buscando grietas entre las líneas de ${defTeam.shortName}.`;
-    }
-
-    if (isCrowdRoaring || isLateEqualizerSearch) {
-      buildText += ` 🏟️ ¡La grada ruge empujando con toda el alma hacia la portería rival!`;
-    }
-
-    let progHeadline = "PROGRESIÓN";
-    let progText = "";
-    if (situationalContext === "COUNTER") {
-      progHeadline = "CARRERA AL ESPACIO";
-      progText = `⚡ ${fmtP(passer, passerRole)} acelera a campo abierto con la defensa rival retrocediendo en desorden.`;
-    } else if (isFlankLeft || isFlankRight) {
-      progHeadline = "LÍNEA DE FONDO";
-      progText = `🚀 ${fmtP(passer, passerRole)} encara en el 1 vs 1 a su par y gana la línea de fondo con potencia.`;
-    } else {
-      progHeadline = "PARED EN LA MEDIALUNA";
-      progText = `✨ Combinación al primer toque de ${fmtShort(passer)} en tres cuartos desordenando la zaga.`;
-    }
-
-    if (isWet) {
-      progText += ` (El césped mojado da una velocidad vertiginosa a la acción).`;
-    }
-
-    let passHeadline = "ÚLTIMO PASE";
-    let passText = "";
-    if (situationalContext === "COUNTER") {
-      passHeadline = "PASE AL HUECO";
-      passText = `🎯 Balón medido al espacio de ${fmtShort(passer)}. ¡${fmtP(shooter, shooterRole)} gana la espalda del central y se planta solo!`;
-    } else if (isFlankLeft || isFlankRight) {
-      passHeadline = "CENTRO AL ÁREA";
-      passText = `🎯 Centro tenso y medido de ${fmtShort(passer)} hacia el corazón del área chica buscando el remate de ${fmtShort(shooter)}.`;
-    } else {
-      passHeadline = "ASISTENCIA FILTRADA";
-      passText = `🎯 Pase quirúrgico entre líneas de ${fmtShort(passer)} dejando a ${fmtP(shooter, shooterRole)} en posición inmejorable.`;
-    }
-
-    let shotText = "";
-    if (outcome === "GOAL") {
-      shotText = `⚽ ¡${fmtP(shooter, shooterRole)} impacta con determinación y manda el balón al fondo de las mallas inapelable!`;
-    } else if (outcome === "SAVE") {
-      shotText = `🧤 ¡${fmtShort(shooter)} conecta a puerta, pero ${goalkeeper.name} (#${goalkeeper.number}) se estira de manera heroica!`;
-    } else if (outcome === "BLOCK") {
-      shotText = `🛡️ ¡${fmtShort(shooter)} gatilla a romper, pero ${defender.name} (#${defender.number}) se tira con el alma y tapona!`;
-    } else if (outcome === "POST") {
-      shotText = `🥅 ¡${fmtShort(shooter)} supera al portero con una vaselina que se estrella con violencia en el poste!`;
-    } else {
-      shotText = `💨 ¡${fmtShort(shooter)} busca ajustar al palo y su disparo sale lamiendo la madera!`;
-    }
-
-    const pDesc = {
-      buildNote: buildText,
-      progAlert: [progHeadline, progText],
-      progNote: progText,
-      passAlert: [passHeadline, passText],
-      passNote: passText,
-      shotNote: shotText
-    };
-
-    let chanceComment = `⚡ ¡Ocasión construida por ${atkTeam.shortName} (${situationalContext})!`;
-    if (isCrowdRoaring) chanceComment = `🔥 ¡Aliento en la grada! ${chanceComment}`;
-
-    const defInst = isHome ? this.awayInstructions : this.homeInstructions;
-    const defMarkingMap = isHome ? this.awayManMarking : this.homeManMarking;
+    // Colocar el estado inicial del frame 0 del buffer
+    this._applyInterpolatedReplayFrame(0);
 
     const baseHighlightData = {
-      type: "KEY_CHANCE",
-      playPattern,
-      situationalContext,
-      patternSeed,
+      type: outcomeInfo.isSetPiece ? "SET_PIECE_REPLAY" : "KEY_CHANCE",
+      playPattern: outcomeInfo.playPattern || "AUTONOMOUS_AGENT_PLAY",
+      situationalContext: outcomeInfo.situationalContext || "OPEN_PLAY",
       attackingSide,
       atkTeam,
       defTeam,
-      pivot,
-      passer,
       shooter,
-      supportAttacker,
-      atkBox1,
-      atkBox2,
+      passer,
       defender,
-      defender2,
-      defFieldPlayers,
       goalkeeper,
-      pivotRole,
-      passerRole,
-      shooterRole,
-      supportRole,
-      defenderRole,
       outcome,
-      targetCorner,
-      wideDirection,
-      liveOrigin: { x: liveBallX, y: liveBallY },
-      passStart: { x: midX, y: midY },
-      passEnd: { x: boxX, y: boxY },
-      tacticalStyle: {
-        passing: teamInst?.inPossession?.passing || "mixed",
-        width: teamInst?.inPossession?.width || "balanced",
-        tempo: teamInst?.inTempo || "normal",
-        defLine: defInst?.outOfPossession?.defLine || "mid",
-        pressing: defInst?.outOfPossession?.pressing || "mid",
-        manMarking: defMarkingMap ? JSON.parse(JSON.stringify(defMarkingMap)) : {}
-      },
-      liveSnapshot: {
-        atk: atk2D.map(item => ({
-          id: item.player?.id,
-          name: item.player?.name,
-          number: item.number || item.player?.number || 10,
-          pos: item.player?.pos || "MC",
-          isKeeper: Boolean(item.isKeeper || item.player?.pos === "POR"),
-          curX: item.curX ?? 50,
-          curY: item.curY ?? 50,
-          pac: item.player?.pac ?? 75,
-          dri: item.player?.dri ?? 75,
-          pas: item.player?.pas ?? 75,
-          sho: item.player?.sho ?? 75
-        })),
-        def: def2D.map(item => ({
-          id: item.player?.id,
-          name: item.player?.name,
-          number: item.number || item.player?.number || 4,
-          pos: item.player?.pos || "DFC",
-          isKeeper: Boolean(item.isKeeper || item.player?.pos === "POR"),
-          curX: item.curX ?? 50,
-          curY: item.curY ?? 50,
-          def: item.player?.def ?? 75,
-          pac: item.player?.pac ?? 75
-        }))
-      },
-      commentary: chanceComment,
+      commentary: buildNote,
       minute: this.minute,
-      totalDuration: 15000
+      totalDuration: Math.round((frames.length / 20) * 1000)
     };
-
-    // FASE 1: ARRANQUE ORGÁNICO DESDE LA POSICIÓN REAL DEL BALÓN EN VIVO
-    this.ball.x = liveBallX;
-    this.ball.y = liveBallY;
-    this.ball.targetX = liveBallX;
-    this.ball.targetY = liveBallY;
-    this.ball.targetZ = 0;
-    this.ball.possession = attackingSide;
-
-    // El iniciador real (pivot) recibe la posesión sin teletransportarse
-    if (pivotItem) {
-      pivotItem.targetX = liveBallX;
-      pivotItem.targetY = liveBallY;
-    }
-    // El pasador y el rematador se mueven fluidamente hacia sus zonas de apoyo
-    if (passerItem) {
-      passerItem.targetX = isHome ? Math.min(midX, (passerItem.curX || 50) + 12) : Math.max(midX, (passerItem.curX || 50) - 12);
-      passerItem.targetY = midY;
-    }
-    if (defItem) {
-      defItem.targetX = liveBallX + (isHome ? 6 : -6);
-      defItem.targetY = liveBallY + (Math.random() * 4 - 2);
-    }
-    if (shooterItem) {
-      shooterItem.targetX = isHome ? Math.min(boxX - 8, (shooterItem.curX || 50) + 14) : Math.max(boxX + 8, (shooterItem.curX || 50) - 14);
-      shooterItem.targetY = boxY + (Math.random() < 0.5 ? -6 : 6);
-    }
-    this.update2DPositions();
 
     if (this.onHighlightStart) {
       this.onHighlightStart({
         ...baseHighlightData,
         phase: "BUILDUP",
-        phaseLabel: buildHeadline,
-        phaseDuration: 4500,
-        tacticalNote: pDesc.buildNote
-      });
-    }
-    if (this.onHighlightPhase) {
-      this.onHighlightPhase({
-        ...baseHighlightData,
-        phase: "BUILDUP",
-        phaseLabel: buildHeadline,
-        phaseDuration: 4500,
-        tacticalNote: pDesc.buildNote
+        phaseLabel: outcomeInfo.headline || "JUGADA EN DIRECTO",
+        phaseDuration: Math.round((frames.length / 20) * 1000),
+        tacticalNote: buildNote
       });
     }
 
-    const setHlTimeout = (fn, ms) => {
-      const t = setTimeout(fn, ms);
-      this.highlightTimeouts.push(t);
-      return t;
+    // Permitir saltar la reproducción inmediatamente
+    this.skipCurrentHighlight = () => {
+      if (!this.activeReplay) return;
+      this.finishActiveReplay(true);
     };
 
-    let hasResolved = false;
-    const executeResolution = (isSkip = false) => {
-      if (hasResolved) return;
-      hasResolved = true;
+    if (this.isSkippingToEnd || !this.showKeyHighlights) {
+      this.finishActiveReplay(true);
+    }
+  }
 
-      if (this.highlightTimeouts && this.highlightTimeouts.length > 0) {
-        this.highlightTimeouts.forEach(clearTimeout);
-        this.highlightTimeouts = [];
+  // Interpola con spline cúbica Catmull-Rom entre ticks de replayBuffer (20 Hz -> 60 FPS C1 continuos en 3D)
+  _applyInterpolatedReplayFrame(cursor) {
+    if (!this.activeReplay || !this.activeReplay.frames.length) return;
+    const frames = this.activeReplay.frames;
+    const maxIdx = frames.length - 1;
+    const idxA = Math.max(0, Math.min(maxIdx, Math.floor(cursor)));
+    const idxB = Math.min(maxIdx, idxA + 1);
+    const idx0 = Math.max(0, idxA - 1);
+    const idx3 = Math.min(maxIdx, idxB + 1);
+    const alpha = Math.max(0, Math.min(1, cursor - idxA));
+
+    const f0 = frames[idx0];
+    const fA = frames[idxA];
+    const fB = frames[idxB];
+    const f3 = frames[idx3];
+
+    const cSpline = (p0, p1, p2, p3, t) => {
+      const v0 = (p2 - p0) * 0.5;
+      const v1 = (p3 - p1) * 0.5;
+      const t2 = t * t;
+      const t3 = t2 * t;
+      return (2 * p1 - 2 * p2 + v0 + v1) * t3 + (-3 * p1 + 3 * p2 - 2 * v0 - v1) * t2 + v0 * t + p1;
+    };
+
+    // Interpolar balón con curva cúbica continua
+    this.ball.xm = cSpline(f0.ball.xm, fA.ball.xm, fB.ball.xm, f3.ball.xm, alpha);
+    this.ball.ym = cSpline(f0.ball.ym, fA.ball.ym, fB.ball.ym, f3.ball.ym, alpha);
+    this.ball.zm = Math.max(0, cSpline(f0.ball.zm, fA.ball.zm, fB.ball.zm, f3.ball.zm, alpha));
+    this.ball.vx = fA.ball.vx + (fB.ball.vx - fA.ball.vx) * alpha;
+    this.ball.vy = fA.ball.vy + (fB.ball.vy - fA.ball.vy) * alpha;
+    this.ball.vz = fA.ball.vz + (fB.ball.vz - fA.ball.vz) * alpha;
+    this.ball.possession = fB.ball.possession;
+
+    const applyTeam = (targetArr, snap0, snapA, snapB, snap3) => {
+      for (let i = 0; i < targetArr.length; i++) {
+        const item = targetArr[i];
+        const sA = snapA.find(s => s.id === item.player?.id) || snapA[i];
+        const sB = snapB.find(s => s.id === item.player?.id) || snapB[i];
+        if (!sA || !sB) continue;
+        const s0 = snap0.find(s => s.id === item.player?.id) || snap0[i] || sA;
+        const s3 = snap3.find(s => s.id === item.player?.id) || snap3[i] || sB;
+
+        item.xm = cSpline(s0.xm, sA.xm, sB.xm, s3.xm, alpha);
+        item.ym = cSpline(s0.ym, sA.ym, sB.ym, s3.ym, alpha);
+        item.vx = sA.vx + (sB.vx - sA.vx) * alpha;
+        item.vy = sA.vy + (sB.vy - sA.vy) * alpha;
+
+        // Interpolar ángulo de orientación suavemente
+        let dAngle = (sB.facing ?? 0) - (sA.facing ?? 0);
+        while (dAngle > Math.PI) dAngle -= Math.PI * 2;
+        while (dAngle < -Math.PI) dAngle += Math.PI * 2;
+        item.facing = (sA.facing ?? 0) + dAngle * alpha;
+        item.pose = alpha < 0.5 ? sA.pose : sB.pose;
+        item.aiState = sB.aiState;
       }
-      this.skipCurrentHighlight = null;
+    };
 
-      this.stats.shots[attackingSide]++;
-      if (shooter) shooter.matchShots = (shooter.matchShots || 0) + 1;
-      if (passer) {
-        passer.matchKeyPasses = (passer.matchKeyPasses || 0) + 1;
-        this.adjustPlayerRating(passer, 0.15);
+    applyTeam(this.home2D, f0.home, fA.home, fB.home, f3.home);
+    applyTeam(this.away2D, f0.away, fA.away, fB.away, f3.away);
+
+    const all2D = [...this.home2D, ...this.away2D];
+    this.ball.carrier = fB.ball.carrierId ? (all2D.find(p => p.player?.id === fB.ball.carrierId) || null) : null;
+
+    this._syncMetersTo2D();
+  }
+
+  // Llamado en cada frame de requestAnimationFrame (60 FPS) desde el visor 3D
+  stepReplayPlayback(dtSeconds) {
+    if (!this.activeReplay) return false;
+    if (!this.isRunning && !this.isHighlightRunning && !this.isSetPieceRunning) return false;
+
+    const rep = this.activeReplay;
+    rep.cursor += dtSeconds * rep.tickRate;
+
+    this._applyInterpolatedReplayFrame(rep.cursor);
+
+    // Espejo de narración en tiempo real: emitir exactamente el comentario nacido en cada tick físico alcanzado
+    const currIdx = Math.min(rep.frames.length - 1, Math.floor(rep.cursor));
+    if (currIdx > rep.lastCommentFrameIdx) {
+      for (let k = rep.lastCommentFrameIdx + 1; k <= currIdx; k++) {
+        const f = rep.frames[k];
+        if (f && f.commentary && f.commentary.text) {
+          if (this.onCommentary) {
+            this.onCommentary(f.commentary.text, f.commentary.badge || "EN VIVO");
+          }
+          if (this.onHighlightPhase) {
+            this.onHighlightPhase({
+              phase: f.eventTag || "LIVE",
+              phaseLabel: f.commentary.badge || "EN VIVO",
+              tacticalNote: f.commentary.text,
+              commentary: f.commentary.text
+            });
+          }
+        }
       }
+      rep.lastCommentFrameIdx = currIdx;
+    }
 
-      if (outcome === "BLOCK") {
-        if (defender) {
-          defender.matchTackles = (defender.matchTackles || 0) + 1;
-          this.adjustPlayerRating(defender, 0.35);
-        }
-        this.ball.targetX = boxX + (isHome ? -3 : 3);
-        this.ball.targetY = boxY + (Math.random() * 8 - 4);
-        this.ball.targetZ = 1.2;
-        this.triggerAlert("BLOQUEO", `🛡️ ¡Bloqueo providencial de ${defender.name}!`, isHome ? "away" : "home", isSkip ? 2000 : 3200);
+    // Cuando el cursor alcanza el tick exacto del impacto/gol, aplicamos el resultado al marcador y alertas
+    if (!rep.climaxCommitted && rep.cursor >= rep.climaxFrameIndex) {
+      rep.climaxCommitted = true;
+      this._commitReplayClimax(rep.outcomeInfo, false);
+    }
 
-        const analysis = attackingSide === this.userSide
-          ? `🛡️ Disparo bloqueado por ${defender.name}. El central tapó el ángulo con una segada impecable.`
-          : `🛡️ ¡Gran anticipación de tu zaga! ${defender.name} se lanzó al suelo y neutralizó el tiro.`;
+    if (rep.cursor >= rep.frames.length - 1) {
+      this.finishActiveReplay(false);
+      return false;
+    }
+    return true;
+  }
 
-        if (isSkip) {
-          this.concludeHighlight({ outcome: "BLOCK", tacticalAnalysis: analysis, onComplete });
-        } else {
-          setHlTimeout(() => {
-            this.concludeHighlight({ outcome: "BLOCK", tacticalAnalysis: analysis, onComplete });
-          }, 2000);
-        }
-      } else if (outcome === "POST") {
-        this.adjustPlayerRating(shooter, 0.2);
-        this.ball.targetX = isHome ? 99 : 1;
-        this.ball.targetY = targetCorner.includes("RIGHT") ? 55.5 : 44.5;
-        this.ball.targetZ = 7;
-        this.triggerAlert("AL PALO", `🥅 ¡Al palo! El disparo de ${shooter.name} se estrella en la madera`, attackingSide, isSkip ? 2000 : 3200);
-        const analysis = `🥅 ¡Al palo! La madera evitó el gol de ${shooter.name} tras superar al guardameta.`;
+  // Registra las estadísticas y goles en el instante exacto en que ocurren físicamente en el replay 3D
+  _commitReplayClimax(info, isSkip = false) {
+    const { attackingSide, atkTeam, defTeam, shooter, passer, defender, goalkeeper, outcome } = info;
+    const isHome = attackingSide === "home";
+    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
 
-        if (isSkip) {
-          this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
-        } else {
-          setHlTimeout(() => {
-            this.concludeHighlight({ outcome: "POST", tacticalAnalysis: analysis, onComplete });
-          }, 2000);
-        }
-      } else if (outcome === "WIDE") {
-        this.adjustPlayerRating(shooter, -0.1);
-        this.ball.targetX = isHome ? 105 : -5;
-        this.ball.targetY = wideDirection === "RIGHT" ? 64 : (wideDirection === "LEFT" ? 36 : 50);
-        this.ball.targetZ = wideDirection === "HIGH" ? 14 : 4;
-        this.triggerAlert("DISPARO FUERA", `💨 Disparo desviado de ${shooter.name}`, attackingSide, isSkip ? 1800 : 3000);
-        const analysis = `💨 El remate de ${shooter.name} se marcha claramente fuera sin encontrar portería.`;
+    this.stats.shots[attackingSide]++;
+    if (shooter) shooter.matchShots = (shooter.matchShots || 0) + 1;
+    if (passer && passer.id !== shooter?.id) {
+      passer.matchKeyPasses = (passer.matchKeyPasses || 0) + 1;
+      this.adjustPlayerRating(passer, 0.15);
+    }
 
-        if (isSkip) {
-          this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
-        } else {
-          setHlTimeout(() => {
-            this.concludeHighlight({ outcome: "WIDE", tacticalAnalysis: analysis, onComplete });
-          }, 2000);
-        }
-      } else if (outcome === "SAVE") {
-        this.stats.shotsOnTarget[attackingSide]++;
-        this.adjustPlayerRating(shooter, 0.15);
-        if (goalkeeper) {
-          goalkeeper.matchSaves = (goalkeeper.matchSaves || 0) + 1;
-          this.adjustPlayerRating(goalkeeper, 0.45);
-        }
-        this.ball.targetX = isHome ? 98 : 2;
-        this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
-        this.ball.targetZ = 5;
+    if (outcome === "BLOCK") {
+      if (defender) {
+        defender.matchTackles = (defender.matchTackles || 0) + 1;
+        this.adjustPlayerRating(defender, 0.35);
+      }
+      this.triggerAlert("BLOQUEO", `🛡️ ¡Bloqueo defensivo de ${defender?.name || "la defensa"}!`, isHome ? "away" : "home", isSkip ? 1800 : 2800);
+    } else if (outcome === "POST") {
+      if (shooter) this.adjustPlayerRating(shooter, 0.2);
+      this.triggerAlert("AL PALO", `🥅 ¡Al palo! El disparo de ${shooter?.name || "el atacante"} se estrella en la madera`, attackingSide, isSkip ? 1800 : 2800);
+    } else if (outcome === "WIDE") {
+      if (shooter) this.adjustPlayerRating(shooter, -0.08);
+      this.triggerAlert("DISPARO FUERA", `💨 Disparo desviado de ${shooter?.name || "el atacante"}`, attackingSide, isSkip ? 1600 : 2600);
+    } else if (outcome === "SAVE") {
+      this.stats.shotsOnTarget[attackingSide]++;
+      if (shooter) this.adjustPlayerRating(shooter, 0.15);
+      if (goalkeeper) {
+        goalkeeper.matchSaves = (goalkeeper.matchSaves || 0) + 1;
+        this.adjustPlayerRating(goalkeeper, 0.45);
+      }
+      this.triggerAlert("PARADÓN", `🧤 ¡Intervención salvadora de ${goalkeeper?.name || "el portero"} ante ${shooter?.name || "el rematador"}!`, isHome ? "away" : "home", isSkip ? 2000 : 3000);
+    } else if (outcome === "GOAL") {
+      this.stats.shotsOnTarget[attackingSide]++;
+      if (isHome) this.homeScore++;
+      else this.awayScore++;
 
-        const saveBecomesCorner = Math.random() < 0.28;
-        const alertText = saveBecomesCorner
-          ? `🧤 ¡Paradón providencial de ${goalkeeper.name} ante ${shooter.name}! ¡Córner!`
-          : `🧤 ¡Intervención segura de ${goalkeeper.name}! Atrapa el disparo con firmeza.`;
-        this.triggerAlert("PARADÓN", alertText, isHome ? "away" : "home", isSkip ? 2200 : 3200);
-
-        const analysis = attackingSide === this.userSide
-          ? (saveBecomesCorner
-              ? `🧤 ¡Paradón de ${goalkeeper.name}! Estirada espectacular desviando el tiro a saque de esquina.`
-              : `🧤 ¡Buen remate de ${shooter.name}, pero ${goalkeeper.name} estuvo bien colocado y atrapó sin conceder rechace.`)
-          : (saveBecomesCorner
-              ? `🧤 ¡Intervención salvadora de ${goalkeeper.name}! Tu portero voló para desviar el balón a córner.`
-              : `🧤 ¡Seguridad bajo palos! ${goalkeeper.name} bloca el esférico con autoridad.`);
-
-        const saveCompletion = () => {
-          this.concludeHighlight({
-            outcome: "SAVE",
-            tacticalAnalysis: analysis,
-            onComplete: () => {
-              if (saveBecomesCorner && !this.isFinished && !this.isHalfTime && this.showKeyHighlights && !isSkip && !this.isSkippingToEnd) {
-                const startedSP = this.triggerSetPiece(attackingSide, "CORNER", null, onComplete);
-                if (!startedSP && onComplete) onComplete();
-              } else if (onComplete) {
-                onComplete();
-              }
-            }
-          });
-        };
-
-        if (isSkip) {
-          saveCompletion();
-        } else {
-          setHlTimeout(saveCompletion, 2000);
-        }
-      } else {
-        // ¡GOOOOL! Registrado exactamente cuando el balón cruza la línea en 3D
-        this.stats.shotsOnTarget[attackingSide]++;
-        if (isHome) {
-          this.homeScore++;
-          this.ball.targetX = 99.5;
-          this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
-          this.ball.targetZ = targetCorner.includes("TOP") ? 9 : 2;
-        } else {
-          this.awayScore++;
-          this.ball.targetX = 0.5;
-          this.ball.targetY = targetCorner.includes("RIGHT") ? 54 : 46;
-          this.ball.targetZ = targetCorner.includes("TOP") ? 9 : 2;
-        }
-
+      if (shooter) {
         shooter.goals = (shooter.goals || 0) + 1;
         shooter.matchGoals = (shooter.matchGoals || 0) + 1;
         this.adjustPlayerRating(shooter, 1.15);
-        if (passer && passer.id !== shooter.id) {
-          passer.assists = (passer.assists || 0) + 1;
-          passer.matchAssists = (passer.matchAssists || 0) + 1;
-          this.adjustPlayerRating(passer, 0.65);
-        }
-        if (goalkeeper) this.adjustPlayerRating(goalkeeper, -0.25);
-        defPlayers.filter(p => ["DFC", "LD", "LI", "MCD"].includes(p.pos)).forEach(d => this.adjustPlayerRating(d, -0.15));
+      }
+      if (passer && passer.id !== shooter?.id) {
+        passer.assists = (passer.assists || 0) + 1;
+        passer.matchAssists = (passer.matchAssists || 0) + 1;
+        this.adjustPlayerRating(passer, 0.65);
+      }
+      if (goalkeeper) this.adjustPlayerRating(goalkeeper, -0.25);
+      defPlayers.filter(p => ["DFC", "LD", "LI", "MCD"].includes(p.pos)).forEach(d => this.adjustPlayerRating(d, -0.15));
 
-        const event = {
-          type: "GOAL",
+      this.events.push({
+        type: "GOAL",
+        minute: this.minute,
+        teamSide: attackingSide,
+        teamId: atkTeam.id,
+        teamName: atkTeam.shortName,
+        playerName: shooter?.name || "Goleador",
+        assisterName: (passer && passer.id !== shooter?.id) ? passer.name : null,
+        currentScore: `${this.homeScore} - ${this.awayScore}`,
+        isSetPiece: Boolean(info.isSetPiece),
+        setPieceType: info.setPieceType || null
+      });
+
+      if (!this.isSkippingToEnd) {
+        this.triggerAlert("GOL", `⚽ ¡GOOOOOOL DE ${(shooter?.name || atkTeam.shortName).toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, isSkip ? 2400 : 4200);
+        if (this.onTick) this.onTick(this.getState());
+      }
+    }
+  }
+
+  finishActiveReplay(isSkip = false) {
+    if (!this.activeReplay) return;
+    const rep = this.activeReplay;
+    this.activeReplay = null;
+
+    if (!rep.climaxCommitted) {
+      rep.climaxCommitted = true;
+      const lastIdx = rep.frames.length - 1;
+      if (lastIdx >= 0) {
+        const lastF = rep.frames[lastIdx];
+        this.ball.xm = lastF.ball.xm;
+        this.ball.ym = lastF.ball.ym;
+        this.ball.zm = lastF.ball.zm;
+      }
+      this._commitReplayClimax(rep.outcomeInfo, true);
+    }
+
+    const { outcome, attackingSide, atkTeam, defTeam, shooter, passer, defender, goalkeeper, shotNote, saveBecomesCorner } = rep.outcomeInfo;
+    const isHome = attackingSide === "home";
+    const onComplete = rep.onComplete;
+
+    if (outcome === "GOAL") {
+      this.resetKickoff(isHome ? "away" : "home");
+      if (this.highlightInterval) {
+        clearInterval(this.highlightInterval);
+        this.highlightInterval = null;
+      }
+      this.isHighlightRunning = false;
+      this.isSetPieceRunning = false;
+      this.activeSetPiece = null;
+      this.speed = this.userSpeed;
+      this.skipCurrentHighlight = null;
+
+      if (!this.isSkippingToEnd && this.onHighlightEnd) {
+        this.onHighlightEnd({
+          outcome: "GOAL",
+          tacticalAnalysis: shotNote,
+          attackingSide,
+          shooter,
+          passer,
+          defender,
+          goalkeeper
+        });
+      }
+
+      if (!this.isSkippingToEnd && this.hasCustomOnGoal) {
+        this.onGoal({
+          shooter,
+          passer,
+          attackingSide,
+          concedingSide: isHome ? "away" : "home",
+          atkTeam,
+          defTeam,
           minute: this.minute,
-          teamSide: attackingSide,
-          teamId: atkTeam.id,
-          teamName: atkTeam.shortName,
-          playerName: shooter.name,
-          assisterName: (passer && passer.id !== shooter.id) ? passer.name : null,
-          currentScore: `${this.homeScore} - ${this.awayScore}`
-        };
-        this.events.push(event);
-
-        if (!this.isSkippingToEnd) {
-          this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${shooter.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, isSkip ? 2500 : 4500);
-          if (this.onTick) this.onTick(this.getState());
-        }
-
-        const analysis = attackingSide === this.userSide
-          ? `🎯 ¡Golazo! Jugada construida a la perfección y definición inapelable de ${shooter.name}.`
-          : `⚠️ Despiste en la marca: ${shooter.name} aprovechó el centro y fusiló la portería.`;
-
-        const goalCompletion = () => {
-          if (this.highlightInterval) {
-            clearInterval(this.highlightInterval);
-            this.highlightInterval = null;
-          }
-          this.isHighlightRunning = false;
-          this.speed = this.userSpeed;
-          this._sync2DToMeters();
-          if (!this.isSkippingToEnd && this.onHighlightEnd) {
-            this.onHighlightEnd({
-              outcome: "GOAL",
-              tacticalAnalysis: analysis,
-              attackingSide,
-              shooter,
-              passer,
-              defender,
-              goalkeeper
-            });
-          }
-
-          if (!this.isSkippingToEnd && this.hasCustomOnGoal) {
-            this.onGoal({
-              shooter,
-              passer,
-              attackingSide,
-              concedingSide: isHome ? "away" : "home",
-              atkTeam,
-              defTeam,
-              minute: this.minute,
-              formattedMinute: this.getFormattedMinute(),
-              score: `${this.homeScore} - ${this.awayScore}`,
-              isSkipped: isSkip
-            });
-          } else if (onComplete) {
-            onComplete();
-          }
-        };
-
-        if (isSkip || this.isSkippingToEnd) {
-          goalCompletion();
-        } else {
-          setHlTimeout(goalCompletion, 2000);
-        }
+          formattedMinute: this.getFormattedMinute(),
+          score: `${this.homeScore} - ${this.awayScore}`,
+          isSkipped: isSkip
+        });
+      } else if (onComplete) {
+        onComplete();
       }
-    };
-
-    // Callback para que el usuario pueda saltar la jugada en directo en cualquier instante
-    this.skipCurrentHighlight = () => {
-      if (!this.isHighlightRunning) return;
-      executeResolution(true);
-    };
-
-    // Si estamos saltando al final del partido o el usuario tiene desactivadas las jugadas clave:
-    if (this.isSkippingToEnd) {
-      executeResolution(true);
       return;
     }
 
-    if (!this.showKeyHighlights) {
-      if (this.onHighlightStart) {
-        this.onHighlightStart({
-          ...baseHighlightData,
-          phase: "SHOT",
-          phaseLabel: "Jugada de peligro (Modo rápido)",
-          phaseDuration: 0,
-          tacticalNote: pDesc.shotNote
-        });
-      }
-      executeResolution(true);
-      return;
-    }
-
-    // FASE 2: Progresión y conducción al sector de ataque (4.5s - 8.5s)
-    setHlTimeout(() => {
-      if (!this.isRunning && !this.isHighlightRunning) return;
-
-      // El balón y el pasador progresan fluidamente hacia tres cuartos (midX, midY)
-      this.ball.targetX = midX;
-      this.ball.targetY = midY;
-      this.ball.targetZ = 0;
-
-      if (passerItem) {
-        passerItem.targetX = midX;
-        passerItem.targetY = midY;
-      }
-      if (pivotItem && pivotItem.player?.id !== passer.id) {
-        pivotItem.targetX = isHome ? midX - 9 : midX + 9;
-        pivotItem.targetY = midY + (midY < 50 ? 6 : -6);
-      }
-      if (defItem) {
-        defItem.targetX = midX + (isHome ? 5 : -5);
-        defItem.targetY = midY + (Math.random() * 4 - 2);
-      }
-      if (shooterItem) {
-        shooterItem.targetX = isHome ? Math.min(boxX - 4, midX + 10) : Math.max(boxX + 4, midX - 10);
-        shooterItem.targetY = boxY;
-      }
-      this.update2DPositions();
-
-      this.triggerAlert(pDesc.progAlert[0], pDesc.progAlert[1], attackingSide, 3200);
-
-      if (this.onHighlightPhase) {
-        this.onHighlightPhase({
-          ...baseHighlightData,
-          phase: "PROGRESSION",
-          phaseLabel: progHeadline,
-          phaseDuration: 4000,
-          tacticalNote: pDesc.progNote
-        });
-      }
-
-      // FASE 3: Pase clave / generación de espacio (8.5s - 11.5s)
-      setHlTimeout(() => {
-        if (!this.isRunning && !this.isHighlightRunning) return;
-
-        const isLob = playPattern === "WING_CROSS_HEADER" || Math.random() < 0.35;
-        const passZ = isLob ? 4.5 + Math.random() * 2.5 : 0;
-        this.ball.targetX = boxX;
-        this.ball.targetY = boxY;
-        this.ball.targetZ = passZ;
-
-        if (shooterItem) {
-          shooterItem.targetX = boxX;
-          shooterItem.targetY = boxY;
+    // Si una parada desvió el balón por línea de fondo a córner:
+    this.concludeHighlight({
+      outcome,
+      tacticalAnalysis: shotNote,
+      onComplete: () => {
+        if (outcome === "SAVE" && saveBecomesCorner && !this.isFinished && !this.isHalfTime && this.showKeyHighlights && !isSkip && !this.isSkippingToEnd) {
+          const startedSP = this.triggerSetPiece(attackingSide, "CORNER", null, onComplete);
+          if (!startedSP && onComplete) onComplete();
+        } else if (onComplete) {
+          onComplete();
         }
-        if (defItem) {
-          defItem.targetX = boxX + (isHome ? -5 : 5);
-          defItem.targetY = boxY + (Math.random() * 6 - 3);
-        }
-        if (gkItem) {
-          gkItem.targetX = isHome ? 96.5 : 3.5;
-          gkItem.targetY = 48 + (boxY - 50) * 0.22;
-        }
-        this.update2DPositions();
-
-        this.triggerAlert(pDesc.passAlert[0], pDesc.passAlert[1], attackingSide, 2800);
-
-        if (this.onHighlightPhase) {
-          this.onHighlightPhase({
-            ...baseHighlightData,
-            phase: "KEY_PASS",
-            phaseLabel: "Último pase y control",
-            phaseDuration: 3000,
-            tacticalNote: pDesc.passNote
-          });
-        }
-
-        // FASE 4: Disparo a puerta y desenlace físico en pantalla (11.5s - 15.0s)
-        setHlTimeout(() => {
-          if (!this.isRunning && !this.isHighlightRunning) return;
-
-          if (this.onHighlightPhase) {
-            this.onHighlightPhase({
-              ...baseHighlightData,
-              phase: "SHOT",
-              phaseLabel: "Remate a portería",
-              phaseDuration: 3500,
-              tacticalNote: pDesc.shotNote
-            });
-          }
-
-          // Esperar el vuelo físico del balón hacia la portería (o bloqueo) para sincronización visual 100%
-          const flightMs = outcome === "BLOCK" ? 450 : 950;
-          setHlTimeout(() => {
-            if (!this.isRunning && !this.isHighlightRunning) return;
-            executeResolution(false);
-          }, flightMs);
-        }, 3000);
-      }, 4000);
-    }, 4500);
+      }
+    });
   }
 
   concludeHighlight({ outcome, tacticalAnalysis, onComplete }) {
@@ -4602,15 +4282,18 @@ class MatchSimulator {
       this.highlightInterval = null;
     }
     this.isHighlightRunning = false;
+    this.isSetPieceRunning = false;
+    this.activeSetPiece = null;
+    this.activeReplay = null;
     this.speed = this.userSpeed;
     this.skipCurrentHighlight = null;
-    this.crowdRoarUnlockedByHighlight = true; // Desbloqueo inmediato del aliento de la grada tras jugada clave
+    this.crowdRoarUnlockedByHighlight = true;
     if (this.highlightTimeouts && this.highlightTimeouts.length > 0) {
       this.highlightTimeouts.forEach(clearTimeout);
       this.highlightTimeouts = [];
     }
 
-    this._sync2DToMeters();
+    this._syncMetersTo2D();
     if (this.onHighlightEnd) {
       this.onHighlightEnd({
         outcome,
@@ -4636,44 +4319,47 @@ class MatchSimulator {
     if (onComplete) onComplete();
   }
 
-  // Generar punto y distancia real en metros de una falta con distribución aleatoria
+  // =========================================================================================
+  // 3. GEOMETRÍA VECTORIAL ESTRICTA DE BALÓN PARADO (FALTAS, PENALTIS Y CÓRNERS FIFA)
+  // =========================================================================================
+  // Genera un punto de falta directa SIEMPRE ESTRICTAMENTE FUERA del área de penalti (|X| > 36 y |Z| < 20.16 es penalti)
   generateFreeKickSpot(attackingSide) {
     const isHome = attackingSide === "home";
 
-    // Generar distancia al azar entre 17m y 60m:
-    // ~35% faltas directas peligrosas al borde del área (17m - 25m)
-    // ~35% faltas para centro / colgar al área (26m - 34m)
-    // ~30% faltas lejanas en medio campo (35m - 60m)
-    const roll = Math.random();
-    let targetDist;
-    if (roll < 0.35) {
-      targetDist = 17 + Math.random() * 8.5; // 17m a 25.5m (muy peligrosas para tiro directo)
-    } else if (roll < 0.70) {
-      targetDist = 26 + Math.random() * 8.5; // 26m a 34.5m (peligrosas para centro al área)
+    // Coordenadas centradas FIFA: X en [-52.5, 52.5], Z en [-34, 34]
+    // Área rival: |X| >= 36.0 y |Z| <= 20.16
+    const isLateral = Math.random() < 0.28;
+    let cx, cz;
+    if (isLateral) {
+      // Falta lateral fuera del área (|Z| entre 21.5m y 30.5m, |X| entre 28m y 45m)
+      const absX = 28.0 + Math.random() * 16.0;
+      cx = isHome ? absX : -absX;
+      const absZ = 21.5 + Math.random() * 8.5;
+      cz = Math.random() < 0.5 ? -absZ : absZ;
     } else {
-      targetDist = 35 + Math.random() * 25;  // 35m a 60m (faltas en la medular)
+      // Falta frontal o semifrontal fuera de la frontal del área (|X| entre 24.5m y 34.5m, distancia a portería 18m-28m)
+      const absX = 24.5 + Math.random() * 9.8; // Máximo 34.3m (< 36.0m del área)
+      cx = isHome ? absX : -absX;
+      cz = (Math.random() * 2 - 1) * 17.5;
     }
 
-    const maxAngle = Math.min(0.95, 28 / targetDist);
-    const angle = (Math.random() * 2 - 1) * maxAngle;
+    // Guardia matemática estricta: prohibido caer dentro del área de penalti (|X| >= 35.5 y |Z| <= 20.5)
+    if (Math.abs(cx) >= 35.5 && Math.abs(cz) <= 20.5) {
+      cx = isHome ? 34.2 : -34.2;
+    }
 
-    const dxMeters = targetDist * Math.cos(angle);
-    const dyMeters = targetDist * Math.sin(angle);
+    const xm = cx + 52.5;
+    const ym = cz + 34.0;
+    const spotX = (xm / 105) * 100;
+    const spotY = (ym / 68) * 100;
 
-    const pitchX = isHome ? (100 - dxMeters / 1.05) : (dxMeters / 1.05);
-    const pitchY = 50 + (dyMeters / 0.68);
+    const goalX = isHome ? 52.5 : -52.5;
+    const distanceMeters = Math.round(Math.hypot(goalX - cx, 0 - cz));
 
-    const spotX = Math.max(8, Math.min(92, pitchX));
-    const spotY = Math.max(14, Math.min(86, pitchY));
-
-    const realDx = (isHome ? (100 - spotX) : spotX) * 1.05;
-    const realDy = (50 - spotY) * 0.68;
-    const distanceMeters = Math.round(Math.sqrt(realDx * realDx + realDy * realDy));
-
-    return { spot: { x: spotX, y: spotY }, distanceMeters };
+    return { spot: { x: spotX, y: spotY, xm, ym, cx, cz }, distanceMeters };
   }
 
-  // Activar jugada a balón parado (Córner o Falta peligrosa)
+  // Activar jugada a balón parado (CORNER, FREE_KICK o PENALTY) con geometría vectorial FIFA
   triggerSetPiece(attackingSide, type = "CORNER", customSpotData = null, postSetPieceCallback = null) {
     if (this.isFinished || this.isHalfTime || this.isHighlightRunning || this.isSetPieceRunning) return false;
 
@@ -4683,42 +4369,74 @@ class MatchSimulator {
     const atkPlayers = isHome ? this.homePlayersOnPitch : this.awayPlayersOnPitch;
     const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
 
-    let spotX, spotY, distanceMeters = null;
-    if (type === "CORNER") {
-      spotX = isHome ? 99.5 : 0.5;
-      spotY = Math.random() < 0.5 ? 0.8 : 99.2;
+    let actualType = type;
+    let spotX, spotY, xm, ym, distanceMeters = 11;
+
+    if (actualType === "CORNER") {
+      // Córner exacto en la esquina (X = ±52.5, Z = ±34)
+      const cx = isHome ? 52.5 : -52.5;
+      const cz = Math.random() < 0.5 ? -34.0 : 34.0;
+      xm = cx + 52.5;
+      ym = cz + 34.0;
+      spotX = (xm / 105) * 100;
+      spotY = (ym / 68) * 100;
+      distanceMeters = 34;
+    } else if (actualType === "PENALTY") {
+      // Penalti exacto en el punto fatídico (X = ±41.5, Z = 0)
+      const cx = isHome ? 41.5 : -41.5;
+      const cz = 0;
+      xm = cx + 52.5;
+      ym = cz + 34.0;
+      spotX = (xm / 105) * 100;
+      spotY = (ym / 68) * 100;
+      distanceMeters = 11;
     } else {
       const fkData = customSpotData || this.generateFreeKickSpot(attackingSide);
       spotX = fkData.spot.x;
       spotY = fkData.spot.y;
-      distanceMeters = fkData.distanceMeters;
+      xm = fkData.spot.xm ?? (spotX * 1.05);
+      ym = fkData.spot.ym ?? (spotY * 0.68);
+      const cx = xm - 52.5;
+      const cz = ym - 34.0;
 
-      // REQUISITO: Si la falta no es peligrosa (>34m), es falta lejana en la medular.
-      // Se saca rápido sin interrumpir con la pizarra táctica de jugada ensayada.
-      if (distanceMeters > 34) {
-        this.ball.x = spotX;
-        this.ball.y = spotY;
-        this.ball.z = 0;
-        this.ball.targetX = spotX;
-        this.ball.targetY = spotY;
-        this.ball.targetZ = 0;
-        this.ball.possession = attackingSide;
-        if (!this.isSkippingToEnd) {
-          this.triggerAlert("FALTA", `⚠️ Falta a ${distanceMeters}m de portería cometida sobre ${atkTeam.shortName}. Saque rápido.`, attackingSide, 2600);
+      // Si por cualquier motivo las coordenadas entrantes están dentro del área rival (|X| > 36 y |Z| < 20.16), es PENALTI
+      const insideRivalBox = isHome
+        ? (cx > 36.0 && Math.abs(cz) < 20.16)
+        : (cx < -36.0 && Math.abs(cz) < 20.16);
+
+      if (insideRivalBox) {
+        actualType = "PENALTY";
+        const penCx = isHome ? 41.5 : -41.5;
+        xm = penCx + 52.5;
+        ym = 34.0;
+        spotX = (xm / 105) * 100;
+        spotY = 50;
+        distanceMeters = 11;
+      } else {
+        const goalCx = isHome ? 52.5 : -52.5;
+        distanceMeters = fkData.distanceMeters || Math.round(Math.hypot(goalCx - cx, 0 - cz));
+        if (distanceMeters > 34) {
+          this.ball.xm = xm;
+          this.ball.ym = ym;
+          this.ball.zm = 0;
+          this.ball.possession = attackingSide;
+          this._syncMetersTo2D();
+          if (!this.isSkippingToEnd) {
+            this.triggerAlert("FALTA", `⚠️ Falta a ${distanceMeters}m de portería para ${atkTeam.shortName}. Saque en corto.`, attackingSide, 2200);
+          }
+          return false;
         }
-        return false;
       }
     }
 
-    // Si estamos saltando al final del partido, resolver el balón parado de forma instantánea y síncrona
+    // Modo simulación instantánea hasta el final
     if (this.isSkippingToEnd) {
-      if (type === "CORNER") {
-        this.stats.corners[attackingSide]++;
-      }
+      if (actualType === "CORNER") this.stats.corners[attackingSide]++;
       this.stats.shots[attackingSide]++;
-      if (Math.random() < 0.28) {
+      const convChance = actualType === "PENALTY" ? 0.76 : 0.08;
+      if (Math.random() < (actualType === "PENALTY" ? 0.88 : 0.35)) {
         this.stats.shotsOnTarget[attackingSide]++;
-        if (Math.random() < 0.14) { // ~3.9% de conversión realista en córners y faltas colgadas
+        if (Math.random() < convChance) {
           const outfield = atkPlayers.filter(p => p.pos !== "POR");
           const scorer = outfield[Math.floor(Math.random() * outfield.length)] || atkPlayers[0];
           if (isHome) this.homeScore++;
@@ -4744,24 +4462,22 @@ class MatchSimulator {
 
     const cornerSide = spotY < 50 ? "banda izquierda" : "banda derecha";
     const setPieceInfo = {
-      type,
+      type: actualType,
       attackingSide,
       atkTeam,
       defTeam,
       atkPlayers,
       defPlayers,
-      spot: { x: spotX, y: spotY },
+      spot: { x: spotX, y: spotY, xm, ym },
       distanceMeters,
       cornerSide,
       minute: this.minute
     };
 
-    if (attackingSide === this.userSide && this.hasCustomOnSetPiece) {
-      // El usuario ataca a balón parado: pausar y abrir la pizarra táctica interactiva
+    if (attackingSide === this.userSide && this.hasCustomOnSetPiece && actualType !== "PENALTY") {
       this.pause();
       this.onSetPiece(setPieceInfo);
     } else {
-      // La IA rival (o modo automático sin modal) ejecuta su jugada automáticamente
       const aiSetup = this.buildAISetPieceSetup(setPieceInfo);
       this.executeSetPiece(aiSetup, () => {
         if (postSetPieceCallback) {
@@ -4772,31 +4488,30 @@ class MatchSimulator {
     return true;
   }
 
-  // Generar configuración automática para la IA rival en balón parado
   buildAISetPieceSetup(info) {
     const outfield = info.atkPlayers.filter(p => p.pos !== "POR");
     const sortedKickers = [...outfield].sort((a, b) => ((b.pas || 70) + (b.sho || 70)) - ((a.pas || 70) + (a.sho || 70)));
     const taker = sortedKickers[0] || outfield[0];
-
     const nonTakers = outfield.filter(p => p.id !== taker.id);
-    let strategies;
-    if (info.type === "FREE_KICK") {
-      if (info.distanceMeters && info.distanceMeters <= 24) {
-        strategies = ["DIRECT_SHOT", "DIRECT_SHOT", "NEAR_POST", "PENALTY_SPOT"];
+
+    let targetStrategy = "DIRECT_SHOT";
+    if (info.type === "PENALTY") {
+      targetStrategy = "DIRECT_SHOT";
+    } else if (info.type === "FREE_KICK") {
+      if (info.distanceMeters && info.distanceMeters <= 27) {
+        targetStrategy = Math.random() < 0.72 ? "DIRECT_SHOT" : "PENALTY_SPOT";
       } else {
-        strategies = ["PENALTY_SPOT", "FAR_POST", "NEAR_POST", "DIRECT_SHOT", "SHORT_PASS"];
+        targetStrategy = Math.random() < 0.55 ? "PENALTY_SPOT" : "FAR_POST";
       }
     } else {
-      strategies = ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "SHORT_PASS"];
+      const strategies = ["NEAR_POST", "PENALTY_SPOT", "FAR_POST"];
+      targetStrategy = strategies[Math.floor(Math.random() * strategies.length)];
     }
-    const targetStrategy = strategies[Math.floor(Math.random() * strategies.length)];
 
     const zones = ["NEAR_POST", "PENALTY_SPOT", "FAR_POST", "EDGE_BOX", "SHORT_OPTION", "STAY_BACK"];
     const placements = {};
     zones.forEach((z, idx) => {
-      if (nonTakers[idx]) {
-        placements[z] = nonTakers[idx];
-      }
+      if (nonTakers[idx]) placements[z] = nonTakers[idx];
     });
 
     return {
@@ -4810,28 +4525,223 @@ class MatchSimulator {
     };
   }
 
-  // Ejecución física y cinemática 3D de la jugada a balón parado con Azar + Estadísticas
+  // Posiciona los 22 jugadores y el balón aplicando estrictamente los vectores matemáticos FIFA
+  _applyStrictSetPieceGeometry(type, attackingSide, spotXm, spotYm, taker, placements = {}) {
+    const isHome = attackingSide === "home";
+    const atk2D = isHome ? this.home2D : this.away2D;
+    const def2D = isHome ? this.away2D : this.home2D;
+
+    const goalXm = isHome ? 105.0 : 0.0;
+    const goalYm = 34.0;
+
+    // Coordenadas FIFA centradas: X = xm - 52.5, Z = ym - 34.0
+    let ballCx = spotXm - 52.5;
+    let ballCz = spotYm - 34.0;
+
+    if (type === "PENALTY") {
+      ballCx = isHome ? 41.5 : -41.5;
+      ballCz = 0.0;
+    } else if (type === "CORNER") {
+      ballCx = isHome ? 52.5 : -52.5;
+      ballCz = ballCz < 0 ? -34.0 : 34.0;
+    } else {
+      // FALTA DIRECTA: estrictamente fuera del área rival (|X| < 35.2 si |Z| < 20.5)
+      if (Math.abs(ballCx) >= 35.2 && Math.abs(ballCz) <= 20.5) {
+        ballCx = isHome ? 34.0 : -34.0;
+      }
+    }
+
+    const bXm = ballCx + 52.5;
+    const bYm = ballCz + 34.0;
+
+    this.ball.xm = bXm;
+    this.ball.ym = bYm;
+    this.ball.zm = 0;
+    this.ball.vx = 0;
+    this.ball.vy = 0;
+    this.ball.vz = 0;
+    this.ball.carrier = null;
+    this.ball.passTarget = null;
+    this.ball.shotTeam = null;
+    this.ball.possession = attackingSide;
+
+    // Vector unitario desde el balón (ballPos) hacia el centro de la portería rival (goalPos = (±52.5, 0))
+    const vecX = goalXm - bXm;
+    const vecY = goalYm - bYm;
+    const vecLen = Math.hypot(vecX, vecY) || 1;
+    const ux = vecX / vecLen;
+    const uy = vecY / vecLen;
+    // Vector perpendicular a la línea de tiro para alinear los hombros de la barrera
+    const perpX = -uy;
+    const perpY = ux;
+
+    const placeItem = (item, xm, ym, faceX = goalXm, faceY = goalYm) => {
+      if (!item) return;
+      item.xm = Math.max(0.4, Math.min(104.6, xm));
+      item.ym = Math.max(0.4, Math.min(67.6, ym));
+      item.vx = 0;
+      item.vy = 0;
+      item.pose = "idle";
+      item.aiState = "SET_PIECE";
+      item.facing = Math.atan2(faceY - item.ym, faceX - item.xm);
+    };
+
+    const kickerItem = atk2D.find(p => p.player?.id === taker?.id) || atk2D.find(p => !p.isKeeper) || atk2D[1];
+    const atkGk = atk2D.find(p => p.isKeeper) || atk2D[0];
+    const defGk = def2D.find(p => p.isKeeper) || def2D[0];
+    const otherAtk = atk2D.filter(p => p !== kickerItem && p !== atkGk);
+    const otherDef = def2D.filter(p => p !== defGk);
+
+    // Portero atacante en su área
+    placeItem(atkGk, isHome ? 6.0 : 99.0, 34.0, bXm, bYm);
+
+    if (type === "PENALTY") {
+      // PENALTI REGLAMENTARIO FIFA:
+      // 1. Balón en (41.5, 0) -> xm = 94.0 (home) o 11.0 (away), ym = 34.0
+      // 2. Portero sobre la línea de gol (52.5, 0) -> xm = 105.0 (home) o 0.0 (away), ym = 34.0
+      placeItem(defGk, isHome ? 104.85 : 0.15, 34.0, bXm, bYm);
+      // 3. Lanzador a 3m detrás del balón (38.5, 0) -> xm = 91.0 (home) o 14.0 (away), ym = 34.0
+      placeItem(kickerItem, isHome ? (bXm - 3.0) : (bXm + 3.0), 34.0, goalXm, goalYm);
+
+      // 4. Los otros 20 jugadores estrictamente fuera del área (|X| < 35.5) y fuera del semicírculo (dist > 9.15m del punto de penalti)
+      const edgeLineXm = isHome ? (52.5 + 34.8) : (52.5 - 34.8); // |X| = 34.8 < 35.5
+      const zOffsets = [-17.5, -13.0, -9.8, -6.8, 6.8, 9.8, 13.0, 17.5, -21.0];
+      otherAtk.forEach((p, idx) => {
+        const zOff = zOffsets[idx % zOffsets.length];
+        let px = edgeLineXm - (isHome ? (idx % 2) * 1.4 : -(idx % 2) * 1.4);
+        let py = 34.0 + zOff;
+        // Asegurar distancia > 9.4m al punto de penalti (semicírculo reglamentario)
+        const dPen = Math.hypot(px - bXm, py - bYm);
+        if (dPen < 9.5) {
+          px = isHome ? (bXm - Math.sqrt(Math.max(1, 9.6 * 9.6 - zOff * zOff))) : (bXm + Math.sqrt(Math.max(1, 9.6 * 9.6 - zOff * zOff)));
+        }
+        placeItem(p, px, py, goalXm, goalYm);
+      });
+      otherDef.forEach((p, idx) => {
+        const zOff = zOffsets[idx % zOffsets.length] + (idx % 2 === 0 ? 1.1 : -1.1);
+        let px = edgeLineXm - (isHome ? 0.7 : -0.7);
+        let py = 34.0 + zOff;
+        const dPen = Math.hypot(px - bXm, py - bYm);
+        if (dPen < 9.5) {
+          px = isHome ? (bXm - Math.sqrt(Math.max(1, 9.6 * 9.6 - zOff * zOff))) : (bXm + Math.sqrt(Math.max(1, 9.6 * 9.6 - zOff * zOff)));
+        }
+        placeItem(p, px, py, bXm, bYm);
+      });
+    } else if (type === "FREE_KICK") {
+      // FALTA DIRECTA REGLAMENTARIA FIFA:
+      // 1. Lanzador a 1.5m detrás del balón en dirección opuesta a la portería
+      placeItem(kickerItem, bXm - ux * 1.5, bYm - uy * 1.5, goalXm, goalYm);
+
+      // 2. Barrera de 4 defensas sobre el vector balón->portería exactamente a 9.15 metros del balón,
+      //    alineados perpendicularmente al ángulo de tiro (separación de 0.75m hombro con hombro)
+      const wallCenterXm = bXm + ux * 9.15;
+      const wallCenterYm = bYm + uy * 9.15;
+      const wallDefenders = otherDef.slice(0, 4);
+      const boxDefenders = otherDef.slice(4);
+
+      wallDefenders.forEach((dp, idx) => {
+        const lateralOffset = (idx - 1.5) * 0.78;
+        placeItem(
+          dp,
+          wallCenterXm + perpX * lateralOffset,
+          wallCenterYm + perpY * lateralOffset,
+          bXm,
+          bYm
+        );
+      });
+
+      // 3. Portero bajo palos cubriendo el palo lejano a la barrera
+      const farPostOffset = ballCz < 0 ? 1.25 : -1.25;
+      placeItem(defGk, isHome ? 104.5 : 0.5, 34.0 + farPostOffset, bXm, bYm);
+
+      // 4. Resto de atacantes y defensores en la frontal/área respetando el fuera de juego y distancia
+      const lineXm = isHome ? Math.max(wallCenterXm + 2.5, 89.5) : Math.min(wallCenterXm - 2.5, 15.5);
+      const atkZones = [
+        { xm: lineXm, ym: 26.0 },
+        { xm: lineXm + (isHome ? 1.5 : -1.5), ym: 31.0 },
+        { xm: lineXm + (isHome ? 1.5 : -1.5), ym: 37.0 },
+        { xm: lineXm, ym: 42.0 },
+        { xm: isHome ? 82.0 : 23.0, ym: 30.0 },
+        { xm: isHome ? 82.0 : 23.0, ym: 38.0 },
+        { xm: isHome ? 64.0 : 41.0, ym: 24.0 },
+        { xm: isHome ? 64.0 : 41.0, ym: 44.0 },
+        { xm: isHome ? 54.0 : 51.0, ym: 34.0 }
+      ];
+      otherAtk.forEach((ap, idx) => {
+        const z = atkZones[idx % atkZones.length];
+        placeItem(ap, z.xm, z.ym, goalXm, goalYm);
+      });
+      boxDefenders.forEach((dp, idx) => {
+        const z = atkZones[idx % atkZones.length];
+        placeItem(dp, z.xm + (isHome ? 1.6 : -1.6), z.ym + 0.6, bXm, bYm);
+      });
+    } else {
+      // CÓRNER REGLAMENTARIO FIFA:
+      // 1. Balón en la esquina exacta (X = ±52.5, Z = ±34 -> xm = 105 o 0, ym = 0 o 68)
+      // 2. Lanzador junto al banderín de córner
+      const cornerSignX = isHome ? 1 : -1;
+      const cornerSignY = ballCz < 0 ? -1 : 1;
+      placeItem(
+        kickerItem,
+        bXm - cornerSignX * 0.9,
+        bYm - cornerSignY * 0.9,
+        isHome ? 94.0 : 11.0,
+        34.0
+      );
+
+      // 3. Portero en el área chica
+      placeItem(defGk, isHome ? 104.2 : 0.8, 34.0, bXm, bYm);
+
+      // 4. Atacantes y defensas repartidos dentro del área entre el punto de penalti (|X| = 41.5 -> xm = 94 / 11)
+      //    y el área pequeña (|X| = 47.0 -> xm = 99.5 / 5.5)
+      const boxTargetsCentered = [
+        { cx: 46.5, cz: -3.2 }, // Primer palo área pequeña
+        { cx: 44.2, cz: 0.0 },  // Corazón del área
+        { cx: 41.8, cz: 1.5 },  // Punto de penalti
+        { cx: 45.8, cz: 4.2 },  // Segundo palo
+        { cx: 42.5, cz: -4.8 }, // Segundo escalón primer palo
+        { cx: 35.0, cz: -3.0 }, // Rechace frontal
+        { cx: 34.5, cz: 4.5 },  // Rechace frontal 2
+        { cx: 12.0, cz: -8.0 }, // Cierre defensivo medio campo
+        { cx: 12.0, cz: 8.0 }   // Cierre defensivo medio campo 2
+      ];
+
+      otherAtk.forEach((ap, idx) => {
+        const t = boxTargetsCentered[idx % boxTargetsCentered.length];
+        const txm = 52.5 + (isHome ? t.cx : -t.cx);
+        const tym = 34.0 + (ballCz < 0 ? t.cz : -t.cz);
+        placeItem(ap, txm, tym, goalXm, goalYm);
+      });
+
+      const defTargetsCentered = [
+        { cx: 48.0, cz: -3.4 }, // Poste cercano
+        { cx: 47.2, cz: -1.5 },
+        { cx: 45.0, cz: 0.4 },
+        { cx: 42.4, cz: 1.8 },
+        { cx: 46.2, cz: 4.0 },
+        { cx: 43.2, cz: -4.2 },
+        { cx: 36.2, cz: -2.2 },
+        { cx: 35.8, cz: 3.8 },
+        { cx: 24.0, cz: 0.0 },
+        { cx: 18.0, cz: 5.0 }
+      ];
+      otherDef.forEach((dp, idx) => {
+        const t = defTargetsCentered[idx % defTargetsCentered.length];
+        const txm = 52.5 + (isHome ? t.cx : -t.cx);
+        const tym = 34.0 + (ballCz < 0 ? t.cz : -t.cz);
+        placeItem(dp, txm, tym, bXm, bYm);
+      });
+    }
+
+    this._syncMetersTo2D();
+    return { kickerItem, defGk, otherAtk, otherDef, bXm, bYm, ux, uy, goalXm, goalYm };
+  }
+
+  // Simula la jugada a balón parado a 20 ticks/segundo, la graba en replayBuffer y la reproduce en 3D
   executeSetPiece(setup, onDone) {
     this.isRunning = true;
     this.isSetPieceRunning = true;
     this.speed = 1;
-
-    // Reloj en tiempo real durante balón parado
-    if (this.highlightInterval) {
-      clearInterval(this.highlightInterval);
-      this.highlightInterval = null;
-    }
-    this.highlightInterval = setInterval(() => {
-      if (!this.isRunning || (!this.isHighlightRunning && !this.isSetPieceRunning)) {
-        return;
-      }
-      this.matchSecond = (this.matchSecond || 0) + 1;
-      if (this.matchSecond >= 60) {
-        this.matchSecond = 0;
-        this.minute++;
-      }
-      if (this.onTick) this.onTick(this.getState());
-    }, Math.max(100, Math.round(1000 / (this.userSpeed || 1))));
 
     const { type, attackingSide, spot, taker, targetStrategy, placements } = setup;
     const isHome = attackingSide === "home";
@@ -4844,394 +4754,151 @@ class MatchSimulator {
       this.stats.corners[attackingSide]++;
     }
 
-    // FASE 1: Colocar balón, lanzador y rematadores en el área
-    this.ball.targetX = spot.x;
-    this.ball.targetY = spot.y;
-    this.ball.targetZ = 0;
+    const spotXm = spot.xm ?? (spot.x * 1.05);
+    const spotYm = spot.ym ?? (spot.y * 0.68);
 
-    const kickerObj = (isHome ? this.home2D : this.away2D).find(p => p.player?.id === taker.id);
-    if (kickerObj) {
-      kickerObj.curX = spot.x + (isHome ? -1.8 : 1.8);
-      kickerObj.curY = spot.y + (spot.y < 50 ? 1.5 : -1.5);
-      kickerObj.targetX = kickerObj.curX;
-      kickerObj.targetY = kickerObj.curY;
-      kickerObj.facingX = isHome ? 1 : -1;
+    // 1. Aplicar geometría vectorial estricta FIFA
+    const geom = this._applyStrictSetPieceGeometry(type, attackingSide, spotXm, spotYm, taker, placements);
+    const { kickerItem, defGk, otherAtk, otherDef, bXm, bYm, goalXm, goalYm } = geom;
+
+    // 2. Vaciar el buffer y grabar la preparación a balón parado + ejecución física a 20 Hz
+    this.replayBuffer = [];
+    const dt = 0.05; // 20 ticks/segundo
+
+    // Fase de preparación y toma de carrera (24 ticks = 1.2s)
+    const runupStartXm = kickerItem.xm;
+    const runupStartYm = kickerItem.ym;
+    for (let t = 0; t < 24; t++) {
+      const p = t / 24;
+      if (t >= 10) {
+        const rAlpha = (t - 10) / 14;
+        kickerItem.xm = runupStartXm + (bXm - runupStartXm) * (rAlpha * 0.82);
+        kickerItem.ym = runupStartYm + (bYm - runupStartYm) * (rAlpha * 0.82);
+        kickerItem.pose = "run";
+      }
+      // En córners y faltas colgadas, los atacantes inician el desmarque dentro del área
+      if (type !== "PENALTY" && t >= 12) {
+        otherAtk.slice(0, 4).forEach((ap, idx) => {
+          ap.xm += (isHome ? 0.14 : -0.14);
+          ap.ym += (idx % 2 === 0 ? 0.05 : -0.05);
+          ap.pose = "run";
+        });
+        otherDef.slice(type === "FREE_KICK" ? 4 : 0, (type === "FREE_KICK" ? 8 : 4)).forEach((dp) => {
+          dp.xm += (isHome ? 0.11 : -0.11);
+          dp.pose = "run";
+        });
+      }
+      this._recordReplayFrame("SET_PIECE_RUNUP");
     }
 
-    const zoneCoords = {
-      NEAR_POST: { x: isHome ? 93 : 7, y: spot.y < 50 ? 44 : 56 },
-      PENALTY_SPOT: { x: isHome ? 89 : 11, y: 50 },
-      FAR_POST: { x: isHome ? 94 : 6, y: spot.y < 50 ? 56 : 44 },
-      EDGE_BOX: { x: isHome ? 81 : 19, y: 50 },
-      SHORT_OPTION: { x: isHome ? spot.x - 7 : spot.x + 7, y: spot.y < 50 ? 18 : 82 },
-      STAY_BACK: { x: isHome ? 46 : 54, y: 50 }
-    };
+    // 3. Ejecución física tick a tick (Cero resultados precalculados: el balón se lanza con velocidad real y la física decide)
+    kickerItem.pose = "kick";
+    kickerItem.poseTimer = 0.38;
+    const spLabel = type === "PENALTY" ? "Penalti" : (type === "CORNER" ? "Saque de Esquina" : "Falta Directa");
 
-    Object.keys(placements || {}).forEach(zone => {
-      const p = placements[zone];
-      if (!p) return;
-      const p2D = (isHome ? this.home2D : this.away2D).find(item => item.player?.id === p.id);
-      const coord = zoneCoords[zone];
-      if (p2D && coord) {
-        p2D.curX = coord.x + (Math.random() * 2 - 1);
-        p2D.curY = coord.y + (Math.random() * 2 - 1);
-        p2D.targetX = p2D.curX;
-        p2D.targetY = p2D.curY;
-      }
-    });
+    this._recordingReplayOnly = true;
+    this._pendingTickOutcome = null;
 
-    // Colocar defensores marcando en el área y formando barrera si es falta
-    const def2D = isHome ? this.away2D : this.home2D;
-    def2D.forEach((dp, idx) => {
-      if (dp.isKeeper) {
-        dp.curX = isHome ? 99 : 1;
-        dp.curY = 50;
-        dp.targetX = dp.curX;
-        dp.targetY = dp.curY;
-      } else if (type === "FREE_KICK" && idx < 4) {
-        const dirX = isHome ? 1 : -1;
-        dp.curX = spot.x + dirX * 9.5;
-        dp.curY = spot.y + (idx - 1.5) * 2.2;
-        dp.targetX = dp.curX;
-        dp.targetY = dp.curY;
+    let outcome = "WIDE";
+    let finalShooter = taker;
+    let finalPasser = null;
+    let finalDefender = otherDef[0]?.player || null;
+    let finalGoalkeeper = goalkeeper;
+
+    if (type === "PENALTY" || (type === "FREE_KICK" && targetStrategy === "DIRECT_SHOT")) {
+      const isPen = type === "PENALTY";
+      this._setTickCommentary(
+        isPen
+          ? `🥅 ¡${taker.name} toma carrera desde los 11 metros y ejecuta el lanzamiento!`
+          : `🎯 ¡${taker.name} golpea la falta directa buscando superar la barrera a 9.15m!`,
+        isPen ? "PENALTI" : "FALTA DIRECTA"
+      );
+      this._launchBallShot(kickerItem, attackingSide, isPen ? "NORMAL" : "FINESSE");
+      if (!isPen) {
+        // Elevar trayectoria inicial para salvar la barrera a 9.15m con caída Magnus
+        this.ball.vz = 4.65;
+        this.ball.spin = bYm > 34 ? -2.9 : 2.9;
       } else {
-        dp.curX = (isHome ? 91 : 9) + (Math.random() * 4 - 2);
-        dp.curY = 40 + Math.random() * 20;
-        dp.targetX = dp.curX;
-        dp.targetY = dp.curY;
+        this.ball.vz = 1.65 + Math.random() * 0.85;
       }
-    });
-
-    const isLeftCorner = spot.y < 50;
-    const cornerSideLabel = isLeftCorner ? "banda izquierda" : "banda derecha";
-    const spAlertTitle = type === "CORNER" ? `Córner (${cornerSideLabel})` : (type === "PENALTY" ? "Penalti" : "Falta");
-    this.triggerAlert("BALÓN PARADO", `⚽ ${spAlertTitle} de ${atkTeam.shortName}`, attackingSide, 2600);
-
-    // Activar renderizado 3D Three.js para córneres, faltas y penaltis
-    if (!this.isSkippingToEnd && this.onHighlightStart) {
-      this.onHighlightStart({
-        type: "SET_PIECE",
-        playType: type,
-        isSetPiece: true,
-        attackingSide,
-        defendingSide: isHome ? "away" : "home",
-        atkTeam,
-        defTeam,
-        shooter: taker,
-        passer: taker,
-        keeper: goalkeeper,
-        tacticalNote: `⚽ ${spAlertTitle} de ${atkTeam.shortName}`,
-        commentary: `⚽ ${spAlertTitle} ejecutada por ${taker.name}`,
-        phase: "BUILDUP",
-        outcome: "PENDING"
-      });
-    }
-
-    const setSpTimeout = (fn, ms) => {
-      const t = setTimeout(fn, ms);
-      if (!this.setPieceTimeouts) this.setPieceTimeouts = [];
-      this.setPieceTimeouts.push(t);
-      return t;
-    };
-
-    // FASE 2: Lanzamiento del balón con parábola y cálculo de Azar + Atributos + Laboratorio de Balón Parado (Mejora 3) + Clima (Mejora 6)
-    setSpTimeout(() => {
-      if (this.isFinished || this.isSkippingToEnd) return;
-      const baseStat = targetStrategy === "DIRECT_SHOT" ? (taker.sho || 75) : (taker.pas || 75);
-      const azarLanzamiento = (Math.random() * 44 - 22);
-      const spTrainingMult = (attackingSide === this.userSide && this.weeklyTraining === "set_pieces") ? 1.15 : 1.0;
-      const wetTurfDirectBonus = (targetStrategy === "DIRECT_SHOT" && this.weather?.id === "rain") ? 4.5 : 0;
-      const kickQuality = (baseStat * spTrainingMult) + wetTurfDirectBonus + azarLanzamiento;
-
-      let destX, destY, destZ;
-      if (targetStrategy === "DIRECT_SHOT") {
-        destX = isHome ? 99 : 1;
-        destY = Math.random() < 0.5 ? 46.5 : 53.5;
-        destZ = 7 + Math.random() * 4;
-      } else if (targetStrategy === "SHORT_PASS") {
-        const shortCoord = zoneCoords.SHORT_OPTION || zoneCoords.EDGE_BOX;
-        destX = shortCoord.x;
-        destY = shortCoord.y;
-        destZ = 0.5;
-      } else {
-        const zoneCoord = zoneCoords[targetStrategy] || zoneCoords.PENALTY_SPOT;
-        destX = zoneCoord.x + (Math.random() * 3 - 1.5);
-        destY = zoneCoord.y + (Math.random() * 3 - 1.5);
-        destZ = 9 + Math.random() * 5;
-      }
-
-      this.ball.targetX = destX;
-      this.ball.targetY = destY;
-      this.ball.targetZ = destZ;
-
-      // FASE 3: Remate, despeje, palo, parada o GOL
-      setSpTimeout(() => {
-        if (this.isFinished || this.isSkippingToEnd) return;
-        this.stats.shots[attackingSide]++;
-
-        if (targetStrategy === "DIRECT_SHOT") {
-          const isGoal = kickQuality >= 82 && Math.random() < 0.28;
-          const isPost = !isGoal && kickQuality >= 74 && Math.random() < 0.25;
-          const isSave = !isGoal && !isPost && kickQuality >= 60;
-
-          if (isGoal) {
-            this.handleSetPieceGoal(attackingSide, taker, null, "TIRO DIRECTO", onDone);
-          } else if (isPost) {
-            this.triggerAlert("AL PALO", `🥅 ¡Al palo el lanzamiento de ${taker.name}!`, attackingSide, 3000);
-            this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
-          } else if (isSave) {
-            this.triggerAlert("PARADÓN", `🧤 ¡Paradón de ${goalkeeper.name}!`, isHome ? "away" : "home", 3000);
-            this.finishSetPiecePlay("SAVE", attackingSide, onDone);
-          } else {
-            this.triggerAlert("FUERA", `⚠️ ¡El tiro de ${taker.name} se marcha alto!`, attackingSide, 2500);
-            this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
-          }
-        } else {
-          const targetPlayer = placements[targetStrategy] || placements["PENALTY_SPOT"] || placements["NEAR_POST"];
-
-          if (!targetPlayer) {
-            this.triggerAlert("DESPEJE", "🛡️ Despeje de la defensa", isHome ? "away" : "home", 2500);
-            this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
-            return;
-          }
-
-          // Duelo aéreo en el área: el atacante frente a los centrales rivales
-          const defMarkers = defPlayers.filter(p => ["DFC", "MCD", "LD", "LI"].includes(p.pos));
-          const primaryMarker = defMarkers.sort((a, b) => ((b.def || 70) + (b.fis || 70)) - ((a.def || 70) + (a.fis || 70)))[0] || defPlayers.find(p => p.pos !== "POR") || defPlayers[0];
-          const markerDefStat = (primaryMarker.def || 75) * 0.65 + (primaryMarker.fis || primaryMarker.phy || primaryMarker.ovr || 75) * 0.35;
-          const defAerialScore = markerDefStat + (Math.random() * 26 - 11);
-
-          const remateStat = ((targetPlayer.sho || 75) * 0.65 + (targetPlayer.fis || targetPlayer.phy || targetPlayer.ovr || 75) * 0.35) * spTrainingMult;
-          const azarRemate = (Math.random() * 26 - 13);
-          const remateScore = remateStat + azarRemate;
-
-          const gkSkill = goalkeeper.par !== undefined ? goalkeeper.par : (goalkeeper.gks || goalkeeper.ovr || 78);
-          const gkFitness = 0.70 + ((goalkeeper.energy !== undefined ? goalkeeper.energy : 100) / 333);
-          const azarGK = (Math.random() * 24 - 12);
-          const gkScore = (gkSkill * gkFitness) + azarGK;
-
-          if (kickQuality < 60) {
-            // El centro va defectuoso o sale pasado/corto
-            this.triggerAlert("DESPEJE", `🛡️ Centro defectuoso que despeja la zaga de ${defTeam.shortName}`, isHome ? "away" : "home", 2500);
-            this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
-          } else if (defAerialScore >= remateScore - 3) {
-            // El central rival impone su físico en el área y despeja por alto
-            this.triggerAlert("DESPEJE", `🛡️ ¡Despeje aéreo de ${primaryMarker.name} imponiéndose por alto ante ${targetPlayer.name}!`, isHome ? "away" : "home", 2600);
-            this.finishSetPiecePlay("DESPEJE", attackingSide, onDone);
-          } else {
-            // El delantero gana el salto por encima del central y cabecea
-            const headerQuality = remateScore - defAerialScore;
-            const isHeaderOnTarget = Math.random() < 0.52;
-
-            if (!isHeaderOnTarget) {
-              this.triggerAlert("FUERA", `⚠️ ¡Cabezazo forzado de ${targetPlayer.name} que se marcha alto!`, attackingSide, 2500);
-              this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
-            } else if (remateScore > gkScore + 10 && headerQuality > 5) {
-              // Cabezazo impecable e imparable que bate al portero
-              this.handleSetPieceGoal(attackingSide, targetPlayer, taker, "CABEZAZO IMPERIAL", onDone);
-            } else if (Math.random() < 0.20 && headerQuality > 3) {
-              this.triggerAlert("AL PALO", `🥅 ¡Al larguero el testarazo de ${targetPlayer.name}!`, attackingSide, 3000);
-              this.finishSetPiecePlay("GOAL_KICK", attackingSide, onDone);
-            } else {
-              this.triggerAlert("PARADÓN", `🧤 ¡Paradón de reflejos de ${goalkeeper.name} atajando el cabezazo de ${targetPlayer.name}!`, isHome ? "away" : "home", 3000);
-              this.finishSetPiecePlay("SAVE", attackingSide, onDone);
-            }
-          }
-        }
-      }, 1400);
-    }, 1500);
-  }
-
-  handleSetPieceGoal(attackingSide, scorer, assister, style, onDone = null) {
-    const isHome = attackingSide === "home";
-    const atkTeam = isHome ? this.homeTeam : this.awayTeam;
-    const defTeam = isHome ? this.awayTeam : this.homeTeam;
-    const defPlayers = isHome ? this.awayPlayersOnPitch : this.homePlayersOnPitch;
-    const goalkeeper = defPlayers.find(p => p.pos === "POR") || defPlayers[0];
-
-    this.stats.shotsOnTarget[attackingSide]++;
-    if (isHome) this.homeScore++;
-    else this.awayScore++;
-
-    scorer.goals = (scorer.goals || 0) + 1;
-    scorer.matchGoals = (scorer.matchGoals || 0) + 1;
-    this.adjustPlayerRating(scorer, 1.15);
-    if (assister && assister.id !== scorer.id) {
-      assister.assists = (assister.assists || 0) + 1;
-      assister.matchAssists = (assister.matchAssists || 0) + 1;
-      this.adjustPlayerRating(assister, 0.65);
-    }
-    if (goalkeeper) this.adjustPlayerRating(goalkeeper, -0.25);
-
-    this.ball.targetX = isHome ? 99.5 : 0.5;
-    this.ball.targetY = 47 + Math.random() * 6;
-    this.ball.targetZ = 5 + Math.random() * 4;
-
-    const event = {
-      type: "GOAL",
-      minute: this.minute,
-      teamSide: attackingSide,
-      teamId: atkTeam.id,
-      teamName: atkTeam.shortName,
-      playerName: scorer.name,
-      assisterName: (assister && assister.id !== scorer.id) ? assister.name : null,
-      currentScore: `${this.homeScore} - ${this.awayScore}`
-    };
-    this.events.push(event);
-
-    this.triggerAlert("GOL", `⚽ ¡GOOOOOOLAZO DE ${scorer.name.toUpperCase()}! (${this.homeScore}-${this.awayScore})`, attackingSide, 4500);
-
-    if (this.highlightInterval) {
-      clearInterval(this.highlightInterval);
-      this.highlightInterval = null;
-    }
-    this.isSetPieceRunning = false;
-    this.speed = this.userSpeed;
-    if (!this.isSkippingToEnd && this.onHighlightEnd) {
-      this.onHighlightEnd();
-    }
-
-    if (this.hasCustomOnGoal && !this.isSkippingToEnd) {
-      this.onGoal({
-        shooter: scorer,
-        passer: assister,
-        attackingSide,
-        concedingSide: isHome ? "away" : "home",
-        atkTeam,
-        defTeam,
-        minute: this.minute,
-        formattedMinute: this.getFormattedMinute(),
-        score: `${this.homeScore} - ${this.awayScore}`
-      });
     } else {
+      // Centro físico al área en Córner o Falta Lateral: los jugadores atacan y defienden el balón tick a tick
+      const boxTargetItem = otherAtk[0] || kickerItem;
+      finalPasser = taker;
+      finalShooter = boxTargetItem.player || taker;
+      const meetXm = isHome ? (94.0 + (Math.random() * 3.5 - 1.5)) : (11.0 + (Math.random() * 3.5 - 1.5));
+      const meetYm = targetStrategy === "NEAR_POST"
+        ? (bYm < 34 ? 29.5 : 38.5)
+        : (targetStrategy === "FAR_POST" ? (bYm < 34 ? 39.2 : 28.8) : (34.0 + (Math.random() * 4.0 - 2.0)));
+
+      this._setTickCommentary(
+        `🚩 ¡${taker.name} cuelga el balón con rosca al corazón del área buscando rematador!`,
+        spLabel.toUpperCase()
+      );
+      this._launchBallPass(kickerItem, boxTargetItem, attackingSide, {
+        x: meetXm,
+        y: meetYm,
+        isLofted: true,
+        spin: bYm > 34 ? -2.2 : 2.2,
+        kind: "CROSS"
+      });
+    }
+
+    let triggeredOutcome = null;
+    const maxSetPieceTicks = 76; // Hasta 3.8s de física continua en tiempo real para resolver el envío/remate
+    for (let t = 0; t < maxSetPieceTicks; t++) {
+      this.stepRealTimePhysics(dt);
+      this._recordReplayFrame("SET_PIECE_LIVE");
+      if (this._pendingTickOutcome) {
+        triggeredOutcome = this._pendingTickOutcome;
+        this._pendingTickOutcome = null;
+        break;
+      }
+    }
+    this._recordingReplayOnly = false;
+
+    const climaxFrameIdx = Math.max(0, this.replayBuffer.length - 1);
+    if (triggeredOutcome) {
+      outcome = triggeredOutcome.outcome || "WIDE";
+      if (triggeredOutcome.shooter) finalShooter = triggeredOutcome.shooter;
+      if (triggeredOutcome.passer) finalPasser = triggeredOutcome.passer;
+      if (triggeredOutcome.defender) finalDefender = triggeredOutcome.defender;
+      if (triggeredOutcome.goalkeeper) finalGoalkeeper = triggeredOutcome.goalkeeper;
+    } else {
+      outcome = "BLOCK";
+      this._setTickCommentary(`🛡️ La zaga de ${defTeam.shortName} despeja el peligro tras la disputa en el área.`, "DESPEJE");
+      this._recordReplayFrame("SET_PIECE_CLEAR");
+    }
+
+    // 4. Grabar 28 ticks (1.4s) de continuación post-impacto
+    const outcomeInfo = {
+      isSetPiece: true,
+      setPieceType: type,
+      attackingSide,
+      shooter: finalShooter,
+      passer: finalPasser,
+      defender: finalDefender,
+      goalkeeper: finalGoalkeeper,
+      outcome,
+      headline: `BALÓN PARADO · ${spLabel.toUpperCase()}`,
+      buildNote: `⚽ ${spLabel} para ${atkTeam.shortName}. Ejecuta ${taker.name}.`,
+      shotNote: triggeredOutcome?.shotNote || (outcome === "GOAL"
+        ? `⚽ ¡Golazo de ${finalShooter.name} en acción de ${spLabel.toLowerCase()}!`
+        : `🧤 Acción de ${spLabel.toLowerCase()} resuelta por la física en el área.`)
+    };
+
+    for (let f = 0; f < 28; f++) {
+      this._stepFollowThroughTick(dt, outcomeInfo);
+      this._recordReplayFrame("SET_PIECE_FOLLOW");
+    }
+
+    const playbackFrames = this.replayBuffer.slice();
+    this.startReplayHighlight(playbackFrames, climaxFrameIdx, outcomeInfo, () => {
       if (onDone) onDone();
-      if (this.isRunning && !this.isFinished && !this.isHalfTime) {
+      if (this.isRunning && !this.isFinished && !this.isHalfTime && !this.pauseRequested) {
         this.loop();
       }
-    }
-  }
-
-  finishSetPiecePlay(outcome = "GOAL_KICK", attackingSide = "home", onDone = null) {
-    const isHome = attackingSide === "home";
-    const defSide = isHome ? "away" : "home";
-    const defTeam = isHome ? this.awayTeam : this.homeTeam;
-
-    if (this.isSkippingToEnd || this.isFinished) {
-      this.isSetPieceRunning = false;
-      this.speed = this.userSpeed;
-      if (this.onHighlightEnd) this.onHighlightEnd();
-      if (onDone) onDone();
-      return;
-    }
-
-    const setSpTimeout = (fn, ms) => {
-      const t = setTimeout(fn, ms);
-      if (!this.setPieceTimeouts) this.setPieceTimeouts = [];
-      this.setPieceTimeouts.push(t);
-      return t;
-    };
-
-    setSpTimeout(() => {
-      if (this.isFinished || this.isSkippingToEnd) {
-        this.isSetPieceRunning = false;
-        return;
-      }
-      // 1. Ejecutar saque de puerta reglamentario o posesión del equipo defensor
-      if (outcome === "GOAL_KICK") {
-        this.triggerAlert("SAQUE DE PUERTA", `🧤 Saque de puerta para ${defTeam.shortName}`, defSide, 2200);
-
-        // Posicionar el balón en el área de meta para el saque de puerta
-        const gkX = isHome ? 94 : 6;
-        const gkY = 50;
-        this.ball.x = gkX;
-        this.ball.y = gkY;
-        this.ball.z = 0;
-        this.ball.targetX = gkX;
-        this.ball.targetY = gkY;
-        this.ball.targetZ = 0;
-        this.ball.possession = defSide;
-
-        // Posicionar al portero defensor junto al balón
-        const def2D = isHome ? this.away2D : this.home2D;
-        const gkItem = def2D.find(p => p.isKeeper) || def2D[0];
-        if (gkItem) {
-          gkItem.curX = gkX;
-          gkItem.curY = gkY;
-          gkItem.targetX = gkX;
-          gkItem.targetY = gkY;
-        }
-
-        // El portero efectúa el saque de puerta por alto hacia el centro del campo
-        setSpTimeout(() => {
-          if (this.isFinished || this.isSkippingToEnd) {
-            this.isSetPieceRunning = false;
-            return;
-          }
-          this.ball.targetX = isHome ? 54 - Math.random() * 12 : 46 + Math.random() * 12;
-          this.ball.targetY = 32 + Math.random() * 36;
-          this.ball.targetZ = 7 + Math.random() * 4;
-          this.update2DPositions();
-        }, 700);
-      } else {
-        // Despeje o parada: el equipo defensor se hace con la posesión y juega en corto
-        this.ball.possession = defSide;
-        this.ball.targetX = isHome ? 70 - Math.random() * 12 : 30 + Math.random() * 12;
-        this.ball.targetY = 30 + Math.random() * 40;
-        this.ball.targetZ = 0;
-        this.update2DPositions();
-      }
-
-      // 2. Transición y reanudación automática de la simulación
-      setSpTimeout(() => {
-        if (this.highlightInterval) {
-          clearInterval(this.highlightInterval);
-          this.highlightInterval = null;
-        }
-        if (this.isFinished || this.isSkippingToEnd) {
-          this.isSetPieceRunning = false;
-          return;
-        }
-        this.isSetPieceRunning = false;
-        this.speed = this.userSpeed;
-        if (!this.isSkippingToEnd && this.onHighlightEnd) {
-          this.onHighlightEnd();
-        }
-
-        // Reposicionar a los 22 futbolistas a sus posiciones dinámicas de juego
-        this.update2DPositions();
-        this._sync2DToMeters();
-
-        // Comprobar descanso reglamentario
-        if (this.minute >= this.halfTimeMinute && !this.halfTimeTriggered && !this.isSecondHalf) {
-          this.halfTimeTriggered = true;
-          this.isHalfTime = true;
-          this.pause();
-          this.onHalfTime(this.getState());
-          return;
-        }
-
-        // Comprobar final de partido
-        if (this.minute >= this.maxMinutes) {
-          this.finish();
-          return;
-        }
-
-        if (!this.isFinished && !this.isHalfTime) {
-          if (this.pauseRequested) {
-            this.pauseRequested = false;
-            this.pause();
-            this.triggerAlert("PAUSA", "⏸ Partido en pausa", "neutral", 2500);
-            if (onDone) onDone();
-            return;
-          }
-          if (onDone) onDone();
-          if (!this.isFinished && !this.isHalfTime && !this.pauseRequested) {
-            this.isRunning = true;
-            this.loop();
-          }
-        }
-      }, outcome === "GOAL_KICK" ? 1600 : 1100);
-    }, 1000);
+    });
   }
 
   // Colocar a los equipos y balón para sacar del centro del campo tras un gol
@@ -5552,65 +5219,147 @@ class MatchSimulator {
   }
 
   update2DPositions() {
-    // Los jugadores fijan sus coordenadas objetivo siguiendo dinámicamente la jugada, el balón y su función táctica (subir, desdoblar, etc.)
-    const ballX = this.ball.targetX;
-    const ballY = this.ball.targetY;
+    // Los jugadores fijan sus coordenadas objetivo siguiendo dinámicamente la táctica oficial FIFA (105x68m)
+    const ballX = this.ball.targetX !== undefined ? this.ball.targetX : (this.ball.x ?? 50);
+    const ballY = this.ball.targetY !== undefined ? this.ball.targetY : (this.ball.y ?? 50);
 
-    // Modificadores tácticos del equipo local (Línea defensiva, anchura y presión)
+    // 1. Modificadores tácticos del equipo local
     const homeDefLine = this.homeInstructions?.outOfPossession?.defensiveLine || "mid";
-    const homeLineShiftX = homeDefLine === "high" ? 8 : (homeDefLine === "low" ? -7 : 0);
+    const homeLineShiftX = homeDefLine === "high" ? 14 : (homeDefLine === "low" ? -14 : 0);
     const homePressing = this.homeInstructions?.outOfPossession?.pressing || "mid";
-    const homePressShiftX = (this.ball.possession === "away" && homePressing === "high") ? 5 : 0;
-    const homeWidth = this.homeInstructions?.inPossession?.width || "balanced";
+    const homePressShiftX = (this.ball.possession === "away" && homePressing === "high") ? 6 : 0;
+    const homeAtkWidth = this.homeInstructions?.inPossession?.width || "balanced";
+    const homeDefWidth = this.homeInstructions?.outOfPossession?.defenseWidth || "balanced";
 
     this.home2D.forEach((p, idx) => {
       const playerObj = p.player || this.homePlayersOnPitch[idx];
       if (!playerObj) return;
+      if (p.isKeeper) {
+        p.targetX = 4;
+        p.targetY = Math.max(42, Math.min(58, 50 + (ballY - 50) * 0.15));
+        return;
+      }
       const role = this.getPlayerRole(playerObj, "home");
-      const pushMod = role?.pushMod || 0; // ej: +14 para Carrilero Ofensivo, +6 Central con Salida
+      const pushMod = role?.pushMod || 0;
       const isDef = playerObj.pos === "DFC" || playerObj.pos === "LI" || playerObj.pos === "LD";
-      const isWing = playerObj.pos === "LI" || playerObj.pos === "LD" || playerObj.pos === "EI" || playerObj.pos === "ED";
+      const isFullback = playerObj.pos === "LI" || playerObj.pos === "LD";
+      const isWinger = playerObj.pos === "EI" || playerObj.pos === "ED";
 
-      const lineXMod = isDef ? homeLineShiftX : (homeLineShiftX * 0.5);
-      const shiftX = (ballX - 50) * 0.35 + (pushMod * 0.35) + lineXMod + homePressShiftX;
+      const lineXMod = isDef ? homeLineShiftX : (homeLineShiftX * 0.45);
+      const shiftX = (ballX - 50) * 0.32 + (pushMod * 0.35) + lineXMod + homePressShiftX;
 
-      let shiftY = (ballY - 50) * 0.25;
-      if (this.ball.possession === "home" && isWing) {
-        if (homeWidth === "wide") shiftY += (p.baseY < 50 ? -8 : 8);
-        else if (homeWidth === "center") shiftY += (p.baseY < 50 ? 6 : -6);
+      let shiftY = (ballY - 50) * 0.22; // Basculación suave de bloque hacia el balón
+      
+      // En posesión: Anchura de ataque
+      if (this.ball.possession === "home") {
+        if (isWinger || isFullback) {
+          if (homeAtkWidth === "wide") {
+            // Pegados a la cal (Z = -31m y +31m -> Y = 4.4% y 95.6%)
+            shiftY = p.baseY < 50 ? (5 - p.baseY) : (95 - p.baseY);
+          } else if (homeAtkWidth === "center") {
+            // Metidos por dentro (Z = -14m y +14m -> Y = 29% y 71%)
+            shiftY = p.baseY < 50 ? (29 - p.baseY) : (71 - p.baseY);
+          }
+        }
+      } else {
+        // Sin posesión: Anchura defensiva
+        if (isFullback) {
+          if (homeDefWidth === "compact") {
+            // Cerrados por dentro (Z = -15m y +15m -> Y = 28% y 72%), dejando las bandas abiertas
+            shiftY = p.baseY < 50 ? (28 - p.baseY) : (72 - p.baseY);
+          } else if (homeDefWidth === "wide") {
+            // Cerrar bandas / Marcar extremos (Z = -30.5m y +30.5m -> Y = 5% y 95%)
+            shiftY = p.baseY < 50 ? (5 - p.baseY) : (95 - p.baseY);
+          }
+        } else if (playerObj.pos === "DFC") {
+          // Centrales separados 12-15 metros (Y = 40% y 60%)
+          shiftY = p.baseY < 50 ? (41 - p.baseY) : (59 - p.baseY);
+        }
       }
 
-      p.targetX = Math.max(3, Math.min(95, p.baseX + shiftX + (Math.random() * 4 - 2)));
-      p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
+      // Micro-ajustes sutiles de perfilado para no parecer estatuas
+      const idleStep = Math.sin(Date.now() * 0.003 + idx) * 0.6;
+      p.targetX = Math.max(6, Math.min(94, p.baseX + shiftX + idleStep));
+      p.targetY = Math.max(5, Math.min(95, p.baseY + shiftY));
     });
 
-    // Modificadores tácticos del equipo visitante (Línea defensiva, anchura y presión)
+    // 2. Modificadores tácticos del equipo visitante
     const awayDefLine = this.awayInstructions?.outOfPossession?.defensiveLine || "mid";
-    const awayLineShiftX = awayDefLine === "high" ? -8 : (awayDefLine === "low" ? 7 : 0);
+    const awayLineShiftX = awayDefLine === "high" ? -14 : (awayDefLine === "low" ? 14 : 0);
     const awayPressing = this.awayInstructions?.outOfPossession?.pressing || "mid";
-    const awayPressShiftX = (this.ball.possession === "home" && awayPressing === "high") ? -5 : 0;
-    const awayWidth = this.awayInstructions?.inPossession?.width || "balanced";
+    const awayPressShiftX = (this.ball.possession === "home" && awayPressing === "high") ? -6 : 0;
+    const awayAtkWidth = this.awayInstructions?.inPossession?.width || "balanced";
+    const awayDefWidth = this.awayInstructions?.outOfPossession?.defenseWidth || "balanced";
 
     this.away2D.forEach((p, idx) => {
       const playerObj = p.player || this.awayPlayersOnPitch[idx];
       if (!playerObj) return;
+      if (p.isKeeper) {
+        p.targetX = 96;
+        p.targetY = Math.max(42, Math.min(58, 50 + (ballY - 50) * 0.15));
+        return;
+      }
       const role = this.getPlayerRole(playerObj, "away");
       const pushMod = role?.pushMod || 0;
       const isDef = playerObj.pos === "DFC" || playerObj.pos === "LI" || playerObj.pos === "LD";
-      const isWing = playerObj.pos === "LI" || playerObj.pos === "LD" || playerObj.pos === "EI" || playerObj.pos === "ED";
+      const isFullback = playerObj.pos === "LI" || playerObj.pos === "LD";
+      const isWinger = playerObj.pos === "EI" || playerObj.pos === "ED";
 
-      const lineXMod = isDef ? awayLineShiftX : (awayLineShiftX * 0.5);
-      const shiftX = (ballX - 50) * 0.35 - (pushMod * 0.35) + lineXMod + awayPressShiftX;
+      const lineXMod = isDef ? awayLineShiftX : (awayLineShiftX * 0.45);
+      const shiftX = (ballX - 50) * 0.32 - (pushMod * 0.35) + lineXMod + awayPressShiftX;
 
-      let shiftY = (ballY - 50) * 0.25;
-      if (this.ball.possession === "away" && isWing) {
-        if (awayWidth === "wide") shiftY += (p.baseY < 50 ? -8 : 8);
-        else if (awayWidth === "center") shiftY += (p.baseY < 50 ? 6 : -6);
+      let shiftY = (ballY - 50) * 0.22;
+      if (this.ball.possession === "away") {
+        if (isWinger || isFullback) {
+          if (awayAtkWidth === "wide") {
+            shiftY = p.baseY < 50 ? (5 - p.baseY) : (95 - p.baseY);
+          } else if (awayAtkWidth === "center") {
+            shiftY = p.baseY < 50 ? (29 - p.baseY) : (71 - p.baseY);
+          }
+        }
+      } else {
+        if (isFullback) {
+          if (awayDefWidth === "compact") {
+            shiftY = p.baseY < 50 ? (28 - p.baseY) : (72 - p.baseY);
+          } else if (awayDefWidth === "wide") {
+            shiftY = p.baseY < 50 ? (5 - p.baseY) : (95 - p.baseY);
+          }
+        } else if (playerObj.pos === "DFC") {
+          shiftY = p.baseY < 50 ? (41 - p.baseY) : (59 - p.baseY);
+        }
       }
 
-      p.targetX = Math.max(5, Math.min(97, p.baseX + shiftX + (Math.random() * 4 - 2)));
-      p.targetY = Math.max(8, Math.min(92, p.baseY + shiftY + (Math.random() * 4 - 2)));
+      const idleStep = Math.sin(Date.now() * 0.003 + idx + 3) * 0.6;
+      p.targetX = Math.max(6, Math.min(94, p.baseX + shiftX + idleStep));
+      p.targetY = Math.max(5, Math.min(95, p.baseY + shiftY));
     });
+
+    // 3. FUERZA DE SEPARACIÓN OBLIGATORIA (Ningún jugador a menos de 6.5 - 8.0m de un compañero)
+    const applyTeammateSeparation = (teamArr) => {
+      const minDistM = 6.8; // Metros
+      for (let iter = 0; iter < 3; iter++) {
+        for (let i = 0; i < teamArr.length; i++) {
+          for (let j = i + 1; j < teamArr.length; j++) {
+            const p1 = teamArr[i], p2 = teamArr[j];
+            if (p1.isKeeper || p2.isKeeper) continue;
+            const dxM = (p1.targetX - p2.targetX) * 1.05;
+            const dyM = (p1.targetY - p2.targetY) * 0.68;
+            const distM = Math.hypot(dxM, dyM);
+            if (distM < minDistM && distM > 0.05) {
+              const pushM = (minDistM - distM) * 0.45;
+              const pushPctX = (dxM / distM) * (pushM / 1.05);
+              const pushPctY = (dyM / distM) * (pushM / 0.68);
+              p1.targetX = Math.max(4, Math.min(96, p1.targetX + pushPctX));
+              p1.targetY = Math.max(4, Math.min(96, p1.targetY + pushPctY));
+              p2.targetX = Math.max(4, Math.min(96, p2.targetX - pushPctX));
+              p2.targetY = Math.max(4, Math.min(96, p2.targetY - pushPctY));
+            }
+          }
+        }
+      }
+    };
+    applyTeammateSeparation(this.home2D);
+    applyTeammateSeparation(this.away2D);
   }
 
   // Formato televisivo oficial del minuto con descuento y segundos en jugada 3D en vivo
@@ -5683,6 +5432,7 @@ class MatchSimulator {
     const wasVisualActive = this.isHighlightRunning || this.isSetPieceRunning;
     this.isHighlightRunning = false;
     this.isSetPieceRunning = false;
+    this.activeReplay = null;
     if (wasVisualActive && this.onHighlightEnd) {
       this.onHighlightEnd();
     }
@@ -6250,35 +6000,62 @@ class MatchSimulator {
     p.curY = (p.ym / 68) * 100;
     p.targetX = p.curX;
     p.targetY = p.curY;
-    const speed = Math.hypot(p.vx, p.vy);
+    const speed = Math.hypot(p.vx || 0, p.vy || 0);
     p.speedMps = speed;
+    if (p.poseTimer && p.poseTimer > 0) {
+      p.poseTimer = Math.max(0, p.poseTimer - 0.05);
+      p.animPhase = (p.animPhase || 0) + speed * 0.045;
+      return;
+    }
     if (speed > 0.45) {
       p.facingX = p.vx / speed;
       p.facingZ = p.vy / speed;
+      p.facing = Math.atan2(p.vy, p.vx);
       p.animPhase = (p.animPhase || 0) + speed * 0.045;
+      p.pose = speed > 5.8 ? "sprint" : "run";
     } else if (this.ball) {
-      const dx = this.ball.xm - p.xm;
-      const dy = this.ball.ym - p.ym;
+      const dx = (this.ball.xm ?? 52.5) - p.xm;
+      const dy = (this.ball.ym ?? 34.0) - p.ym;
       const d = Math.hypot(dx, dy) || 1;
       p.facingX = dx / d;
       p.facingZ = dy / d;
+      p.facing = Math.atan2(dy, dx);
+      if (!p.pose || p.pose === "run" || p.pose === "sprint" || p.pose === "kick") p.pose = "idle";
     }
   }
 
   _syncBallTo2D() {
-    this.ball.x = (this.ball.xm / 105) * 100;
-    this.ball.y = (this.ball.ym / 68) * 100;
-    this.ball.z = Math.max(0, this.ball.zm * 2.75);
+    this.ball.x = ((this.ball.xm ?? 52.5) / 105) * 100;
+    this.ball.y = ((this.ball.ym ?? 34.0) / 68) * 100;
+    this.ball.z = Math.max(0, (this.ball.zm ?? 0) * 2.75);
     this.ball.targetX = this.ball.x;
     this.ball.targetY = this.ball.y;
     this.ball.targetZ = this.ball.z;
   }
 
+  _syncMetersTo2D() {
+    for (let i = 0; i < this.home2D.length; i++) this._syncEntityTo2D(this.home2D[i]);
+    for (let i = 0; i < this.away2D.length; i++) this._syncEntityTo2D(this.away2D[i]);
+    this._syncBallTo2D();
+  }
+
+  // Avanza un tick físico puro (dt = 0.05s = 20 Hz) de los 22 agentes autónomos y el balón
+  stepRealTimePhysics(dt = 0.05) {
+    if (this.foulCooldown > 0) this.foulCooldown = Math.max(0, this.foulCooldown - dt);
+    if (this.commentaryCooldown > 0) this.commentaryCooldown = Math.max(0, this.commentaryCooldown - dt);
+
+    const allPlayers = [...this.home2D, ...this.away2D];
+    this._updateTeamAI("home", this.home2D, this.away2D, allPlayers, dt);
+    this._updateTeamAI("away", this.away2D, this.home2D, allPlayers, dt);
+    this._stepBallPhysics(dt, allPlayers);
+    this._syncMetersTo2D();
+  }
+
   _steerPlayer(p, targetX, targetY, desiredSpeedRatio, dt, allPlayers) {
     const energy = p.player?.energy !== undefined ? p.player.energy : 100;
     const fatigueFactor = Math.max(0.68, 0.72 + (energy / 100) * 0.28);
-    const effMaxSpeed = (p.maxSpeed || 7.2) * fatigueFactor;
-    const effAccel = (p.acceleration || 16.0) * fatigueFactor;
+    const effMaxSpeed = (p.maxSpeed || 7.4) * fatigueFactor;
+    const effAccel = (p.acceleration || 16.5) * fatigueFactor;
 
     const dx = targetX - p.xm;
     const dy = targetY - p.ym;
@@ -6287,26 +6064,40 @@ class MatchSimulator {
     let desiredVx = 0;
     let desiredVy = 0;
     if (dist > 0.12) {
-      const slowRadius = 2.4;
+      const slowRadius = 2.2;
       const targetSpeed = effMaxSpeed * Math.min(1, desiredSpeedRatio) * (dist < slowRadius ? (dist / slowRadius) : 1);
       desiredVx = (dx / dist) * targetSpeed;
       desiredVy = (dy / dist) * targetSpeed;
     }
 
-    // Separación suave entre jugadores para evitar solapamientos
+    // Fuerza de separación obligatoria entre compañeros (mínimo 6.5m salvo el poseedor en duelo directo)
+    // y repulsión de contacto físico con rivales (1.35m)
     let sepX = 0;
     let sepY = 0;
+    const isCarrierOrReceiver = (this.ball.carrier === p || this.ball.passTarget === p || p.isKeeper);
     for (let i = 0; i < allPlayers.length; i++) {
       const other = allPlayers[i];
       if (other === p) continue;
       const ox = p.xm - other.xm;
       const oy = p.ym - other.ym;
       const odSq = ox * ox + oy * oy;
-      if (odSq > 0.0001 && odSq < 1.69) { // < 1.3m
+      if (odSq < 0.0001) continue;
+
+      const sameTeam = other.side === p.side;
+      if (sameTeam && !isCarrierOrReceiver && !other.isKeeper) {
+        // Ningún jugador puede apelotonarse a menos de 6.5m de un compañero de su mismo equipo
+        const minMateDist = 6.5;
+        if (odSq < minMateDist * minMateDist) {
+          const od = Math.sqrt(odSq);
+          const push = (minMateDist - od) / minMateDist;
+          sepX += (ox / od) * push * 4.2;
+          sepY += (oy / od) * push * 4.2;
+        }
+      } else if (odSq < 1.82) {
         const od = Math.sqrt(odSq);
-        const push = (1.3 - od) / 1.3;
-        sepX += (ox / od) * push * 3.2;
-        sepY += (oy / od) * push * 3.2;
+        const push = (1.35 - od) / 1.35;
+        sepX += (ox / od) * push * 3.0;
+        sepY += (oy / od) * push * 3.0;
       }
     }
 
@@ -6338,14 +6129,12 @@ class MatchSimulator {
 
   _getOffsideLineX(attackingTeam, opps) {
     const isHomeAtk = attackingTeam === "home";
-    // Ordenar rivales por cercanía a su propia portería (el penúltimo defensor es el índice 1)
     const oppGoalX = isHomeAtk ? 105 : 0;
     const sorted = opps
       .map(o => Math.abs(oppGoalX - o.xm))
       .sort((a, b) => a - b);
     const secondLastDist = sorted.length >= 2 ? sorted[1] : (sorted[0] ?? 15);
     const secondLastX = isHomeAtk ? (oppGoalX - secondLastDist) : (oppGoalX + secondLastDist);
-    // El balón también habilita si está más adelantado que el penúltimo defensor
     return isHomeAtk ? Math.max(secondLastX, this.ball.xm) : Math.min(secondLastX, this.ball.xm);
   }
 
@@ -6357,25 +6146,42 @@ class MatchSimulator {
     const mentality = isHome ? this.homeMentality : this.awayMentality;
 
     let mentalityShift = 0;
-    if (mentality === "ULTRA_OFFENSIVE") mentalityShift = 8.0;
-    else if (mentality === "OFFENSIVE") mentalityShift = 4.5;
-    else if (mentality === "DEFENSIVE") mentalityShift = -5.0;
-    else if (mentality === "ULTRA_DEFENSIVE") mentalityShift = -9.0;
+    if (mentality === "very_offensive" || mentality === "ULTRA_OFFENSIVE") mentalityShift = 8.0;
+    else if (mentality === "offensive" || mentality === "OFFENSIVE") mentalityShift = 4.5;
+    else if (mentality === "defensive" || mentality === "DEFENSIVE") mentalityShift = -5.0;
+    else if (mentality === "very_defensive" || mentality === "ULTRA_DEFENSIVE") mentalityShift = -9.0;
 
+    // 1. ALTURA DE LÍNEA DEFENSIVA (Bloque Alto en X ≈ 0 / xm ≈ 50..54, Bloque Bajo en |X| ≈ 35 / xm ≈ 17 o 88)
+    const defLine = inst?.outOfPossession?.defensiveLine || inst?.outOfPossession?.defLine || "mid";
     let lineShift = 0;
-    const defLine = inst?.outOfPossession?.defensiveLine || "normal";
-    if (defLine === "muy_alta") lineShift = 7.0;
-    else if (defLine === "alta") lineShift = 4.0;
-    else if (defLine === "baja") lineShift = -5.0;
-    else if (defLine === "muy_baja") lineShift = -8.5;
+    if (defLine === "high" || defLine === "muy_alta" || defLine === "alta") lineShift = 11.5;
+    else if (defLine === "low" || defLine === "baja" || defLine === "muy_baja") lineShift = -9.5;
 
-    const ballShiftX = (this.ball.xm - 52.5) * 0.45;
-    // Todo el equipo bascula un 25% hacia la banda donde está el balón
+    // 2. ANCHURA TÁCTICA EN POSESIÓN Y SIN POSESIÓN
+    const atkWidth = inst?.inPossession?.width || "balanced";
+    const defWidth = inst?.outOfPossession?.defenseWidth || "balanced";
+
+    let lateralScale = 1.0;
+    if (inPossession) {
+      // Juego Abierto por Bandas: extremos/laterales pegados a la cal (Z = ±30m -> ym = 3.5 y 64.5)
+      // Juego Interior: carriles interiores (Z = ±14m -> ym = 20 y 48)
+      if (atkWidth === "wide") lateralScale = 1.32;
+      else if (atkWidth === "center") lateralScale = 0.62;
+      else lateralScale = 1.02;
+    } else {
+      // Defensa Cerrada: bloque compacto en el centro (Z entre -15m y +15m -> ym entre 19 y 49, ancho 30-35m)
+      // Cerrar Bandas: laterales abiertos a Z = ±28m (ancho 48-52m) vigilando a los extremos
+      if (defWidth === "compact") lateralScale = 0.64;
+      else if (defWidth === "wide") lateralScale = 1.26;
+      else lateralScale = 0.94;
+    }
+
+    const ballShiftX = (this.ball.xm - 52.5) * 0.44;
+    // Basculación lateral del 25% hacia donde está el balón
     const ballShiftY = (this.ball.ym - 34) * 0.25;
-    const possShiftX = inPossession ? 6.5 : -6.0;
-    const teamCentroidX = 52.5 + ballShiftX + attackDir * (mentalityShift + lineShift + possShiftX) * 0.55;
+    const possShiftX = inPossession ? 7.5 : -5.5;
+    const teamCentroidX = 52.5 + ballShiftX + attackDir * (mentalityShift + lineShift + possShiftX) * 0.58;
 
-    // Recoger posiciones base de los 10 jugadores de campo
     const outfield = [];
     let minBX = 999, maxBX = -999, sumBX = 0;
     for (let i = 0; i < mates.length; i++) {
@@ -6394,8 +6200,7 @@ class MatchSimulator {
 
     const baseCentroidX = outfield.length > 0 ? sumBX / outfield.length : 52.5;
     const baseSpan = Math.max(1, maxBX - minBX);
-    // Efecto Acordeón: distancia máxima 35-40m entre línea de defensas y delanteros
-    const maxAllowedSpan = inPossession ? 38.0 : 34.0;
+    const maxAllowedSpan = inPossession ? 39.0 : 32.0;
     const spanScale = baseSpan > maxAllowedSpan ? (maxAllowedSpan / baseSpan) : 1.0;
 
     const anchors = new Map();
@@ -6417,12 +6222,25 @@ class MatchSimulator {
       const { p, baseXm, baseYm } = outfield[i];
       const relX = (baseXm - baseCentroidX) * spanScale;
       const ax = Math.max(5.0, Math.min(100.0, teamCentroidX + relX));
-      const ay = Math.max(3.5, Math.min(64.5, baseYm + ballShiftY));
+
+      // Escalar la anchura lateral respecto al eje central Z=0 (ym=34) + basculación 25%
+      const centeredZ = (baseYm - 34.0) * lateralScale;
+      let ay = 34.0 + centeredZ + ballShiftY;
+
+      // Si tenemos orden "Juego Abierto por Bandas", fijar extremos/laterales en Z = ±30m (ym = 4.0 o 64.0)
+      const pos = p.player?.pos || "";
+      if (inPossession && atkWidth === "wide" && ["EI", "ED", "MI", "MD", "LI", "LD"].includes(pos)) {
+        ay = baseYm < 34 ? 4.0 : 64.0;
+      } else if (!inPossession && defWidth === "wide" && ["LI", "LD"].includes(pos)) {
+        ay = baseYm < 34 ? 5.5 : 62.5;
+      }
+
+      ay = Math.max(3.2, Math.min(64.8, ay));
       anchors.set(p, { x: ax, y: ay });
       defCandidates.push({ p, distOwnGoal: isHome ? baseXm : (105 - baseXm) });
     }
 
-    // En defensa, los 4 defensas forman una línea defensiva recta (misma X aproximada)
+    // En defensa, los 4 defensas mantienen línea horizontal coordinada según la altura de línea defensiva
     if (!inPossession && defCandidates.length >= 4) {
       defCandidates.sort((a, b) => a.distOwnGoal - b.distOwnGoal);
       const backFour = defCandidates.slice(0, 4);
@@ -6431,34 +6249,103 @@ class MatchSimulator {
         avgDefX += anchors.get(backFour[i].p).x;
       }
       avgDefX /= 4;
+
+      if (defLine === "high" || defLine === "muy_alta" || defLine === "alta") {
+        avgDefX = isHome ? Math.max(avgDefX, 46.0) : Math.min(avgDefX, 59.0);
+      } else if (defLine === "low" || defLine === "baja" || defLine === "muy_baja") {
+        avgDefX = isHome ? Math.min(avgDefX, 19.5) : Math.max(avgDefX, 85.5);
+      }
+
+      // Ordenar los 4 defensas de banda izquierda a banda derecha para garantizar 35-50m de ancho sin pisarse
+      backFour.sort((a, b) => anchors.get(a.p).y - anchors.get(b.p).y);
+      const targetLineWidth = defWidth === "compact" ? 34.0 : (defWidth === "wide" ? 50.0 : 42.0);
       for (let i = 0; i < backFour.length; i++) {
-        const cur = anchors.get(backFour[i].p);
-        anchors.set(backFour[i].p, { x: avgDefX, y: cur.y });
+        const slotZ = ((i / 3) - 0.5) * targetLineWidth;
+        const slotY = Math.max(4.0, Math.min(64.0, 34.0 + slotZ + ballShiftY * 0.7));
+        anchors.set(backFour[i].p, { x: avgDefX, y: slotY });
+      }
+    }
+
+    // Garantizar separación mínima de 6.8 metros entre cualquier par de anclas del mismo equipo
+    const anchorEntries = Array.from(anchors.entries()).filter(([k]) => !k.isKeeper);
+    for (let iter = 0; iter < 2; iter++) {
+      for (let i = 0; i < anchorEntries.length; i++) {
+        for (let j = i + 1; j < anchorEntries.length; j++) {
+          const a = anchorEntries[i][1];
+          const b = anchorEntries[j][1];
+          const dx = b.x - a.x;
+          const dy = b.y - a.y;
+          const dist = Math.hypot(dx, dy);
+          if (dist < 6.8 && dist > 0.001) {
+            const push = (6.8 - dist) * 0.5;
+            const ux = dx / dist;
+            const uy = dy / dist;
+            a.x = Math.max(4, Math.min(101, a.x - ux * push));
+            a.y = Math.max(3.2, Math.min(64.8, a.y - uy * push));
+            b.x = Math.max(4, Math.min(101, b.x + ux * push));
+            b.y = Math.max(3.2, Math.min(64.8, b.y + uy * push));
+          }
+        }
       }
     }
 
     return anchors;
   }
 
-  _launchBallPass(passer, receiver, team) {
-    const dist = Math.hypot(receiver.xm - passer.xm, receiver.ym - passer.ym);
-    const lateralDelta = Math.abs(receiver.ym - passer.ym);
-    const isLoftedSwitch = dist > 22 || lateralDelta > 18;
-    const passSkill = Number(passer.player?.pas || passer.player?.ovr || 70);
-    const passSpeed = isLoftedSwitch
-      ? Math.min(25.5, Math.max(13.5, 13.0 + dist * 0.34 + (passSkill - 65) * 0.06))
-      : Math.min(20.5, Math.max(11.5, 10.5 + dist * 0.42 + (passSkill - 65) * 0.06));
-    const estFlight = Math.min(1.4, dist / passSpeed);
+  // Selecciona dinámicamente una intención táctica orgánica evitando repetir la anterior
+  _getTeamAttackIntent(team) {
+    if (!this._teamAttackIntent) this._teamAttackIntent = { home: null, away: null };
+    if (!this._teamIntentTimer) this._teamIntentTimer = { home: 0, away: 0 };
 
-    // Predecir posición futura del receptor
-    const leadX = Math.max(2, Math.min(103, receiver.xm + receiver.vx * estFlight * 0.65));
-    const leadY = Math.max(2, Math.min(66, receiver.ym + receiver.vy * estFlight * 0.65));
+    const isHome = team === "home";
+    const atkInst = isHome ? this.homeInstructions : this.awayInstructions;
+    const defInst = isHome ? this.awayInstructions : this.homeInstructions;
+    const width = atkInst?.inPossession?.width || "balanced";
+    const oppDefLine = defInst?.outOfPossession?.defensiveLine || defInst?.outOfPossession?.defLine || "mid";
+    const oppDefWidth = defInst?.outOfPossession?.defenseWidth || "balanced";
+
+    if (!this._teamAttackIntent[team] || this._teamIntentTimer[team] <= 0) {
+      const pool = ["WING_OVERLAP", "CUT_INSIDE_FINESSE", "ONE_TWO_COMBINATION", "THROUGH_BALL_BREAK", "FLANK_SWITCH", "LONG_SHOT_SCREEN"];
+      if (width === "wide" || oppDefWidth === "compact") {
+        pool.push("WING_OVERLAP", "FLANK_SWITCH", "CUT_INSIDE_FINESSE");
+      }
+      if (oppDefLine === "high" || oppDefLine === "alta" || oppDefLine === "muy_alta") {
+        pool.push("THROUGH_BALL_BREAK", "THROUGH_BALL_BREAK");
+      }
+      if (oppDefLine === "low" || oppDefLine === "baja" || oppDefLine === "muy_baja") {
+        pool.push("ONE_TWO_COMBINATION", "LONG_SHOT_SCREEN", "CUT_INSIDE_FINESSE");
+      }
+      const prev = this._teamAttackIntent[team];
+      const filtered = pool.filter(i => i !== prev);
+      this._teamAttackIntent[team] = filtered[Math.floor(Math.random() * filtered.length)] || "ONE_TWO_COMBINATION";
+      this._teamIntentTimer[team] = 6.5 + Math.random() * 5.0; // Cambia orgánicamente cada 6.5-11.5s
+    }
+    return this._teamAttackIntent[team];
+  }
+
+  _launchBallPass(passer, receiver, team, customLead = null) {
+    const targetX = customLead ? customLead.x : receiver.xm;
+    const targetY = customLead ? customLead.y : receiver.ym;
+    const dist = Math.hypot(targetX - passer.xm, targetY - passer.ym);
+    const lateralDelta = Math.abs(targetY - passer.ym);
+    const isLoftedSwitch = (customLead && customLead.isLofted) || dist > 23 || lateralDelta > 19;
+    const passSkill = Number(passer.player?.pas || passer.player?.ovr || 72);
+    const passSpeed = isLoftedSwitch
+      ? Math.min(26.0, Math.max(14.5, 13.5 + dist * 0.35 + (passSkill - 65) * 0.06))
+      : Math.min(21.5, Math.max(12.0, 11.0 + dist * 0.42 + (passSkill - 65) * 0.06));
+    const estFlight = Math.min(1.35, dist / passSpeed);
+
+    const leadX = customLead
+      ? Math.max(2, Math.min(103, customLead.x))
+      : Math.max(2, Math.min(103, receiver.xm + receiver.vx * estFlight * 0.65));
+    const leadY = customLead
+      ? Math.max(2, Math.min(66, customLead.y))
+      : Math.max(2, Math.min(66, receiver.ym + receiver.vy * estFlight * 0.65));
 
     const dx = leadX - this.ball.xm;
     const dy = leadY - this.ball.ym;
 
-    // Ligera imprecisión realista según habilidad de pase y presión
-    const inaccuracy = Math.max(0.015, (100 - passSkill) * 0.0012);
+    const inaccuracy = Math.max(0.01, (100 - passSkill) * 0.001);
     const angle = Math.atan2(dy, dx) + (Math.random() - 0.5) * inaccuracy;
 
     this.ball.carrier = null;
@@ -6473,69 +6360,98 @@ class MatchSimulator {
     this.ball.pickupCooldown = 0.14;
     this.ball.vx = Math.cos(angle) * passSpeed;
     this.ball.vy = Math.sin(angle) * passSpeed;
-    // Pase raso rueda por el césped; cambio de orientación / centro levanta altura con gravedad
-    this.ball.vz = isLoftedSwitch ? Math.min(8.5, 3.2 + dist * 0.14) : 0.08;
+    this.ball.vz = isLoftedSwitch ? Math.min(8.2, 3.0 + dist * 0.13) : 0.08;
+    // Efecto de rosca en centros bombeados y cambios de orientación
+    this.ball.spin = (customLead && customLead.spin) ? customLead.spin : (isLoftedSwitch ? (targetY > 34 ? -1.4 : 1.4) : 0);
 
+    passer.pose = "kick";
+    passer.poseTimer = 0.35;
+    passer.facing = angle;
+    passer.facingX = Math.cos(angle);
+    passer.facingZ = Math.sin(angle);
     passer.aiState = "SUPPORT";
-    passer.decisionTimer = 0.45;
+    passer.decisionTimer = 0.42;
 
-    const pName = passer.player?.name || "Jugador";
-    const rName = receiver.player?.name || "Compañero";
-    const attackDir = team === "home" ? 1 : -1;
-    const forwardGain = (receiver.xm - passer.xm) * attackDir;
-    if (isLoftedSwitch) {
-      this._emitCommentary(`${pName} cambia de orientación buscando a ${rName}`, "CAMBIO DE JUEGO", 1.5);
-    } else if (forwardGain > 5) {
-      this._emitCommentary(`${pName} busca bien los espacios con ${rName}`, "PASES", 1.5);
-    } else {
-      this._emitCommentary(`${pName} combina en corto con ${rName}`, "POSESIÓN", 2.0);
+    // Pared / Give-and-Go: si el pasador envía el balón al delantero o mediapunta en campo rival,
+    // tira un desmarque inmediato hacia adelante para recibir la devolución al primer toque
+    const isHome = team === "home";
+    const inOppHalf = isHome ? (passer.xm > 48) : (passer.xm < 57);
+    const isForwardPass = isHome ? (receiver.xm > passer.xm + 2.5) : (receiver.xm < passer.xm - 2.5);
+    if (!passer.isKeeper && inOppHalf && isForwardPass && dist < 18.0 && Math.random() < 0.62) {
+      passer.giveAndGoTimer = 1.65;
+      passer.giveAndGoPartner = receiver;
+    }
+
+    // Espejo de narración en tiempo real nacido de la acción física real ejecutada en este tick
+    if (!this._tactical2DOnly) {
+      const pName = passer.player?.name || "Jugador";
+      const rName = receiver.player?.name || "Compañero";
+      const attackDir = isHome ? 1 : -1;
+      const forwardGain = (leadX - passer.xm) * attackDir;
+      const passKind = customLead?.kind || "PASS";
+
+      if (passKind === "ONE_TWO") {
+        this._setTickCommentary(`✨ ¡Pared al primer toque! ${pName} devuelve al espacio para la ruptura de ${rName}.`, "PARED 1-2");
+      } else if (passKind === "CUTBACK") {
+        this._setTickCommentary(`🎯 ¡Pase de la muerte atrás de ${pName}! ${rName} llega libre desde segunda línea.`, "PASE DE LA MUERTE");
+      } else if (passKind === "CROSS") {
+        this._setTickCommentary(`🎯 ¡Centro tenso y con rosca de ${pName} al área buscando a ${rName}!`, "CENTRO AL ÁREA");
+      } else if (passKind === "SWITCH" || (isLoftedSwitch && lateralDelta > 20)) {
+        this._setTickCommentary(`⚡ ¡Cambio de orientación de ${pName}! Abre al lado débil donde ${rName} recibe sin marca.`, "CAMBIO DE JUEGO");
+      } else if (passKind === "THROUGH") {
+        this._setTickCommentary(`🎯 ¡Balón filtrado de ${pName} al pasillo libre para el desmarque de ${rName}!`, "PASE FILTRADO");
+      } else if (passKind === "WING") {
+        this._setTickCommentary(`🚀 ${pName} proyecta por la banda hacia ${rName} aprovechando el carril exterior.`, "ATAQUE BANDA");
+      } else if (passKind === "RECYCLE" || forwardGain < -1.5) {
+        this._setTickCommentary(`🧠 ${pName} ve cerrado el carril interior y descarga con ${rName} libre de marca.`, "CIRCULACIÓN");
+      } else if (forwardGain > 4.5) {
+        this._setTickCommentary(`👟 ${pName} rompe líneas conectando en ventaja con ${rName}.`, "CONSTRUCCIÓN");
+      } else {
+        this._setTickCommentary(`👟 ${pName} se apoya en corto con ${rName} moviendo el bloque rival.`, "POSESIÓN");
+      }
     }
   }
 
-  _launchBallShot(shooter, team) {
+  _launchBallShot(shooter, team, shotStyle = "NORMAL") {
     const isHome = team === "home";
-    const goalX = isHome ? 105.3 : -0.3;
-    const sho = Number(shooter.player?.sho || shooter.player?.ovr || 70);
+    const goalX = isHome ? 105.4 : -0.4;
+    const sho = Number(shooter.player?.sho || shooter.player?.ovr || 74);
     const energy = shooter.player?.energy !== undefined ? shooter.player.energy : 100;
 
-    // Presión cercana reduce precisión
     const opps = isHome ? this.away2D : this.home2D;
     let nearestOppDist = 99;
+    let nearestDef = null;
     for (let i = 0; i < opps.length; i++) {
+      if (opps[i].isKeeper) continue;
       const d = Math.hypot(opps[i].xm - shooter.xm, opps[i].ym - shooter.ym);
-      if (d < nearestOppDist) nearestOppDist = d;
+      if (d < nearestOppDist) {
+        nearestOppDist = d;
+        nearestDef = opps[i];
+      }
     }
-    const pressureSpread = nearestOppDist < 2.5 ? 2.1 : (nearestOppDist < 4.5 ? 1.1 : 0.45);
-    const skillSpread = Math.max(0.5, (96 - sho) * 0.055) + (100 - energy) * 0.015;
+
+    const pressureSpread = nearestOppDist < 2.2 ? 1.85 : (nearestOppDist < 4.2 ? 0.95 : 0.35);
+    const skillSpread = Math.max(0.35, (96 - sho) * 0.045) + (100 - energy) * 0.012;
     const totalSpread = skillSpread + pressureSpread;
 
-    // Apuntar hacia la esquina más alejada del portero
     const oppGK = opps.find(o => o.isKeeper);
-    const preferredCornerY = oppGK && oppGK.ym > 34 ? 31.3 : 36.7;
-    const aimY = preferredCornerY + (Math.random() - 0.5) * totalSpread * 2.1;
+    // Si es tiro con rosca desde la esquina del área (finesse), busca el palo lejano con efecto
+    const isFinesse = shotStyle === "FINESSE" || (Math.abs(shooter.ym - 34) > 7.5 && Math.hypot(goalX - shooter.xm, 34 - shooter.ym) > 13.5);
+    const preferredCornerY = isFinesse
+      ? (shooter.ym > 34 ? 31.1 : 36.9)
+      : (oppGK && oppGK.ym > 34 ? 31.35 : 36.65);
+    const aimY = preferredCornerY + (Math.random() - 0.5) * totalSpread * 1.85;
 
     const dx = goalX - this.ball.xm;
     const dy = aimY - this.ball.ym;
     const dist = Math.hypot(dx, dy) || 1;
-    const shotSpeed = 23.0 + (sho - 60) * 0.16 + Math.random() * 3.5;
+    const shotSpeed = (isFinesse ? 22.8 : 25.0) + (sho - 60) * 0.16 + Math.random() * 3.0;
 
     const onTargetAim = aimY >= 30.34 && aimY <= 37.66;
-    if (!this._tactical2DOnly) {
-      if (isHome) {
-        this.stats.shots.home += 1;
-      } else {
-        this.stats.shots.away += 1;
-      }
-      if (shooter.player) {
-        shooter.player.matchShots = (shooter.player.matchShots || 0) + 1;
-      }
-
-      const scorerName = shooter.player?.name || "Jugador";
-      const tName = isHome ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
-      this._emitCommentary(`${scorerName} (${tName}) dispara a puerta!`, "REMATE", 0.6);
-      if (this.onAlert) {
-        this.onAlert({ text: `⚡ ${scorerName} (${tName}) dispara a puerta!` });
-      }
+    if (!this._tactical2DOnly && !this._recordingReplayOnly) {
+      if (isHome) this.stats.shots.home += 1;
+      else this.stats.shots.away += 1;
+      if (shooter.player) shooter.player.matchShots = (shooter.player.matchShots || 0) + 1;
     }
 
     this.ball.carrier = null;
@@ -6545,32 +6461,508 @@ class MatchSimulator {
     this.ball.shotMeta = {
       scorer: shooter,
       assist: this.ball.assistCandidate && this.ball.assistCandidate !== shooter ? this.ball.assistCandidate : null,
+      nearestDef,
+      oppGK,
       team,
-      onTargetAim
+      onTargetAim,
+      aimY,
+      shotStyle: isFinesse ? "FINESSE" : "POWER"
     };
     this.ball.lastTouchTeam = team;
     this.ball.lastTouchPlayer = shooter;
     this.ball.possession = team;
-    this.ball.pickupCooldown = 0.1;
+    this.ball.pickupCooldown = 0.08;
     this.ball.vx = (dx / dist) * shotSpeed;
     this.ball.vy = (dy / dist) * shotSpeed;
-    this.ball.vz = Math.min(4.8, 1.4 + Math.random() * 2.2);
+    this.ball.vz = isFinesse ? Math.min(2.35, 1.35 + Math.random() * 0.9) : Math.min(2.15, 0.65 + Math.random() * 1.3);
+    // Efecto Magnus en tiros con rosca hacia el palo largo
+    this.ball.spin = isFinesse ? (shooter.ym > 34 ? -2.8 : 2.8) : ((Math.random() - 0.5) * 0.8);
 
+    const isCloseAerial = this.ball.zm > 0.7 && dist < 13.5;
+    shooter.pose = isCloseAerial ? "jump" : "kick";
+    shooter.poseTimer = 0.40;
+    shooter.facing = Math.atan2(dy, dx);
+    shooter.facingX = dx / dist;
+    shooter.facingZ = dy / dist;
     shooter.aiState = "SUPPORT";
     shooter.decisionTimer = 0.6;
+
+    if (!this._tactical2DOnly) {
+      const sName = shooter.player?.name || "El atacante";
+      if (isCloseAerial) {
+        this._setTickCommentary(`💥 ¡${sName} se eleva en el área y conecta un remate directo a portería!`, "REMATE");
+      } else if (isFinesse) {
+        this._setTickCommentary(`✨ ¡${sName} encuentra hueco a ${Math.round(dist)}m y busca el palo largo con rosca!`, "DISPARO");
+      } else {
+        this._setTickCommentary(`🚀 ¡${sName} ve línea de tiro despejada a ${Math.round(dist)}m y suelta un latigazo!`, "DISPARO");
+      }
+    }
   }
 
-  _evaluateCarrierDecision(carrier, team, mates, opps) {
+  // Evalúa en tiempo real la densidad defensiva y el balance numérico (evitando pases 4v2 o a jugadores rodeados)
+  _evaluateSpatialDensity(tx, ty, mates, opps, excludeCarrier = null, receiver = null) {
+    let oppClose = 0; // Rivales en radio crítico de 4.6m
+    let oppMed = 0;   // Rivales en radio de ayuda defensiva de 7.8m
+    let mateClose = receiver ? 1 : 0; // Compañeros de apoyo en 5.8m (incluyendo al propio receptor)
+    let nearestOppDist = 99;
+
+    for (let i = 0; i < opps.length; i++) {
+      const o = opps[i];
+      if (o.isKeeper) continue;
+      // Predicción corta de posición del defensor (0.2s)
+      const ox = o.xm + (o.vx || 0) * 0.2;
+      const oy = o.ym + (o.vy || 0) * 0.2;
+      const d = Math.hypot(ox - tx, oy - ty);
+      if (d < nearestOppDist) nearestOppDist = d;
+      if (d < 4.6) oppClose++;
+      if (d < 7.8) oppMed++;
+    }
+
+    for (let i = 0; i < mates.length; i++) {
+      const m = mates[i];
+      if (m === excludeCarrier || m === receiver || m.isKeeper) continue;
+      const d = Math.hypot(m.xm - tx, m.ym - ty);
+      if (d < 5.8) mateClose++;
+    }
+
+    // Bloqueo por inferioridad numérica / embudo defensivo (ej. 4v2, 3v1, 2v1 sobre el receptor)
+    const isOutnumberedCrowd = (oppClose >= 2 && oppClose > mateClose) || (oppMed >= 3 && oppMed > mateClose + 1);
+    return {
+      oppClose,
+      oppMed,
+      mateClose,
+      nearestOppDist,
+      numericalBalance: mateClose - oppClose,
+      isOutnumberedCrowd
+    };
+  }
+
+  // Comprueba físicamente si el pasillo de pase entre (ax,ay) y (bx,by) será interceptado por un defensor
+  _isPassCorridorBlocked(ax, ay, bx, by, opps, isLofted = false) {
+    const abx = bx - ax;
+    const aby = by - ay;
+    const dist = Math.hypot(abx, aby);
+    if (dist < 0.5) return false;
+    const ballSpd = isLofted ? Math.min(24.0, 13.5 + dist * 0.35) : Math.min(20.5, 11.5 + dist * 0.40);
+
+    for (let i = 0; i < opps.length; i++) {
+      const o = opps[i];
+      if (o.isKeeper) continue;
+      const apx = o.xm - ax;
+      const apy = o.ym - ay;
+      const t = (apx * abx + apy * aby) / (dist * dist);
+      // Ignorar rivales detrás del pasador o más allá del punto de recepción
+      if (t < 0.08 || t > 1.02) continue;
+
+      const projX = ax + t * abx;
+      const projY = ay + t * aby;
+      const perpDist = Math.hypot(o.xm - projX, o.ym - projY);
+
+      if (!isLofted) {
+        // Pase raso: bloqueado si hay un rival en el cono directo o si llega antes al punto de corte
+        const coneWidth = 1.45 + t * 1.15;
+        if (perpDist < coneWidth) return true;
+        const ballTimeToProj = (t * dist) / ballSpd;
+        const oppSpd = o.maxSpeed || 7.2;
+        const oppTimeToProj = Math.max(0, perpDist - 0.95) / oppSpd;
+        if (perpDist < 4.2 && oppTimeToProj < ballTimeToProj * 0.88) return true;
+      } else {
+        // Pase elevado: solo puede ser cortado cerca de la salida o en la caída final
+        if (t > 0.82 && perpDist < 1.85) return true;
+      }
+    }
+    return false;
+  }
+
+  // Evalúa 8 direcciones en 360° alrededor del poseedor para encontrar el vector de conducción con mayor espacio libre
+  _findBestOpenSpaceDribble(carrier, team, mates, opps) {
     const isHome = team === "home";
     const attackDir = isHome ? 1 : -1;
+    const baseAngle = isHome ? 0 : Math.PI;
+    const rayOffsets = [0, 0.42, -0.42, 0.88, -0.88, 1.38, -1.38, 2.15, -2.15];
+    const stepDist = 6.2;
+
+    let bestRay = null;
+    let bestRayScore = -999;
+
+    for (let r = 0; r < rayOffsets.length; r++) {
+      const ang = baseAngle + rayOffsets[r];
+      const tx = carrier.xm + Math.cos(ang) * stepDist;
+      const ty = carrier.ym + Math.sin(ang) * stepDist;
+      if (tx < 4.5 || tx > 100.5 || ty < 4.5 || ty > 63.5) continue;
+
+      const dens = this._evaluateSpatialDensity(tx, ty, mates, opps, carrier, null);
+      if (dens.oppClose >= 2 || dens.nearestOppDist < 2.6) continue;
+      if (this._isPassCorridorBlocked(carrier.xm, carrier.ym, tx, ty, opps, false)) continue;
+
+      const forwardGain = (tx - carrier.xm) * attackDir;
+      const centerBias = -Math.abs(ty - 34) * 0.14;
+      const score = Math.min(30, dens.nearestOppDist * 3.8) - dens.oppClose * 18.0 - dens.oppMed * 4.5 + forwardGain * 2.1 + centerBias;
+
+      if (score > bestRayScore) {
+        bestRayScore = score;
+        bestRay = {
+          x: tx,
+          y: ty,
+          score,
+          nearestOppDist: dens.nearestOppDist,
+          forwardGain,
+          isDiagonalCut: Math.abs(carrier.ym - 34) > 14 && Math.abs(ty - 34) < Math.abs(carrier.ym - 34) - 2.0
+        };
+      }
+    }
+    return bestRay;
+  }
+
+  // =========================================================================================
+  // EVALUACIÓN DE OPCIONES DE PASE (evaluatePassOptions) Y DESMARQUE ACTIVO SIN BALÓN
+  // =========================================================================================
+  // Evalúa para cada compañero disponible una puntuación determinista basada en:
+  // 1) Distancia al defensa rival más cercano (premia fuertemente el espacio libre y penaliza 4 vs 2)
+  // 2) Si la línea recta entre pasador y receptor está despejada de rivales
+  // 3) Avance hacia la portería rival
+  evaluatePassOptions(carrier, team, mates, opps) {
+    const isHome = team === "home";
+    const attackDir = isHome ? 1 : -1;
+    const goalX = isHome ? 105 : 0;
+    const goalY = 34;
+    const carrierDistToGoal = Math.hypot(goalX - carrier.xm, goalY - carrier.ym);
+    const offsideLineX = this._getOffsideLineX(team, opps);
+
+    const defInst = isHome ? this.awayInstructions : this.homeInstructions;
+    const oppDefWidth = defInst?.outOfPossession?.defenseWidth || "balanced";
+    const oppDefLine = defInst?.outOfPossession?.defensiveLine || defInst?.outOfPossession?.defLine || "mid";
+
+    const inFinalThird = isHome ? (carrier.xm > 75) : (carrier.xm < 30);
+    const nearByline = isHome ? (carrier.xm > 89.5) : (carrier.xm < 15.5);
+    const onWing = carrier.ym < 16.5 || carrier.ym > 51.5;
+
+    const evaluatedOptions = [];
+
+    for (let i = 0; i < mates.length; i++) {
+      const m = mates[i];
+      if (m === carrier || m.isKeeper) continue;
+
+      const passDist = Math.hypot(m.xm - carrier.xm, m.ym - carrier.ym);
+      if (passDist < 3.8 || passDist > 49.0) continue;
+
+      // Descartar compañeros en posición de fuera de juego
+      const isOffside = isHome ? (m.xm > offsideLineX + 0.35) : (m.xm < offsideLineX - 0.35);
+      if (isOffside) continue;
+
+      const forwardGain = (m.xm - carrier.xm) * attackDir;
+      const isWinger = m.ym < 15.5 || m.ym > 52.5;
+      const isOppositeFlank = (carrier.ym < 25 && m.ym > 43) || (carrier.ym > 43 && m.ym < 25);
+      const inBox = (isHome ? m.xm > 76 : m.xm < 29) && Math.abs(m.ym - 34) < 17.5;
+
+      // Puntos candidatos de recepción para este compañero (al pie y al espacio libre donde se está desmarcando)
+      const candidateTargets = [];
+
+      // A) Recepción al pie / bolsillo de apoyo actual
+      candidateTargets.push({
+        x: Math.max(3.0, Math.min(102.0, m.xm + (m.vx || 0) * 0.35)),
+        y: Math.max(3.0, Math.min(65.0, m.ym + (m.vy || 0) * 0.35)),
+        isLofted: false,
+        spin: 0,
+        kind: forwardGain < -1.5 ? "RECYCLE" : "PASS",
+        tacticalFit: forwardGain < -1.5 ? 5.0 : 0
+      });
+
+      // B) Si el compañero ya está desmarcándose hacia un bolsillo libre (unmarkedTarget), evaluar pase a ese espacio
+      if (m.unmarkedTarget) {
+        candidateTargets.push({
+          x: Math.max(3.5, Math.min(101.5, isHome ? Math.min(offsideLineX - 0.4, m.unmarkedTarget.x) : Math.max(offsideLineX + 0.4, m.unmarkedTarget.x))),
+          y: Math.max(3.5, Math.min(64.5, m.unmarkedTarget.y)),
+          isLofted: false,
+          spin: 0,
+          kind: ((m.unmarkedTarget.x - carrier.xm) * attackDir > 3.5) ? "THROUGH" : "PASS",
+          tacticalFit: 8.0
+        });
+      }
+
+      // C) Devolución de pared (Give-and-Go 1-2) al espacio
+      if (m.giveAndGoTimer > 0 && m.giveAndGoPartner === carrier) {
+        candidateTargets.push({
+          x: isHome ? Math.min(offsideLineX - 0.4, m.xm + 5.5) : Math.max(offsideLineX + 0.4, m.xm - 5.5),
+          y: Math.max(5.0, Math.min(63.0, m.ym + (34 - m.ym) * 0.16)),
+          isLofted: false,
+          spin: 0,
+          kind: "ONE_TWO",
+          tacticalFit: 14.0
+        });
+      }
+
+      // D) Pase filtrado al espacio (Through Ball) hacia portería
+      if (forwardGain > 1.8 && (isHome ? (m.xm > 44 && m.xm <= offsideLineX + 0.2) : (m.xm < 61 && m.xm >= offsideLineX - 0.2))) {
+        const throughX = isHome
+          ? Math.min(97.0, Math.min(offsideLineX + 1.2, m.xm + 6.8))
+          : Math.max(8.0, Math.max(offsideLineX - 1.2, m.xm - 6.8));
+        const throughY = Math.max(5.5, Math.min(62.5, m.ym + (34 - m.ym) * 0.20));
+        candidateTargets.push({
+          x: throughX,
+          y: throughY,
+          isLofted: false,
+          spin: 0,
+          kind: "THROUGH",
+          tacticalFit: (oppDefLine === "high" || oppDefLine === "alta" || oppDefLine === "muy_alta") ? 12.0 : 8.5
+        });
+      }
+
+      // E) Cambio de orientación a compañero abierto en banda contraria
+      if (isOppositeFlank && passDist > 17.5) {
+        candidateTargets.push({
+          x: isHome ? Math.min(offsideLineX - 0.4, m.xm + 4.2) : Math.max(offsideLineX + 0.4, m.xm - 4.2),
+          y: m.ym,
+          isLofted: true,
+          spin: m.ym > 34 ? -1.8 : 1.8,
+          kind: "SWITCH",
+          tacticalFit: oppDefWidth === "compact" ? 13.0 : 9.0
+        });
+      }
+
+      // F) Apertura a banda / doblaje de lateral
+      if (isWinger && forwardGain > 0.5) {
+        candidateTargets.push({
+          x: isHome ? Math.min(offsideLineX - 0.4, m.xm + 4.2) : Math.max(offsideLineX + 0.4, m.xm - 4.2),
+          y: m.ym,
+          isLofted: passDist > 24.0,
+          spin: 0,
+          kind: "WING",
+          tacticalFit: (m.aiState === "OVERLAP" || oppDefWidth === "compact") ? 10.5 : 7.0
+        });
+      }
+
+      // G) Pase de la muerte atrás (Cutback) o centro tenso si el pasador está en banda en último tercio y el receptor en el área
+      if (inFinalThird && onWing && inBox) {
+        const isCutbackZone = nearByline && Math.abs(m.ym - 34) < 10.5 && (isHome ? (m.xm >= 83 && m.xm <= 95.5) : (m.xm >= 9.5 && m.xm <= 22));
+        candidateTargets.push({
+          x: isCutbackZone
+            ? (isHome ? Math.min(95.0, m.xm + 1.2) : Math.max(10.0, m.xm - 1.2))
+            : (isHome ? Math.min(97.2, Math.max(88.5, m.xm + 2.2)) : Math.max(7.8, Math.min(16.5, m.xm - 2.2))),
+          y: Math.max(24.0, Math.min(44.0, m.ym)),
+          isLofted: !isCutbackZone,
+          spin: !isCutbackZone ? (carrier.ym > 34 ? -2.2 : 2.2) : 0,
+          kind: isCutbackZone ? "CUTBACK" : "CROSS",
+          tacticalFit: isCutbackZone ? 14.0 : 9.0
+        });
+      }
+
+      let bestCandForMate = null;
+      let bestCandScore = -9999;
+
+      for (let c = 0; c < candidateTargets.length; c++) {
+        const cand = candidateTargets[c];
+        const dens = this._evaluateSpatialDensity(cand.x, cand.y, mates, opps, carrier, m);
+
+        // 1) PUNTUACIÓN POR DISTANCIA AL DEFENSA MÁS CERCANO (Premia fuertemente el espacio libre y castiga el 4 vs 2)
+        const nearestDefDist = dens.nearestOppDist;
+        let spaceScore = Math.min(88.0, nearestDefDist * 8.6)
+          - dens.oppClose * 32.0
+          - dens.oppMed * 8.5
+          + dens.numericalBalance * 13.5;
+
+        // Bonus extra a jugador desmarcado; si nearestDefenderDist > 6.5m (ej. 4 vs 2 con compañero abierto en banda),
+        // disparar el peso de spaceScore para que el pase se ejecute inmediatamente en vez de conducir hacia el centro (y = 34)
+        if (nearestDefDist > 6.5 && dens.oppClose === 0) {
+          spaceScore += 68.0 + Math.min(32.0, (nearestDefDist - 6.5) * 6.5);
+        } else if (dens.oppClose === 0 && nearestDefDist >= 5.0) {
+          spaceScore += 28.0;
+        }
+        if (dens.isOutnumberedCrowd || nearestDefDist < 2.35) {
+          spaceScore -= 85.0;
+        }
+
+        // 2) PUNTUACIÓN DE LÍNEA DE PASE RECTA DESPEJADA ENTRE PASADOR Y RECEPTOR
+        let minLineDist = 99;
+        const cDist = Math.hypot(cand.x - carrier.xm, cand.y - carrier.ym) || 1;
+        for (let j = 0; j < opps.length; j++) {
+          const o = opps[j];
+          if (o.isKeeper) continue;
+          const projT = ((o.xm - carrier.xm) * (cand.x - carrier.xm) + (o.ym - carrier.ym) * (cand.y - carrier.ym)) / (cDist * cDist);
+          if (projT >= 0.06 && projT <= 1.02) {
+            const segD = this._distPointToSegment(o.xm, o.ym, carrier.xm, carrier.ym, cand.x, cand.y);
+            if (segD < minLineDist) minLineDist = segD;
+          }
+        }
+        const corridorBlocked = this._isPassCorridorBlocked(carrier.xm, carrier.ym, cand.x, cand.y, opps, cand.isLofted);
+        const isLineClear = !corridorBlocked && (cand.isLofted ? minLineDist >= 1.75 : minLineDist >= 2.25);
+
+        let lineClearScore = 0;
+        if (!isLineClear) {
+          lineClearScore = -95.0; // Línea bloqueada por un rival
+        } else {
+          lineClearScore = 20.0 + Math.min(18.0, (minLineDist - 2.0) * 3.8);
+        }
+
+        // 3) PUNTUACIÓN DE AVANCE HACIA LA PORTERÍA RIVAL
+        const targetDistToGoal = Math.hypot(goalX - cand.x, goalY - cand.y);
+        const goalDistGain = carrierDistToGoal - targetDistToGoal;
+        const forwardXGain = (cand.x - carrier.xm) * attackDir;
+        const advanceScore = goalDistGain * 1.95 + forwardXGain * 1.35;
+
+        // El ajuste táctico solo suma si el receptor está libre y la línea está despejada
+        const validTacticalBonus = (isLineClear && !dens.isOutnumberedCrowd && dens.oppClose === 0) ? cand.tacticalFit : 0;
+        const totalScore = spaceScore + lineClearScore + advanceScore + validTacticalBonus;
+
+        if (totalScore > bestCandScore) {
+          bestCandScore = totalScore;
+          bestCandForMate = {
+            receiver: m,
+            lead: cand,
+            score: totalScore,
+            spaceScore,
+            lineClearScore,
+            advanceScore,
+            nearestDefenderDist: nearestDefDist,
+            minLineDist,
+            isLineClear,
+            isOutnumberedCrowd: dens.isOutnumberedCrowd,
+            oppClose: dens.oppClose
+          };
+        }
+      }
+
+      if (bestCandForMate) {
+        evaluatedOptions.push(bestCandForMate);
+      }
+    }
+
+    // Ordenar de mayor a menor puntuación (el compañero libre gana siempre por amplio margen sobre un delantero marcado en 4 vs 2)
+    evaluatedOptions.sort((a, b) => b.score - a.score);
+    const bestViable = evaluatedOptions.find(opt =>
+      opt.isLineClear &&
+      !opt.isOutnumberedCrowd &&
+      opt.nearestDefenderDist >= 2.3 &&
+      opt.score > -10
+    ) || null;
+
+    return {
+      bestOption: bestViable,
+      allOptions: evaluatedOptions
+    };
+  }
+
+  // Calcula dinámicamente para cada jugador sin balón una zona de desmarque lejos de los defensas rivales
+  // y con línea de pase abierta respecto al poseedor
+  _findUnmarkedOffBallSpace(player, baseAnchorX, baseAnchorY, carrier, team, mates, opps, offsideLineX) {
+    const isHome = team === "home";
+    const attackDir = isHome ? 1 : -1;
+    const goalX = isHome ? 105 : 0;
+    const goalY = 34;
+    const refX = carrier ? carrier.xm : this.ball.xm;
+    const refY = carrier ? carrier.ym : this.ball.ym;
+
+    // 1. Vector de repulsión directa respecto a los defensas cercanos (< 6.5m) para alejarse de la marca
+    let repulseX = 0;
+    let repulseY = 0;
+    for (let j = 0; j < opps.length; j++) {
+      const o = opps[j];
+      if (o.isKeeper) continue;
+      const dx = player.xm - o.xm;
+      const dy = player.ym - o.ym;
+      const d = Math.hypot(dx, dy);
+      if (d < 6.5 && d > 0.05) {
+        const strength = ((6.5 - d) / 6.5) * 4.8;
+        repulseX += (dx / d) * strength;
+        repulseY += (dy / d) * strength;
+      }
+    }
+
+    const centerX = Math.max(5.0, Math.min(100.0, baseAnchorX + repulseX * 0.65));
+    const centerY = Math.max(4.0, Math.min(64.0, baseAnchorY + repulseY * 0.85));
+
+    // 2. Muestrear bolsillos de espacio candidato alrededor del ancla (desmarque de ruptura, diagonal, apoyo, amplitud)
+    const offsets = [
+      { dx: 0, dy: 0 },
+      { dx: attackDir * 5.2, dy: 0 },
+      { dx: attackDir * 4.8, dy: 5.5 },
+      { dx: attackDir * 4.8, dy: -5.5 },
+      { dx: 0, dy: 6.5 },
+      { dx: 0, dy: -6.5 },
+      { dx: -attackDir * 3.8, dy: 4.5 },
+      { dx: -attackDir * 3.8, dy: -4.5 },
+      { dx: repulseX * 1.2, dy: repulseY * 1.2 }
+    ];
+
+    let bestSpot = { x: centerX, y: centerY, score: -9999 };
+
+    for (let k = 0; k < offsets.length; k++) {
+      let cx = centerX + offsets[k].dx;
+      let cy = centerY + offsets[k].dy;
+
+      // Respetar línea de fuera de juego y límites del campo
+      cx = isHome ? Math.min(cx, offsideLineX - 0.85) : Math.max(cx, offsideLineX + 0.85);
+      cx = Math.max(4.5, Math.min(100.5, cx));
+      cy = Math.max(3.8, Math.min(64.2, cy));
+
+      // Distancia al defensa rival más cercano (prioridad máxima: alejarse de los defensas)
+      let nearestDef = 99;
+      let defCrowding = 0;
+      for (let j = 0; j < opps.length; j++) {
+        const o = opps[j];
+        if (o.isKeeper) continue;
+        const d = Math.hypot(o.xm - cx, o.ym - cy);
+        if (d < nearestDef) nearestDef = d;
+        if (d < 5.0) defCrowding += (5.0 - d) * 6.5;
+      }
+
+      // Evitar amontonarse con otros compañeros de ataque (< 6.8m)
+      let mateCrowding = 0;
+      for (let j = 0; j < mates.length; j++) {
+        const m = mates[j];
+        if (m === player || m.isKeeper) continue;
+        const targetMx = m.unmarkedTarget ? m.unmarkedTarget.x : m.xm;
+        const targetMy = m.unmarkedTarget ? m.unmarkedTarget.y : m.ym;
+        const dm = Math.hypot(targetMx - cx, targetMy - cy);
+        if (dm < 6.8) mateCrowding += (6.8 - dm) * 8.0;
+      }
+
+      // Comprobar si desde este punto ofrece una línea de pase limpia al jugador con balón
+      let minPassLineDist = 99;
+      const distFromBall = Math.hypot(cx - refX, cy - refY);
+      if (distFromBall > 3.5 && distFromBall < 42.0) {
+        for (let j = 0; j < opps.length; j++) {
+          const o = opps[j];
+          if (o.isKeeper) continue;
+          const segD = this._distPointToSegment(o.xm, o.ym, refX, refY, cx, cy);
+          if (segD < minPassLineDist) minPassLineDist = segD;
+        }
+      }
+      const lineBonus = minPassLineDist >= 2.6 ? Math.min(18.0, minPassLineDist * 3.2) : -22.0;
+
+      // Avance hacia portería sin perder estructura táctica
+      const distGoal = Math.hypot(goalX - cx, goalY - cy);
+      const baseDistGoal = Math.hypot(goalX - baseAnchorX, goalY - baseAnchorY);
+      const advanceBonus = (baseDistGoal - distGoal) * 1.45;
+      const anchorDriftPenalty = Math.hypot(cx - baseAnchorX, cy - baseAnchorY) * 0.85;
+
+      const score = Math.min(42.0, nearestDef * 5.2)
+        - defCrowding
+        - mateCrowding
+        + lineBonus
+        + advanceBonus
+        - anchorDriftPenalty;
+
+      if (score > bestSpot.score) {
+        bestSpot = { x: cx, y: cy, score, nearestDef };
+      }
+    }
+
+    player.unmarkedTarget = bestSpot;
+    return bestSpot;
+  }
+
+  // TOMA DE DECISIONES DEL JUGADOR CON BALÓN EN TIEMPO REAL (Basada en evaluatePassOptions + Pitch Control)
+  _evaluateCarrierDecision(carrier, team, mates, opps) {
+    const isHome = team === "home";
     const goalX = isHome ? 105 : 0;
     const goalY = 34;
     const dxGoal = goalX - carrier.xm;
     const dyGoal = goalY - carrier.ym;
     const distToGoal = Math.hypot(dxGoal, dyGoal);
     const goalAngle = Math.atan2(dyGoal, dxGoal);
+    const intent = this._getTeamAttackIntent(team);
 
-    // Trazar rayo/cono desde el jugador hacia el centro de la portería rival
     let minFrontalOppDist = 99;
     let nearestAnyOpp = 99;
     for (let i = 0; i < opps.length; i++) {
@@ -6583,102 +6975,112 @@ class MatchSimulator {
       const oppAngle = Math.atan2(dy, dx);
       const angleDiff = Math.abs(Math.atan2(Math.sin(oppAngle - goalAngle), Math.cos(oppAngle - goalAngle)));
       const segDist = this._distPointToSegment(o.xm, o.ym, carrier.xm, carrier.ym, goalX, goalY);
-      if ((angleDiff <= Math.PI / 5 || segDist < 3.2) && d <= distToGoal + 1.0) {
+      if ((angleDiff <= Math.PI / 5 || segDist < 2.8) && d <= distToGoal + 1.0) {
         if (d < minFrontalOppDist) minFrontalOppDist = d;
       }
     }
 
-    // 1. PRIORIDAD 1: ENCARAR Y TIRAR (Prohibido volver atrás si hay vía libre)
+    // 1. EVALUAR TODAS LAS OPCIONES DE PASE CON evaluatePassOptions ANTES DE DECIDIR UN DISPARO LEJANO
+    const inOpponentHalf = isHome ? (carrier.xm > 52.5) : (carrier.xm < 52.5);
+    if (inOpponentHalf) {
+      carrier.decisionTimer = Math.min(carrier.decisionTimer || 0.14, 0.14);
+    }
+    const { bestOption, allOptions } = this.evaluatePassOptions(carrier, team, mates, opps);
+
+    // Si existe un compañero libre en el último tercio (nearestDefenderDist >= 5.0 y isLineClear === true, como en un 4 vs 2 en banda o segundo palo)
+    // y el portador está a más de 13 metros de portería o con un rival a menos de 3.2 metros en su línea de tiro,
+    // priorizar SIEMPRE el pase al compañero libre sobre el disparo o la conducción.
+    const bestReceiverInFinalThird = Boolean(
+      bestOption &&
+      (isHome
+        ? (bestOption.receiver.xm >= 70.0 || bestOption.lead.x >= 70.0)
+        : (bestOption.receiver.xm <= 35.0 || bestOption.lead.x <= 35.0))
+    );
+    const hasOpenTeammateInFinalThird = Boolean(
+      bestOption &&
+      bestOption.isLineClear === true &&
+      bestOption.nearestDefenderDist >= 5.0 &&
+      bestReceiverInFinalThird
+    );
+
+    if (hasOpenTeammateInFinalThird && (distToGoal > 13.0 || minFrontalOppDist < 3.2)) {
+      carrier.openDribbleTarget = null;
+      this._launchBallPass(carrier, bestOption.receiver, team, bestOption.lead);
+      return;
+    }
+
+    // Si hay un compañero muy libre con nearestDefenderDist > 6.5m y línea despejada en cualquier zona de ataque,
+    // ejecutar el pase inmediatamente en lugar de seguir conduciendo hacia el centro (y = 34)
+    if (bestOption && bestOption.nearestDefenderDist > 6.5 && bestOption.isLineClear && (distToGoal > 13.0 || minFrontalOppDist < 3.2)) {
+      carrier.openDribbleTarget = null;
+      this._launchBallPass(carrier, bestOption.receiver, team, bestOption.lead);
+      return;
+    }
+
+    // 2. DISPARO A PUERTA (shotRange normal reducido a 16.5m dentro del área; fuera del área exige minFrontalOppDist >= 3.2m)
     if (!carrier.isKeeper) {
-      // Si entra a < 20m de la portería rival con ángulo, ejecutar shoot() de inmediato
-      if (distToGoal < 20.0 && (minFrontalOppDist >= 1.8 || distToGoal < 12.0)) {
-        this._launchBallShot(carrier, team);
-        return;
-      }
-      // Si no hay ningún defensor rival dentro de un radio de 5m hacia la portería rival -> sprint recto al punto de penalti
-      if (minFrontalOppDist >= 5.0) {
-        carrier.aiState = "SPRINT_TO_GOAL";
-        const cName = carrier.player?.name || "Jugador";
-        this._emitCommentary(`${cName} tiene vía libre y encara directo hacia el área rival!`, "CONDUCCIÓN", 2.0);
-        return;
-      }
-    }
+      const shotRange = intent === "LONG_SHOT_SCREEN" ? 22.5 : (intent === "CUT_INSIDE_FINESSE" ? 19.5 : 16.5);
+      const isOutsideBox = distToGoal > 16.5 || (isHome ? carrier.xm < 88.5 : carrier.xm > 16.5);
+      const hasClearShotLane = isOutsideBox
+        ? (minFrontalOppDist >= 3.2)
+        : (minFrontalOppDist >= 1.95 || (distToGoal < 11.5 && minFrontalOppDist >= 1.35));
 
-    // Helper evaluador de líneas de pase sin rivales a < 2m
-    const findBestPass = (forwardOnly) => {
-      let bestM = null;
-      let bestS = -9999;
-
-      for (let i = 0; i < mates.length; i++) {
-        const m = mates[i];
-        if (m === carrier) continue;
-
-        const passDist = Math.hypot(m.xm - carrier.xm, m.ym - carrier.ym);
-        if (passDist < 4.0 || passDist > 42.0) continue;
-
-        const mateDistToGoal = Math.hypot(goalX - m.xm, goalY - m.ym);
-        const forwardGain = (m.xm - carrier.xm) * attackDir;
-        const isCloserToGoal = mateDistToGoal < distToGoal && forwardGain > 0.5;
-
-        if (forwardOnly && !isCloserToGoal) continue;
-        if (!forwardOnly && isCloserToGoal) continue;
-
-        // Comprobar que la línea de pase no tenga rivales a menos de 2 metros
-        let minSegDist = 99;
-        for (let j = 0; j < opps.length; j++) {
-          const o = opps[j];
-          const segD = this._distPointToSegment(o.xm, o.ym, carrier.xm, carrier.ym, m.xm, m.ym);
-          if (segD < minSegDist) minSegDist = segD;
-        }
-        if (minSegDist < 2.0) continue;
-
-        let mateNearestOpp = 99;
-        for (let j = 0; j < opps.length; j++) {
-          const d = Math.hypot(opps[j].xm - m.xm, opps[j].ym - m.ym);
-          if (d < mateNearestOpp) mateNearestOpp = d;
-        }
-
-        // Priorizar al compañero más adelantado y libre
-        const advanceScore = (distToGoal - mateDistToGoal) * 3.0;
-        const spaceScore = mateNearestOpp >= 5.0 ? 20.0 : mateNearestOpp * 2.5;
-        const score = forwardOnly ? (advanceScore + spaceScore) : (forwardGain * 2.0 + spaceScore);
-
-        if (score > bestS) {
-          bestS = score;
-          bestM = m;
+      if (distToGoal <= shotRange && hasClearShotLane) {
+        const isWideAngle = Math.abs(carrier.ym - 34) > 14.5 && (isHome ? carrier.xm > 91 : carrier.xm < 14);
+        if (!isWideAngle) {
+          this._launchBallShot(carrier, team, intent === "CUT_INSIDE_FINESSE" ? "FINESSE" : "NORMAL");
+          return;
         }
       }
-      return bestM;
-    };
+    }
 
-    // 2. PRIORIDAD 2: PASAR ADELANTE (si un defensa cierra el paso < 5m / < 4m delante)
-    if (minFrontalOppDist < 5.0 || carrier.isKeeper) {
-      const forwardMate = findBestPass(true);
-      if (forwardMate) {
-        this._launchBallPass(carrier, forwardMate, team);
+    // 3. EVALUAR VECTOR DE CONDUCCIÓN AL ESPACIO LIBRE EN 360°
+    const bestDribbleRay = !carrier.isKeeper ? this._findBestOpenSpaceDribble(carrier, team, mates, opps) : null;
+
+    // 4. COMPARAR PASE ÓPTIMO VS CONDUCCIÓN AL ESPACIO LIBRE
+    if (bestDribbleRay && !carrier.isKeeper) {
+      const passScore = bestOption ? bestOption.score : -999;
+      // Si no hay pase claro o el poseedor tiene una autopista libre por delante mejor que el pase (y ningún compañero tiene > 6.5m de ventaja)
+      const shouldDribble = !bestOption ||
+        (bestOption.nearestDefenderDist <= 6.5 && bestDribbleRay.nearestOppDist >= 5.2 && bestDribbleRay.forwardGain > 2.5 && (bestDribbleRay.score + 18.0 > passScore) && distToGoal < 42.0);
+
+      if (shouldDribble) {
+        carrier.openDribbleTarget = bestDribbleRay;
+        carrier.aiState = bestDribbleRay.isDiagonalCut ? "CUT_INSIDE" : "SPRINT_TO_GOAL";
+        if (!this._tactical2DOnly && (!carrier._lastDribbleCommentAt || (this.matchSecond !== carrier._lastDribbleCommentAt))) {
+          carrier._lastDribbleCommentAt = this.matchSecond;
+          const cName = carrier.player?.name || "El poseedor";
+          this._setTickCommentary(
+            bestDribbleRay.isDiagonalCut
+              ? `⚡ ${cName} traza la diagonal hacia dentro buscando ángulo libre.`
+              : `⚡ ${cName} detecta a los delanteros vigilados y conduce hacia el espacio libre.`,
+            "CONDUCCIÓN"
+          );
+        }
         return;
       }
     }
 
-    // 3. PRIORIDAD 3: PASE DE SEGURIDAD (Último recurso: SOLO si defensa encima < 3m y todos delante cubiertos)
-    if (nearestAnyOpp < 3.0 || carrier.isKeeper) {
-      const safeMate = findBestPass(false);
-      if (safeMate) {
-        this._launchBallPass(carrier, safeMate, team);
-        return;
-      }
+    if (bestOption) {
+      carrier.openDribbleTarget = null;
+      this._launchBallPass(carrier, bestOption.receiver, team, bestOption.lead);
+      return;
     }
 
-    // Salvaguarda para portero o jugador totalmente encerrado
-    if (carrier.isKeeper) {
-      const outfieldMates = mates.filter(m => m !== carrier && !m.isKeeper);
-      if (outfieldMates.length > 0) {
-        outfieldMates.sort((a, b) => ((b.xm - a.xm) * attackDir));
-        this._launchBallPass(carrier, outfieldMates[0], team);
-        return;
-      }
+    // 5. VÁLVULA DE ESCAPE SI HAY BLOQUEO (4 vs 2): buscar en allOptions al compañero con mayor distancia a defensas y línea limpia
+    const safestRecycle = allOptions.find(opt => opt.isLineClear && opt.nearestDefenderDist >= 2.2);
+    if (safestRecycle) {
+      carrier.openDribbleTarget = null;
+      this._launchBallPass(carrier, safestRecycle.receiver, team, {
+        ...safestRecycle.lead,
+        kind: "RECYCLE"
+      });
+      return;
     }
 
+    if (bestDribbleRay) {
+      carrier.openDribbleTarget = bestDribbleRay;
+    }
     carrier.aiState = "SPRINT_TO_GOAL";
   }
 
@@ -6690,30 +7092,48 @@ class MatchSimulator {
     const carrierInTeam = carrier && carrier.side === team ? carrier : null;
     const anchors = this._computeTeamBlockAnchors(team, mates, inPossession);
 
+    if (this._teamIntentTimer && this._teamIntentTimer[team] > 0) {
+      this._teamIntentTimer[team] = Math.max(0, this._teamIntentTimer[team] - dt);
+    }
+
     if (inPossession) {
+      const intent = this._getTeamAttackIntent(team);
       const offsideLineX = this._getOffsideLineX(team, opps);
       const clampOnsideX = (tx, player) => {
-        // Excepción reglamentaria: solo si ya salió el pase hacia él puede cruzar la línea
         if (this.ball.carrier === null && this.ball.passTarget === player && this.ball.passTeam === team) {
           return tx;
         }
-        return isHome ? Math.min(tx, offsideLineX - 1.1) : Math.max(tx, offsideLineX + 1.1);
+        return isHome ? Math.min(tx, offsideLineX - 0.9) : Math.max(tx, offsideLineX + 0.9);
       };
 
-      // Detectar si el poseedor levanta la cabeza para pasar (listo para decidir tras el control)
       const carrierReadyToPass = carrierInTeam && carrierInTeam.controlTimer <= 0 && carrierInTeam.decisionTimer <= 0.25;
+      const ballInWideFinalThird = (isHome ? this.ball.xm > 72 : this.ball.xm < 33) && (this.ball.ym < 18 || this.ball.ym > 50);
 
-      // Identificar extremos/delanteros para situarse al límite del fuera de juego y tirar desmarques diagonales
       const forwardIds = new Set();
+      const boxRunners = [];
       mates.forEach(m => {
         if (m !== carrierInTeam && !m.isKeeper) {
-          const isAttackerPos = ["DC", "ED", "EI", "SD", "MCO", "MD", "MI"].includes(m.player?.pos);
-          const isAheadBase = isHome ? (m.baseX >= 60) : (m.baseX <= 40);
-          if (isAttackerPos || isAheadBase) forwardIds.add(m);
+          const pos = m.player?.pos || "";
+          const isAttackerPos = ["DC", "ED", "EI", "SD", "MCO", "MD", "MI"].includes(pos);
+          const isAheadBase = isHome ? (m.baseX >= 58) : (m.baseX <= 42);
+          if (isAttackerPos || isAheadBase) {
+            forwardIds.add(m);
+            boxRunners.push(m);
+          }
         }
       });
 
-      // Si el balón está suelto sin receptor asignado en este equipo, el más cercano va a recogerlo
+      // Detectar si un lateral debe doblar por fuera (OVERLAP) al extremo con balón
+      let overlapFullback = null;
+      if (carrierInTeam && !carrierInTeam.isKeeper && Math.abs(carrierInTeam.ym - 34) > 14 && (isHome ? carrierInTeam.xm > 48 : carrierInTeam.xm < 57)) {
+        const sameSideTop = carrierInTeam.ym < 34;
+        overlapFullback = mates.find(m =>
+          m !== carrierInTeam &&
+          ["LD", "LI", "CAD", "CAI"].includes(m.player?.pos) &&
+          (sameSideTop ? m.ym < 34 : m.ym > 34)
+        ) || null;
+      }
+
       let looseChaser = null;
       if (!carrierInTeam && (!this.ball.passTarget || this.ball.passTarget.side !== team)) {
         let bestD = 999;
@@ -6730,6 +7150,7 @@ class MatchSimulator {
       for (let i = 0; i < mates.length; i++) {
         const p = mates[i];
         const anchor = anchors.get(p) || { x: p.xm, y: p.ym };
+        if (p.giveAndGoTimer > 0) p.giveAndGoTimer = Math.max(0, p.giveAndGoTimer - dt);
 
         if (p === looseChaser) {
           p.aiState = "RECEIVE";
@@ -6742,61 +7163,126 @@ class MatchSimulator {
             p.controlTimer = Math.max(0, p.controlTimer - dt);
             p.aiState = "CONTROL";
             const pivotX = isHome ? Math.min(104, p.xm + 3.5) : Math.max(1, p.xm - 3.5);
-            this._steerPlayer(p, pivotX, 34 + (p.ym - 34) * 0.5, 0.18, dt, allPlayers);
+            this._steerPlayer(p, pivotX, 34 + (p.ym - 34) * 0.5, 0.25, dt, allPlayers);
             continue;
+          }
+          const inOpponentHalf = isHome ? (p.xm > 52.5) : (p.xm < 52.5);
+          if (inOpponentHalf && p.decisionTimer > 0.14) {
+            p.decisionTimer = 0.14;
           }
           p.decisionTimer -= dt;
           if (p.decisionTimer <= 0) {
             let pressed = false;
             for (let j = 0; j < opps.length; j++) {
-              if (Math.hypot(opps[j].xm - p.xm, opps[j].ym - p.ym) < 3.0) {
+              if (Math.hypot(opps[j].xm - p.xm, opps[j].ym - p.ym) < 3.4) {
                 pressed = true;
                 break;
               }
             }
-            p.decisionTimer = pressed ? 0.25 : 0.45;
+            p.decisionTimer = inOpponentHalf ? 0.14 : (pressed ? 0.22 : 0.34);
             this._evaluateCarrierDecision(p, team, mates, opps);
           }
 
           if (this.ball.carrier === p) {
-            // Si encara con vía libre y entra a < 20m de la portería rival, dispara inmediatamente
             const goalX = isHome ? 105 : 0;
             const dGoalNow = Math.hypot(goalX - p.xm, 34 - p.ym);
-            if (!p.isKeeper && p.aiState === "SPRINT_TO_GOAL" && dGoalNow < 20.0) {
-              this._launchBallShot(p, team);
-              continue;
+            if (!p.isKeeper && (p.aiState === "SPRINT_TO_GOAL" || p.aiState === "CUT_INSIDE") && dGoalNow <= 16.5 && Math.abs(p.ym - 34) < 14.5) {
+              // Comprobar si hay rival bloqueando a menos de 2.2m o un compañero desmarcado antes de chutar en conducción
+              let minFrontDist = 99;
+              for (let j = 0; j < opps.length; j++) {
+                const od = Math.hypot(opps[j].xm - p.xm, opps[j].ym - p.ym);
+                const isAhead = isHome ? (opps[j].xm >= p.xm - 0.3) : (opps[j].xm <= p.xm + 0.3);
+                if (isAhead && od < minFrontDist) minFrontDist = od;
+              }
+              if (dGoalNow <= 13.0 && minFrontDist >= 1.85) {
+                this._launchBallShot(p, team, p.aiState === "CUT_INSIDE" ? "FINESSE" : "NORMAL");
+                continue;
+              }
             }
-            // Correr en línea recta hacia el punto de penalti rival a máxima velocidad si encara
-            const penX = isHome ? 94 : 11;
-            const penY = 34;
-            const speedRatio = p.aiState === "SPRINT_TO_GOAL" ? 1.0 : 0.90;
-            this._steerPlayer(p, penX, penY, speedRatio, dt, allPlayers);
+
+            // Conducción inteligente hacia el vector de espacio libre 360° evaluado tick a tick
+            let driveX = isHome ? 94 : 11;
+            let driveY = 34;
+            if (p.openDribbleTarget) {
+              driveX = p.openDribbleTarget.x;
+              driveY = p.openDribbleTarget.y;
+            } else if (p.aiState === "CUT_INSIDE") {
+              driveX = isHome ? Math.min(93, p.xm + 8) : Math.max(12, p.xm - 8);
+              driveY = p.ym > 34 ? Math.max(29, p.ym - 9.5) : Math.min(39, p.ym + 9.5);
+            } else {
+              // Vector de evasión lateral respecto al rival frontal más cercano
+              let evadeY = 0;
+              for (let j = 0; j < opps.length; j++) {
+                const o = opps[j];
+                if (o.isKeeper) continue;
+                const d = Math.hypot(o.xm - p.xm, o.ym - p.ym);
+                const ahead = isHome ? (o.xm > p.xm - 0.5 && o.xm < p.xm + 6.5) : (o.xm < p.xm + 0.5 && o.xm > p.xm - 6.5);
+                if (ahead && d < 6.0) {
+                  evadeY += (p.ym >= o.ym ? 5.5 : -5.5) * (1 - d / 6.0);
+                }
+              }
+              driveX = isHome ? Math.min(96, p.xm + 12) : Math.max(9, p.xm - 12);
+              driveY = Math.max(6, Math.min(62, p.ym + (34 - p.ym) * 0.25 + evadeY));
+            }
+
+            const speedRatio = p.aiState === "SPRINT_TO_GOAL" ? 0.98 : 0.90;
+            this._steerPlayer(p, driveX, driveY, speedRatio, dt, allPlayers);
           } else {
-            this._steerPlayer(p, clampOnsideX(anchor.x, p), anchor.y, 0.72, dt, allPlayers);
+            this._steerPlayer(p, clampOnsideX(anchor.x, p), anchor.y, 0.74, dt, allPlayers);
           }
         } else if (this.ball.carrier === null && this.ball.passTarget === p && this.ball.passTeam === team) {
           p.aiState = "RECEIVE";
-          this._steerPlayer(p, this.ball.xm + this.ball.vx * 0.18, this.ball.ym + this.ball.vy * 0.18, 0.96, dt, allPlayers);
-        } else if (forwardIds.has(p)) {
-          // Delanteros y extremos al límite de la línea defensiva rival; desmarque diagonal solo al levantar cabeza
-          const edgeX = isHome ? Math.min(anchor.x + 4, offsideLineX - 1.1) : Math.max(anchor.x - 4, offsideLineX + 1.1);
-          if (carrierReadyToPass) {
-            p.aiState = "MAKE_RUN";
-            const diagY = anchor.y + (anchor.y > 34 ? -6.5 : 6.5);
-            const runX = clampOnsideX(edgeX + attackDir * 1.0, p);
-            this._steerPlayer(p, runX, Math.max(5, Math.min(63, diagY)), 0.94, dt, allPlayers);
+          this._steerPlayer(p, this.ball.xm + this.ball.vx * 0.18, this.ball.ym + this.ball.vy * 0.18, 0.98, dt, allPlayers);
+        } else if (p.giveAndGoTimer > 0) {
+          // Carrera de pared (Give-and-Go): busca el bolsillo libre de defensas hacia adelante
+          p.aiState = "MAKE_RUN";
+          const baseWallX = clampOnsideX(p.xm + attackDir * 9.5, p);
+          const baseWallY = Math.max(8, Math.min(60, p.ym + (34 - p.ym) * 0.32));
+          const freeSpot = this._findUnmarkedOffBallSpace(p, baseWallX, baseWallY, carrierInTeam, team, mates, opps, offsideLineX);
+          this._steerPlayer(p, clampOnsideX(freeSpot.x, p), freeSpot.y, 0.98, dt, allPlayers);
+        } else if (p === overlapFullback) {
+          // Doblaje de lateral por fuera buscando zona libre en banda
+          p.aiState = "OVERLAP";
+          const overX = clampOnsideX(carrierInTeam.xm + attackDir * 9.0, p);
+          const overY = carrierInTeam.ym < 34 ? 4.2 : 63.8;
+          const freeSpot = this._findUnmarkedOffBallSpace(p, overX, overY, carrierInTeam, team, mates, opps, offsideLineX);
+          this._steerPlayer(p, clampOnsideX(freeSpot.x, p), freeSpot.y, 0.97, dt, allPlayers);
+        } else if (ballInWideFinalThird && forwardIds.has(p)) {
+          // Desmarques activos en el área: parten de los 3 carriles (1er palo, 2º palo, penalti) y se separan de sus marcadores
+          p.aiState = "MAKE_RUN";
+          const rIdx = boxRunners.indexOf(p);
+          const ballTop = this.ball.ym < 34;
+          let boxTargetX, boxTargetY;
+          if (rIdx % 3 === 0) {
+            boxTargetX = isHome ? 96.5 : 8.5;
+            boxTargetY = ballTop ? 29.0 : 39.0;
+          } else if (rIdx % 3 === 1) {
+            boxTargetX = isHome ? 95.0 : 10.0;
+            boxTargetY = ballTop ? 39.5 : 28.5;
           } else {
-            p.aiState = "ANCHOR";
-            this._steerPlayer(p, clampOnsideX(edgeX, p), anchor.y, 0.80, dt, allPlayers);
+            boxTargetX = isHome ? 89.5 : 15.5;
+            boxTargetY = 34.0;
           }
+          const freeBoxSpot = this._findUnmarkedOffBallSpace(p, clampOnsideX(boxTargetX, p), boxTargetY, carrierInTeam, team, mates, opps, offsideLineX);
+          this._steerPlayer(p, clampOnsideX(freeBoxSpot.x, p), freeBoxSpot.y, 0.96, dt, allPlayers);
+        } else if (forwardIds.has(p)) {
+          // Delanteros y extremos sin balón: se desmarcan activamente alejándose de los centrales/laterales rivales
+          p.aiState = "MAKE_RUN";
+          const edgeX = isHome ? Math.min(anchor.x + 5.0, offsideLineX - 0.9) : Math.max(anchor.x - 5.0, offsideLineX + 0.9);
+          const freeAttackSpot = this._findUnmarkedOffBallSpace(p, edgeX, anchor.y, carrierInTeam, team, mates, opps, offsideLineX);
+          this._steerPlayer(p, clampOnsideX(freeAttackSpot.x, p), freeAttackSpot.y, carrierReadyToPass ? 0.95 : 0.86, dt, allPlayers);
+        } else if (!p.isKeeper) {
+          // Centrocampistas y defensas de apoyo: se mueven a bolsillos lejos de rivales para ofrecer línea de pase limpia
+          p.aiState = "SUPPORT";
+          const freeSupportSpot = this._findUnmarkedOffBallSpace(p, anchor.x, anchor.y, carrierInTeam, team, mates, opps, offsideLineX);
+          this._steerPlayer(p, clampOnsideX(freeSupportSpot.x, p), freeSupportSpot.y, 0.82, dt, allPlayers);
         } else {
-          p.aiState = p.isKeeper ? "GK" : "ANCHOR";
-          this._steerPlayer(p, clampOnsideX(anchor.x, p), anchor.y, 0.78, dt, allPlayers);
+          p.aiState = "GK";
+          this._steerPlayer(p, anchor.x, anchor.y, 0.78, dt, allPlayers);
         }
       }
     } else {
-      // DISCIPLINA DEFENSIVA ESTRICTA:
-      // SOLO 1 JUGADOR (el más cercano al balón) sale a presionar; los otros 9 mantienen línea y tapan líneas de pase
+      // DISCIPLINA DEFENSIVA: 1 presionador directo + cobertura + marcaje en el área
       let solePresser = null;
       let minBallDist = 999;
       for (let i = 0; i < mates.length; i++) {
@@ -6812,8 +7298,6 @@ class MatchSimulator {
       const ownGoalX = isHome ? 1.8 : 103.2;
       const ownGoalY = 34;
 
-      // Cobertura de los centrales: si el balón/poseedor supera la línea de mediocampo hacia campo propio,
-      // el central más cercano sale a cerrarle el paso frontalmente en el segmento balón <-> propia portería
       const ballInOwnHalf = isHome ? (this.ball.xm < 52.5) : (this.ball.xm > 52.5);
       let coverCB = null;
       if (ballInOwnHalf) {
@@ -6839,7 +7323,7 @@ class MatchSimulator {
         if (p.isKeeper) {
           p.aiState = "GK";
           const gkX = isHome ? 1.5 : 103.5;
-          const gkSkill = Number(p.player?.por || p.player?.ovr || 70);
+          const gkSkill = Number(p.player?.por || p.player?.par || p.player?.ovr || 74);
           const reflexRatio = Math.max(0.75, Math.min(1.12, 0.78 + (gkSkill - 55) * 0.006));
           const oppShotIncoming = this.ball.shotTeam && this.ball.shotTeam !== team &&
             ((isHome && this.ball.vx < -0.5) || (!isHome && this.ball.vx > 0.5));
@@ -6848,6 +7332,7 @@ class MatchSimulator {
             const tCross = (gkX - this.ball.xm) / this.ball.vx;
             if (tCross > 0 && tCross < 2.2) {
               const predY = Math.max(30.2, Math.min(37.8, this.ball.ym + this.ball.vy * tCross));
+              p.pose = "dive";
               this._steerPlayer(p, gkX, predY, reflexRatio, dt, allPlayers);
               continue;
             }
@@ -6863,7 +7348,6 @@ class MatchSimulator {
         }
 
         if (p === solePresser) {
-          // Marcador directo (PRESSING): corre directo a la coordenada del balón interponiéndose hacia portería
           p.aiState = "PRESSING";
           const b2gX = ownGoalX - this.ball.xm;
           const b2gY = ownGoalY - this.ball.ym;
@@ -6874,12 +7358,11 @@ class MatchSimulator {
 
           if (this.ball.carrier && this.ball.carrier.side !== team && p.tackleCooldown <= 0) {
             const dCarrier = Math.hypot(p.xm - this.ball.carrier.xm, p.ym - this.ball.carrier.ym);
-            if (dCarrier < 1.5) {
+            if (dCarrier < 1.55) {
               this._attemptTackle(p, this.ball.carrier, team);
             }
           }
         } else if (p === coverCB) {
-          // Cobertura frontal del central en el segmento entre el balón y el centro de su portería
           p.aiState = "COVER_FRONTAL";
           const segT = 0.28;
           const blockX = Math.max(2.0, Math.min(103.0, this.ball.xm + (ownGoalX - this.ball.xm) * segT));
@@ -6888,12 +7371,11 @@ class MatchSimulator {
 
           if (this.ball.carrier && this.ball.carrier.side !== team && p.tackleCooldown <= 0) {
             const dCarrier = Math.hypot(p.xm - this.ball.carrier.xm, p.ym - this.ball.carrier.ym);
-            if (dCarrier < 1.5) {
+            if (dCarrier < 1.55) {
               this._attemptTackle(p, this.ball.carrier, team);
             }
           }
         } else {
-          // Los demás mantienen estrictamente su línea tapando líneas de pase entre balón y propia portería
           p.aiState = "DEFEND_ZONE";
           const b2gX = ownGoalX - this.ball.xm;
           const b2gY = ownGoalY - this.ball.ym;
@@ -6907,46 +7389,88 @@ class MatchSimulator {
 
   _attemptTackle(defender, carrier, defTeam) {
     defender.tackleCooldown = 0.9;
-    const defStat = Number(defender.player?.def || defender.player?.ovr || 68);
-    const driStat = Number(carrier.player?.dri || carrier.player?.ovr || 68);
+    const defStat = Number(defender.player?.def || defender.player?.ovr || 70);
+    const driStat = Number(carrier.player?.dri || carrier.player?.ovr || 70);
     const winChance = Math.max(0.22, Math.min(0.75, 0.44 + (defStat - driStat) * 0.008));
 
     if (Math.random() < winChance) {
-      // Robo limpio
+      const prevCarrierName = carrier.player?.name || "el atacante";
+      const defName = defender.player?.name || "El defensor";
       this.ball.carrier = defender;
       this.ball.possession = defTeam;
       this.ball.lastTouchTeam = defTeam;
       this.ball.lastTouchPlayer = defender;
       this.ball.assistCandidate = null;
       this.ball.pickupCooldown = 0.2;
-      defender.controlTimer = 0.30 + Math.random() * 0.20;
-      defender.decisionTimer = Math.max(defender.controlTimer, 0.35);
-      if (!this._tactical2DOnly && defender.player) {
-        defender.player.matchTackles = (defender.player.matchTackles || 0) + 1;
+      defender.pose = "tackle";
+      defender.poseTimer = 0.36;
+      defender.controlTimer = 0.25 + Math.random() * 0.15;
+      defender.decisionTimer = Math.max(defender.controlTimer, 0.32);
+      if (!this._tactical2DOnly) {
+        this._setTickCommentary(`🛡️ ¡Anticipación y robo físico de ${defName} sobre ${prevCarrierName}!`, "ROBO DEFENSIVO");
+        if (!this._recordingReplayOnly && defender.player) {
+          defender.player.matchTackles = (defender.player.matchTackles || 0) + 1;
+        }
       }
-      this._emitCommentary(`¡Gran robo de ${defender.player?.name || "el defensa"} ante ${carrier.player?.name || "el rival"}!`, "ROBO", 1.2);
     } else if (!this._tactical2DOnly && this.foulCooldown <= 0 && Math.random() < 0.09) {
-      // Falta física ocasional
       this.foulCooldown = 4.0;
       const attackingTeam = carrier.side;
-      if (attackingTeam === "home") this.stats.fouls.away += 1;
-      else this.stats.fouls.home += 1;
-
-      const defName = defender.player?.name || "Defensa";
-      if (this.onAlert) {
-        this.onAlert({ text: `⚠️ Falta de ${defName} sobre ${carrier.player?.name || "el atacante"}.` });
+      if (!this._recordingReplayOnly) {
+        if (attackingTeam === "home") this.stats.fouls.away += 1;
+        else this.stats.fouls.home += 1;
       }
 
-      // Tarjeta amarilla ocasional (14% de las faltas)
-      if (Math.random() < 0.14 && defender.player) {
+      // Evaluar si la entrada ilegal se produjo físicamente dentro del área de penalti (|X| > 36 y |Z| < 20.16)
+      const cx = carrier.xm - 52.5;
+      const cz = carrier.ym - 34.0;
+      const isHomeAtk = attackingTeam === "home";
+      const inRivalPenaltyBox = isHomeAtk
+        ? (cx > 36.0 && Math.abs(cz) < 20.16)
+        : (cx < -36.0 && Math.abs(cz) < 20.16);
+      const distToRivalGoal = Math.hypot((isHomeAtk ? 52.5 : -52.5) - cx, 0 - cz);
+
+      if (this._recordingReplayOnly) {
+        if (inRivalPenaltyBox) {
+          this._pendingTickOutcome = {
+            outcome: "PENALTY",
+            attackingSide: attackingTeam,
+            shooter: carrier.player,
+            defender: defender.player
+          };
+          return;
+        }
+        if (distToRivalGoal <= 31.0) {
+          this._pendingTickOutcome = {
+            outcome: "FREE_KICK",
+            attackingSide: attackingTeam,
+            shooter: carrier.player,
+            defender: defender.player,
+            spot: {
+              spot: {
+                x: (carrier.xm / 105) * 100,
+                y: (carrier.ym / 68) * 100,
+                xm: carrier.xm,
+                ym: carrier.ym,
+                cx,
+                cz
+              },
+              distanceMeters: Math.round(distToRivalGoal)
+            }
+          };
+          return;
+        }
+      }
+
+      if (!this._recordingReplayOnly && Math.random() < 0.14 && defender.player) {
         this._awardCardRealTime(defender.player, defTeam, "YELLOW");
       }
 
-      // Reanudar con pase rápido de falta hacia un compañero
       const mates = attackingTeam === "home" ? this.home2D : this.away2D;
-      const openMate = mates.find(m => m !== carrier && !m.isKeeper);
-      if (openMate) {
-        this._launchBallPass(carrier, openMate, attackingTeam);
+      const opps = attackingTeam === "home" ? this.away2D : this.home2D;
+      const { bestOption, allOptions } = this.evaluatePassOptions(carrier, attackingTeam, mates, opps);
+      const chosen = bestOption || allOptions[0];
+      if (chosen) {
+        this._launchBallPass(carrier, chosen.receiver, attackingTeam, chosen.lead);
       }
     }
   }
@@ -6984,14 +7508,40 @@ class MatchSimulator {
 
   _handleRealTimeGoal(scoringSide) {
     const isHome = scoringSide === "home";
-    if (isHome) this.homeScore += 1;
-    else this.awayScore += 1;
-
     const meta = this.ball.shotMeta || {};
     const scorer2D = meta.scorer || this.ball.lastTouchPlayer;
     const assist2D = meta.assist;
     const scorerObj = scorer2D?.player || null;
     const assistObj = assist2D?.player || null;
+
+    // Si estamos grabando en FAST_SIM para el replayBuffer, NO sumar el gol todavía:
+    // se sumará en _commitReplayClimax en el instante exacto en que el balón cruce la línea de gol en 3D
+    if (this._recordingReplayOnly) {
+      const atkTeam = isHome ? this.homeTeam : this.awayTeam;
+      const defTeam = isHome ? this.awayTeam : this.homeTeam;
+      const gkObj = meta.oppGK?.player || (isHome ? this.awayPlayersOnPitch[0] : this.homePlayersOnPitch[0]);
+      const defObj = meta.nearestDef?.player || null;
+      const sName = scorerObj?.name || atkTeam.shortName;
+
+      this._setTickCommentary(`⚽ ¡GOOOOL de ${sName}! El balón cruza físicamente la línea de meta.`, "¡GOL!");
+
+      this._pendingTickOutcome = {
+        outcome: "GOAL",
+        attackingSide: scoringSide,
+        shooter: scorerObj,
+        passer: assistObj,
+        defender: defObj,
+        goalkeeper: gkObj,
+        headline: "OCASIÓN MANIFIESTA DE GOL",
+        buildNote: `⚡ ${atkTeam.shortName} mueve el balón buscando espacios frente a ${defTeam.shortName}.`,
+        shotNote: `⚽ ¡Definición letal de ${sName} al fondo de la red!`
+      };
+      this.ball.shotTeam = null;
+      return;
+    }
+
+    if (isHome) this.homeScore += 1;
+    else this.awayScore += 1;
 
     if (scorerObj) {
       scorerObj.matchGoals = (scorerObj.matchGoals || 0) + 1;
@@ -7022,9 +7572,6 @@ class MatchSimulator {
     if (scoringSide === "home") this.stats.shotsOnTarget.home += 1;
     else this.stats.shotsOnTarget.away += 1;
 
-    this._emitCommentary(`⚽ ¡GOOOOOOL de ${scorerName} (${tName})!`, "GOL", 0.1);
-
-    // Dejar el balón dentro de la red durante la celebración antes de recolocar en el centro
     this.ball.xm = isHome ? 105.9 : -0.9;
     this.ball.ym = Math.max(30.6, Math.min(37.4, this.ball.ym));
     this.ball.zm = Math.min(2.2, Math.max(0.2, this.ball.zm));
@@ -7066,8 +7613,10 @@ class MatchSimulator {
     const tName = isHomeAttacking ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
 
     if (isCorner) {
-      if (isHomeAttacking) this.stats.corners.home += 1;
-      else this.stats.corners.away += 1;
+      if (!this._recordingReplayOnly) {
+        if (isHomeAttacking) this.stats.corners.home += 1;
+        else this.stats.corners.away += 1;
+      }
 
       const cx = cornerSide === "right" ? 104.2 : 0.8;
       const cy = this.ball.ym < 34 ? 1.2 : 66.8;
@@ -7086,16 +7635,14 @@ class MatchSimulator {
         this.ball.shotTeam = null;
         this.ball.carrier = taker;
         this.ball.possession = side;
-        this._emitCommentary(`🚩 Saque de esquina para ${tName} (${taker.player?.name || "Lanzador"}).`, "CÓRNER", 0.9);
-        const target = mates.find(m => m !== taker && !m.isKeeper && m.player?.pos?.includes("D")) || mates[9] || mates[2];
-        if (target) {
-          target.xm = isHomeAttacking ? 95 : 10;
-          target.ym = 34 + (Math.random() - 0.5) * 6;
-          this._launchBallPass(taker, target, side);
+        const opps = isHomeAttacking ? this.away2D : this.home2D;
+        const { bestOption, allOptions } = this.evaluatePassOptions(taker, side, mates, opps);
+        const chosen = bestOption || allOptions[0];
+        if (chosen) {
+          this._launchBallPass(taker, chosen.receiver, side, chosen.lead);
         }
       }
     } else {
-      // Saque de puerta
       const gk = mates.find(m => m.isKeeper) || mates[0];
       if (gk) {
         const gx = isHomeAttacking ? 5.5 : 99.5;
@@ -7113,7 +7660,6 @@ class MatchSimulator {
         this.ball.carrier = gk;
         this.ball.possession = side;
         gk.decisionTimer = 0.25;
-        this._emitCommentary(`🧤 El balón sale por línea de fondo. Saque de puerta para ${gk.player?.name || tName}.`, "SAQUE DE PUERTA", 1.1);
       }
     }
   }
@@ -7126,16 +7672,32 @@ class MatchSimulator {
       const c = b.carrier;
       const fx = c.facingX !== undefined ? c.facingX : (c.side === "home" ? 1 : -1);
       const fz = c.facingZ !== undefined ? c.facingZ : 0;
-      b.xm = Math.max(0.2, Math.min(104.8, c.xm + fx * 0.55));
-      b.ym = Math.max(0.2, Math.min(67.8, c.ym + fz * 0.55));
-      b.zm = 0;
+      const cSpd = Math.hypot(c.vx || 0, c.vy || 0);
+      const touchNudge = cSpd > 0.6 ? (0.48 + 0.26 * Math.max(0, Math.sin((c.animPhase || 0) * 2.2))) : 0.52;
+      const targetBx = Math.max(0.2, Math.min(104.8, c.xm + fx * touchNudge));
+      const targetBy = Math.max(0.2, Math.min(67.8, c.ym + fz * touchNudge));
+      const lerpBall = Math.min(1, dt * 15.5);
+      b.xm += (targetBx - b.xm) * lerpBall;
+      b.ym += (targetBy - b.ym) * lerpBall;
+      b.zm = Math.max(0, (b.zm || 0) * 0.6);
       b.vx = c.vx;
       b.vy = c.vy;
       b.vz = 0;
       return;
     }
 
-    // Movimiento libre en 3D con gravedad y fricción del césped
+    // Efecto Magnus (rosca lateral en tiros con curva y centros tensos)
+    if (b.spin && Math.abs(b.spin) > 0.05) {
+      const spdH = Math.hypot(b.vx, b.vy);
+      if (spdH > 3.0) {
+        const nx = -b.vy / spdH;
+        const ny = b.vx / spdH;
+        b.vx += nx * b.spin * dt * 1.45;
+        b.vy += ny * b.spin * dt * 1.45;
+      }
+      b.spin *= Math.exp(-1.1 * dt);
+    }
+
     b.xm += b.vx * dt;
     b.ym += b.vy * dt;
     b.zm += b.vz * dt;
@@ -7158,24 +7720,52 @@ class MatchSimulator {
       b.shotTeam = null;
     }
 
-    // Comprobar porterías y líneas de fondo (x >= 52.5 -> xm >= 105, x <= -52.5 -> xm <= 0; |z| < 3.66 -> |ym - 34| < 3.66; y < 2.44 -> zm < 2.44)
-    const inGoalMouthY = Math.abs(b.ym - 34) < 3.66 && b.zm < 2.44;
-    if (b.xm >= 105) {
+    // Comprobar porterías y líneas de fondo:
+    // X >= 52.5 -> xm >= 105, X <= -52.5 -> xm <= 0; |Z| < 3.66 -> |ym - 34| < 3.66; Y < 2.44 -> zm < 2.44
+    const absZ = Math.abs(b.ym - 34);
+    const inGoalMouthY = absZ < 3.66 && b.zm < 2.44;
+    const hitPostY = (absZ >= 3.66 && absZ <= 3.92 && b.zm <= 2.52) || (absZ < 3.66 && b.zm >= 2.44 && b.zm <= 2.60);
+
+    if (b.xm >= 105 || b.xm <= 0) {
+      const crossingSide = b.xm >= 105 ? "home" : "away";
       if (inGoalMouthY) {
-        this._handleRealTimeGoal("home");
+        this._handleRealTimeGoal(crossingSide);
         return;
       }
-      const isCorner = b.lastTouchTeam === "away";
-      this._restartFromCornerOrGoalKick(isCorner ? "home" : "away", "right", isCorner);
-      return;
-    }
-    if (b.xm <= 0) {
-      if (inGoalMouthY) {
-        this._handleRealTimeGoal("away");
-        return;
+
+      // Si había un disparo a puerta que se estrella en el poste o sale rozando el palo durante FAST_SIM:
+      if (this._recordingReplayOnly && b.shotTeam === crossingSide) {
+        const meta = b.shotMeta || {};
+        const isPost = hitPostY;
+        const isCloseWide = absZ < 6.8;
+        if (isPost || isCloseWide) {
+          const sName = meta.scorer?.player?.name || "el atacante";
+          const note = isPost
+            ? `🥅 ¡Al palo! El disparo de ${sName} se estrella violentamente en la madera.`
+            : `💨 ¡Fuera! El disparo de ${sName} cruza la línea de fondo lamiendo el poste.`;
+          this._setTickCommentary(note, isPost ? "AL PALO" : "FUERA");
+          this._pendingTickOutcome = {
+            outcome: isPost ? "POST" : "WIDE",
+            attackingSide: crossingSide,
+            shooter: meta.scorer?.player || null,
+            passer: meta.assist?.player || null,
+            defender: meta.nearestDef?.player || null,
+            goalkeeper: meta.oppGK?.player || null,
+            headline: isPost ? "¡DISPARO A LA MADERA!" : "OCASIÓN CLARA DE PELIGRO",
+            shotNote: note
+          };
+          b.shotTeam = null;
+          if (isPost) b.vx = -b.vx * 0.55;
+          return;
+        }
       }
-      const isCorner = b.lastTouchTeam === "home";
-      this._restartFromCornerOrGoalKick(isCorner ? "away" : "home", "left", isCorner);
+
+      const isCorner = crossingSide === "home" ? (b.lastTouchTeam === "away") : (b.lastTouchTeam === "home");
+      this._restartFromCornerOrGoalKick(
+        isCorner ? crossingSide : (crossingSide === "home" ? "away" : "home"),
+        crossingSide === "home" ? "right" : "left",
+        isCorner
+      );
       return;
     }
 
@@ -7183,7 +7773,6 @@ class MatchSimulator {
     if (b.ym <= 0.1 || b.ym >= 67.9) {
       const throwTeam = b.lastTouchTeam === "home" ? "away" : "home";
       const mates = throwTeam === "home" ? this.home2D : this.away2D;
-      const tName = throwTeam === "home" ? (this.homeTeam.shortName || this.homeTeam.name) : (this.awayTeam.shortName || this.awayTeam.name);
       b.ym = b.ym <= 0.1 ? 0.6 : 67.4;
       b.xm = Math.max(3, Math.min(102, b.xm));
       b.zm = 0;
@@ -7198,35 +7787,51 @@ class MatchSimulator {
         b.carrier = taker;
         b.possession = throwTeam;
         taker.decisionTimer = 0.2;
-        this._emitCommentary(`🔄 Saque de banda para ${tName} (${taker.player?.name || "Jugador"}).`, "BANDA", 1.2);
       }
       return;
     }
 
-    // Intercepción en vuelo / paradas físicas del portero (< 1.2m) / recepción
+    // Intercepción en vuelo / paradas físicas del portero (< 1.2m) / bloqueos defensivos
     if (b.pickupCooldown <= 0) {
       const ballSpeed = Math.hypot(b.vx, b.vy);
       for (let i = 0; i < allPlayers.length; i++) {
         const p = allPlayers[i];
         const dist = Math.hypot(p.xm - b.xm, p.ym - b.ym);
-        const reach = p.isKeeper ? 1.2 : 1.05;
+        const reach = p.isKeeper ? 1.25 : 1.05;
         const maxZ = p.isKeeper ? 2.44 : 1.75;
         if (dist > reach || b.zm > maxZ) continue;
 
         if (b.shotTeam && p.side !== b.shotTeam) {
+          const shotSide = b.shotTeam;
+          const meta = b.shotMeta || {};
+
           if (p.isKeeper) {
-            // Parada física determinista: si el portero llega a < 1.2m del balón antes de cruzar la línea, lo para o desvía
-            if (!this._tactical2DOnly) {
-              if (b.shotTeam === "home") this.stats.shotsOnTarget.home += 1;
+            p.pose = "dive";
+            const saveBecomesCorner = ballSpeed >= 22.0;
+            const gkName = p.player?.name || "el portero";
+            const shName = meta.scorer?.player?.name || "el delantero";
+            const saveText = `🧤 ¡Paradón físico de ${gkName} desviando el remate de ${shName}!`;
+            this._setTickCommentary(saveText, "PARADÓN");
+
+            if (this._recordingReplayOnly) {
+              this._pendingTickOutcome = {
+                outcome: "SAVE",
+                attackingSide: shotSide,
+                shooter: meta.scorer?.player || null,
+                passer: meta.assist?.player || null,
+                defender: meta.nearestDef?.player || null,
+                goalkeeper: p.player || null,
+                saveBecomesCorner,
+                headline: "¡INTERVENCIÓN DEL GUARDAMETA!",
+                shotNote: saveText
+              };
+            } else if (!this._tactical2DOnly) {
+              if (shotSide === "home") this.stats.shotsOnTarget.home += 1;
               else this.stats.shotsOnTarget.away += 1;
               if (p.player) p.player.matchSaves = (p.player.matchSaves || 0) + 1;
-              const gkName = p.player?.name || "El portero";
-              const shooterName = b.shotMeta?.scorer?.player?.name || "el atacante";
-              this._emitCommentary(`🧤 ¡Paradón de ${gkName} ante el disparo de ${shooterName}!`, "PARADA", 0.7);
-              if (this.onAlert) this.onAlert({ text: `🧤 ¡Paradón de ${gkName}!` });
             }
-            if (ballSpeed < 22.5) {
-              // Atrapa el balón
+
+            if (!saveBecomesCorner) {
               b.carrier = p;
               b.shotTeam = null;
               b.shotMeta = null;
@@ -7235,7 +7840,6 @@ class MatchSimulator {
               b.lastTouchPlayer = p;
               p.decisionTimer = 0.35;
             } else {
-              // Despeje físico hacia la banda/córner (alejando el balón de la propia portería)
               b.vx = (p.side === "home" ? 1 : -1) * 8.5;
               b.vy = (b.ym >= 34 ? 1 : -1) * 11.5;
               b.vz = 2.4;
@@ -7245,19 +7849,34 @@ class MatchSimulator {
               b.pickupCooldown = 0.25;
             }
             return;
-          } else if (ballSpeed > 10 && Math.random() < 0.55) {
-            // Bloqueo físico de defensa
+          } else if (ballSpeed > 10 && Math.random() < 0.52) {
+            // Bloqueo físico de un defensa interponiéndose en la trayectoria del tiro
             b.vx = -b.vx * 0.35 + (Math.random() - 0.5) * 4;
             b.vy = -b.vy * 0.35 + (Math.random() - 0.5) * 4;
             b.shotTeam = null;
             b.lastTouchTeam = p.side;
             b.lastTouchPlayer = p;
             b.pickupCooldown = 0.2;
-            this._emitCommentary(`🛡️ ¡Bloqueo defensivo de ${p.player?.name || "la zaga"}!`, "BLOQUEO", 1.0);
+            const defName = p.player?.name || "El central";
+            const shName = meta.scorer?.player?.name || "el atacante";
+            const blockText = `🛡️ ¡${defName} se cruza en la trayectoria y bloquea el disparo de ${shName}!`;
+            this._setTickCommentary(blockText, "BLOQUEO");
+
+            if (this._recordingReplayOnly && Math.random() < 0.45) {
+              this._pendingTickOutcome = {
+                outcome: "BLOCK",
+                attackingSide: shotSide,
+                shooter: meta.scorer?.player || null,
+                passer: meta.assist?.player || null,
+                defender: p.player || null,
+                goalkeeper: meta.oppGK?.player || null,
+                headline: "¡BLOQUEO DEFENSIVO IN EXTREMIS!",
+                shotNote: blockText
+              };
+            }
             return;
           }
         } else if (!b.shotTeam) {
-          // Pase o balón dividido: ¿intercepta rival o controla compañero?
           if (p.side !== b.passTeam || p === b.passTarget || ballSpeed < 12) {
             const interceptChance = p.side !== b.passTeam ? (ballSpeed > 18 ? 0.62 : 0.85) : 0.94;
             if (Math.random() < interceptChance) {
@@ -7269,10 +7888,14 @@ class MatchSimulator {
               b.lastTouchTeam = p.side;
               b.lastTouchPlayer = p;
               b.pickupCooldown = 0.15;
-              p.controlTimer = 0.30 + Math.random() * 0.20;
-              p.decisionTimer = Math.max(p.controlTimer, wasIntercept ? 0.35 : 0.40);
-              if (wasIntercept) {
-                this._emitCommentary(`${p.player?.name || "El defensa"} lee la jugada e intercepta el pase`, "INTERCEPCIÓN", 1.2);
+              const isHome = p.side === "home";
+              const goalX = isHome ? 105 : 0;
+              const inAttackingBox = !p.isKeeper && Math.abs(goalX - p.xm) < 16.5;
+              const inOpponentHalf = isHome ? (p.xm > 52.5) : (p.xm < 52.5);
+              p.controlTimer = inAttackingBox ? 0.04 : (inOpponentHalf ? 0.08 : (0.18 + Math.random() * 0.10));
+              p.decisionTimer = inAttackingBox ? 0.06 : (inOpponentHalf ? 0.14 : Math.max(p.controlTimer, wasIntercept ? 0.24 : 0.30));
+              if (wasIntercept && !this._tactical2DOnly) {
+                this._setTickCommentary(`🛡️ ¡${p.player?.name || "La defensa"} lee la línea de pase e intercepta el envío!`, "INTERCEPCIÓN");
               }
               return;
             }
@@ -8410,6 +9033,26 @@ function renderTacticsView(container, gameState, onSaveTactics, onBackToHub) {
                     const isSel = tactics.instructions.outOfPossession.pressing === opt.id;
                     return `
                       <button class="btn-tactic-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-rose-500/25 border-rose-400 text-white shadow-sm ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="outOfPossession" data-param="pressing" data-val="${opt.id}">
+                        <span class="text-sm mb-0.5">${opt.icon}</span>
+                        <span class="text-[11px] font-bold ${isSel ? 'text-rose-300' : 'text-slate-200'}">${opt.label}</span>
+                        <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                      </button>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+
+              <!-- Anchura Defensiva (Control de Bandas) -->
+              <div>
+                <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                  <span>Anchura Defensiva (Control de Bandas)</span>
+                  <span class="text-rose-400 font-mono text-[9px]">${TACTICAL_OPTIONS.defenseWidth.find(o => o.id === (tactics.instructions.outOfPossession.defenseWidth || 'balanced'))?.label || 'Equilibrada'}</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5">
+                  ${TACTICAL_OPTIONS.defenseWidth.map(opt => {
+                    const isSel = (tactics.instructions.outOfPossession.defenseWidth || 'balanced') === opt.id;
+                    return `
+                      <button class="btn-tactic-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-rose-500/25 border-rose-400 text-white shadow-sm ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="outOfPossession" data-param="defenseWidth" data-val="${opt.id}">
                         <span class="text-sm mb-0.5">${opt.icon}</span>
                         <span class="text-[11px] font-bold ${isSel ? 'text-rose-300' : 'text-slate-200'}">${opt.label}</span>
                         <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
@@ -10076,6 +10719,26 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               }).join('')}
             </div>
           </div>
+
+          <!-- Anchura Defensiva / Control de Bandas -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Anchura Defensiva (Control de Bandas)</span>
+              <span class="text-rose-400 font-mono text-[9px]">${TACTICAL_OPTIONS.defenseWidth.find(o => o.id === (instructions.outOfPossession?.defenseWidth || 'balanced'))?.label || 'Equilibrada'}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${TACTICAL_OPTIONS.defenseWidth.map(opt => {
+                const isSel = (instructions.outOfPossession?.defenseWidth || 'balanced') === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-rose-500/25 border-rose-400 text-white shadow-sm ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="outOfPossession" data-param="defenseWidth" data-val="${opt.id}">
+                    <span class="text-sm mb-0.5">${opt.icon}</span>
+                    <span class="text-[11px] font-bold ${isSel ? 'text-rose-300' : 'text-slate-200'}">${opt.label}</span>
+                    <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
         </div>
 
         <!-- Panel de Impacto en el Motor -->
@@ -11479,8 +12142,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
       onCommentary: (text, badge) => {
-        if (!currentHighlightData && !isKickoffInProgress) {
-          updateFMCommentary(text, badge || "MATCH ENGINE");
+        if (!isKickoffInProgress) {
+          updateFMCommentary(text, badge || "MATCH ENGINE", Boolean(currentHighlightData || simulator.activeReplay));
         }
       },
       onGoal: (goalData) => handleGoalSequence(goalData),
@@ -11553,12 +12216,16 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             </div>
           </div>
 
-          <div class="relative w-full aspect-[16/10] sm:aspect-[16/9] min-h-[300px] sm:min-h-[390px] bg-slate-950 rounded-2xl border-2 border-slate-800 shadow-2xl overflow-hidden">
+          <div id="match-viewport-wrapper" class="relative w-full aspect-[16/9] min-h-[310px] max-w-5xl mx-auto bg-slate-950 rounded-2xl border-2 border-slate-800 shadow-2xl overflow-hidden transition-all duration-300">
             <!-- Canvas 3D -->
             <canvas id="match-canvas" class="w-full h-full block cursor-pointer" title="Toca para cambiar de cámara"></canvas>
 
-            <!-- Badge de Cámara 3D TV y Selector de Modo Jugadas Clave -->
+            <!-- Badge de Cámara 3D TV, Selector de Modo Jugadas Clave y Pantalla Completa Panorámica -->
             <div class="absolute top-2 right-2 flex items-center gap-1.5 z-20">
+              <button id="btn-toggle-fullscreen" class="flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2 py-1 rounded-lg border border-slate-700/80 text-[9px] font-bold shadow-lg text-slate-300 hover:text-white hover:border-slate-500 active:scale-95 transition cursor-pointer" title="Expandir a Pantalla Completa Panorámica">
+                <span id="btn-fullscreen-icon">⛶</span>
+                <span class="hidden sm:inline">16:9</span>
+              </button>
               <button id="btn-toggle-hl-mode" class="flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-lg border border-amber-500/70 text-[9px] font-bold shadow-lg text-amber-400 active:scale-95 transition cursor-pointer" title="Elegir ver o pasar automáticamente las jugadas clave">
                 <span id="btn-toggle-hl-icon">🎬</span>
                 <span id="btn-toggle-hl-text">Jugadas: VER</span>
@@ -12218,776 +12885,6 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
     const kits = matchKits;
 
-    // Proyección de coordenadas 3D a pantalla con perspectiva isométrica de retransmisión televisiva Football Manager (Exacta al pantallazo)
-    function toScreen3D(pitchX, pitchY, pitchZ = 0, w, h) {
-      let groundX, groundY, scale;
-      const baseResScale = Math.min(w / 460, h / 290);
-
-      if (cameraMode === "tactical") {
-        // Vista Táctica Elevada (Cámara panorámica para observar colocación táctica del bloque)
-        const camOffset = (cameraPitchX - 50) * 0.16;
-        const relX = pitchX - camOffset;
-        const nx = relX / 100;
-        const ny = Math.max(-8, Math.min(108, pitchY)) / 100;
-
-        const topY = h * 0.14;
-        const botY = h * 0.94;
-        groundY = topY + ny * (botY - topY);
-
-        const topXMin = w * 0.08;
-        const topXMax = w * 0.92;
-        const botXMin = w * 0.02;
-        const botXMax = w * 0.98;
-
-        const leftX = topXMin + ny * (botXMin - topXMin);
-        const rightX = topXMax + ny * (botXMax - topXMax);
-        groundX = leftX + nx * (rightX - leftX);
-
-        scale = (0.68 + ny * 0.44) * baseResScale;
-      } else if (cameraMode === "goal") {
-        // Vista Tras Portería (Cámara cinemática de gol detrás de la red)
-        const camOffset = (cameraPitchX - 50) * 0.46;
-        const relX = pitchX - camOffset;
-        const nx = relX / 100;
-        const ny = Math.max(-12, Math.min(112, pitchY)) / 100;
-
-        const topY = h * 0.18;
-        const botY = h * 0.88;
-        groundY = topY + ny * (botY - topY);
-
-        const topXMin = w * 0.14;
-        const topXMax = w * 0.86;
-        const botXMin = w * 0.01;
-        const botXMax = w * 0.99;
-
-        const leftX = topXMin + ny * (botXMin - topXMin);
-        const rightX = topXMax + ny * (botXMax - topXMax);
-        groundX = leftX + nx * (rightX - leftX);
-
-        scale = (0.75 + ny * 0.58) * baseResScale;
-      } else if (cameraMode === "action") {
-        // Vista de Acción FM (Primer plano cinemático con inclinación diagonal e inmersión)
-        const zoom = Math.max(1.20, Math.min(1.65, cameraZoom));
-        const tiltAngle = ((cameraPitchX - 50) / 50) * 0.20; // Giro diagonal
-        const cosT = Math.cos(tiltAngle);
-        const sinT = Math.sin(tiltAngle);
-
-        const dx = (pitchX - cameraPitchX);
-        const dy = (pitchY - 50);
-
-        const rx = dx * cosT - dy * sinT;
-        const ry = dx * sinT + dy * cosT;
-
-        const normY = Math.max(-0.2, Math.min(1.2, (ry + 50) / 100));
-        const depthFactor = 0.74 + normY * 0.52;
-
-        const midX = w * 0.50;
-        const midY = h * 0.53;
-        const spanX = w * 0.96 * zoom;
-        const spanY = h * 0.74 * zoom;
-
-        groundX = midX + (rx / 50) * (spanX * 0.5) * depthFactor;
-        groundY = midY + (ry / 50) * (spanY * 0.5);
-
-        scale = depthFactor * baseResScale * zoom;
-      } else {
-        // "broadcast" - Vista lateral clásica de retransmisión televisiva (como estaba)
-        const zoom = Math.max(0.95, Math.min(1.25, cameraZoom));
-        const camOffsetX = (cameraPitchX - 50) * 0.38;
-        const camOffsetY = (cameraPitchY - 50) * 0.18;
-
-        const relX = pitchX - camOffsetX;
-        const relY = pitchY - camOffsetY;
-
-        const nx = relX / 100;
-        const ny = Math.max(-10, Math.min(110, relY)) / 100;
-
-        const baseTopY = h * 0.20;
-        const baseBotY = h * 0.88;
-        const midY = (baseTopY + baseBotY) / 2;
-        const topY = midY - (midY - baseTopY) * zoom;
-        const botY = midY + (baseBotY - midY) * zoom;
-
-        groundY = topY + ny * (botY - topY);
-
-        const midX = w / 2;
-        const baseTopSpan = w * 0.78 * zoom;
-        const baseBotSpan = w * 0.94 * zoom;
-
-        const leftX = (midX - baseTopSpan / 2) + ny * ((midX - baseBotSpan / 2) - (midX - baseTopSpan / 2));
-        const rightX = (midX + baseTopSpan / 2) + ny * ((midX + baseBotSpan / 2) - (midX + baseTopSpan / 2));
-        groundX = leftX + nx * (rightX - leftX);
-
-        scale = (0.74 + ny * 0.54) * baseResScale * zoom;
-      }
-
-      // Elevación vertical 3D (eje Z para balones aéreos y saltos de cabeza)
-      const screenX = groundX;
-      const screenY = groundY - (pitchZ * scale * 2.3);
-
-      return { groundX, groundY, screenX, screenY, scale };
-    }
-
-    // Sistema de 4 sombras suaves de proyectores en esquinas del estadio (Sello característico Football Manager)
-    function drawStadiumShadows(ctx, groundX, groundY, scale, heightZ = 0, radius = 6.0) {
-      const zOffset = Math.min(heightZ, 25);
-      const expand = 1 + zOffset * 0.08;
-      const fade = Math.max(0.04, 0.22 - zOffset * 0.007);
-
-      const rX = radius * scale * expand;
-      const rY = (radius * 0.44) * scale * expand;
-
-      // Desplazamientos proyectados por los 4 focos del estadio
-      const dist = (6.5 + zOffset * 0.65) * scale;
-      const shadows = [
-        { dx: dist * 0.85, dy: dist * 0.42 },   // Foco Noroeste (hacia Sureste)
-        { dx: -dist * 0.85, dy: dist * 0.42 },  // Foco Noreste (hacia Suroeste)
-        { dx: dist * 0.65, dy: -dist * 0.32 },  // Foco Suroeste (hacia Noreste)
-        { dx: -dist * 0.65, dy: -dist * 0.32 }  // Foco Sureste (hacia Noroeste)
-      ];
-
-      ctx.fillStyle = `rgba(0, 0, 0, ${fade})`;
-      shadows.forEach(s => {
-        ctx.beginPath();
-        ctx.ellipse(groundX + s.dx, groundY + s.dy, rX, rY, 0, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      // Sombra central densa de oclusión ambiental bajo los pies/balón
-      const aoFade = Math.max(0.05, 0.55 - zOffset * 0.025);
-      ctx.fillStyle = `rgba(0, 0, 0, ${aoFade})`;
-      ctx.beginPath();
-      ctx.ellipse(groundX, groundY, (radius * 0.8) * scale, (radius * 0.35) * scale, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    function draw3DBox(ctx, x1, y1, x2, y2, w, h) {
-      const p1 = toScreen3D(x1, y1, 0, w, h);
-      const p2 = toScreen3D(x2, y1, 0, w, h);
-      const p3 = toScreen3D(x2, y2, 0, w, h);
-      const p4 = toScreen3D(x1, y2, 0, w, h);
-
-      ctx.beginPath();
-      ctx.moveTo(p1.groundX, p1.groundY);
-      ctx.lineTo(p2.groundX, p2.groundY);
-      ctx.lineTo(p3.groundX, p3.groundY);
-      ctx.lineTo(p4.groundX, p4.groundY);
-      ctx.closePath();
-      ctx.stroke();
-    }
-
-    // Portería 3D realista con postes cilíndricos, larguero, tensión de red física y deformación por gol
-    function draw3DGoal(ctx, x, y1, y2, dir, w, h) {
-      const gPost1 = toScreen3D(x, y1, 0, w, h);
-      const gPost2 = toScreen3D(x, y2, 0, w, h);
-      const gTop1 = toScreen3D(x, y1, 10.5, w, h);
-      const gTop2 = toScreen3D(x, y2, 10.5, w, h);
-
-      const ripple = dir === -1 ? netRippleH : netRippleA;
-      const rippleBack = ripple * 2.8;
-
-      const netBackX = x - dir * (4.2 + rippleBack);
-      const tNet1 = toScreen3D(netBackX, y1, 8.5, w, h);
-      const tNet2 = toScreen3D(netBackX, y2, 8.5, w, h);
-      const bNet1 = toScreen3D(netBackX, y1, 0, w, h);
-      const bNet2 = toScreen3D(netBackX, y2, 0, w, h);
-
-      // Sombra de los postes en el suelo
-      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
-      ctx.beginPath();
-      ctx.ellipse(gPost1.groundX, gPost1.groundY, 4, 2, 0, 0, Math.PI * 2);
-      ctx.ellipse(gPost2.groundX, gPost2.groundY, 4, 2, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Red superior y trasera con volumen y transparencia translúcida
-      ctx.fillStyle = "rgba(240, 249, 255, 0.22)";
-      ctx.beginPath();
-      ctx.moveTo(gTop1.screenX, gTop1.screenY);
-      ctx.lineTo(gTop2.screenX, gTop2.screenY);
-      ctx.lineTo(tNet2.screenX, tNet2.screenY);
-      ctx.lineTo(tNet1.screenX, tNet1.screenY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Red de fondo con efecto de bombeo por impacto de gol
-      ctx.fillStyle = "rgba(240, 249, 255, 0.16)";
-      ctx.beginPath();
-      ctx.moveTo(tNet1.screenX, tNet1.screenY);
-      ctx.lineTo(tNet2.screenX, tNet2.screenY);
-      ctx.lineTo(bNet2.groundX, bNet2.groundY);
-      ctx.lineTo(bNet1.groundX, bNet1.groundY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Trama hexagonal/diagonal de la red
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.28)";
-      ctx.lineWidth = 0.9;
-      ctx.beginPath();
-      for (let s = 0.2; s <= 0.8; s += 0.2) {
-        const mxTop = gTop1.screenX + (gTop2.screenX - gTop1.screenX) * s;
-        const myTop = gTop1.screenY + (gTop2.screenY - gTop1.screenY) * s;
-        const mxBot = bNet1.groundX + (bNet2.groundX - bNet1.groundX) * s;
-        const myBot = bNet1.groundY + (bNet2.groundY - bNet1.groundY) * s;
-        ctx.moveTo(mxTop, myTop);
-        ctx.lineTo(mxBot, myBot);
-      }
-      ctx.stroke();
-
-      // Postes y larguero 3D blancos con acabado brillante y reborde metálico
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 3.2;
-      ctx.lineCap = "round";
-
-      ctx.beginPath();
-      ctx.moveTo(gPost1.groundX, gPost1.groundY);
-      ctx.lineTo(gTop1.screenX, gTop1.screenY);
-      ctx.lineTo(gTop2.screenX, gTop2.screenY);
-      ctx.lineTo(gPost2.groundX, gPost2.groundY);
-      ctx.stroke();
-
-      // Tirantes traseros de sujeción
-      ctx.strokeStyle = "rgba(226, 232, 240, 0.7)";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(gTop1.screenX, gTop1.screenY);
-      ctx.lineTo(tNet1.screenX, tNet1.screenY);
-      ctx.lineTo(bNet1.groundX, bNet1.groundY);
-      ctx.moveTo(gTop2.screenX, gTop2.screenY);
-      ctx.lineTo(tNet2.screenX, tNet2.screenY);
-      ctx.lineTo(bNet2.groundX, bNet2.groundY);
-      ctx.stroke();
-    }
-
-    // Dibujo del Estadio 3D estilo FM26: Gradas multitudinarias, focos volumétricos, vallas LED y césped segado
-    function draw3DPitch(ctx, w, h) {
-      const nowMs = performance.now();
-
-      // 1. Cielo nocturno y atmósfera de estadio con gradiente cinemático
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.28);
-      skyGrad.addColorStop(0, "#020617");
-      skyGrad.addColorStop(0.65, "#0b1536");
-      skyGrad.addColorStop(1, "#1e293b");
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, w, h);
-
-      // Cerchas y vigas metálicas del techo del estadio (Estructura arquitectónica)
-      ctx.strokeStyle = "rgba(30, 41, 59, 0.7)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      for (let tx = 0; tx <= w; tx += w * 0.12) {
-        ctx.moveTo(tx, 0);
-        ctx.lineTo(tx + w * 0.06, h * 0.08);
-        ctx.lineTo(tx + w * 0.12, 0);
-      }
-      ctx.stroke();
-
-      // 2. Grada del Estadio con Miles de Aficionados (Crowd Backdrop animado)
-      const standTopY = h * 0.03;
-      const standBotY = h * 0.19;
-      const numRows = 8;
-      for (let r = 0; r < numRows; r++) {
-        const rowY = standTopY + (r / numRows) * (standBotY - standTopY);
-        const rowH = (standBotY - standTopY) / numRows;
-
-        // Base de gradas de hormigón
-        ctx.fillStyle = r % 2 === 0 ? "#0f172a" : "#1e293b";
-        ctx.fillRect(0, rowY, w, rowH);
-
-        // Mosaico de hinchas con colores de equipaciones locales y visitantes
-        const dots = Math.floor(w / 6.5);
-        for (let d = 0; d < dots; d++) {
-          const dx = d * 6.5 + (r % 2 === 0 ? 3 : 0);
-          const colorSeed = (d * 19 + r * 37) % 11;
-          let fanColor = "#334155";
-          if (colorSeed < 3) fanColor = homeTeam.primaryColor || "#38bdf8";
-          else if (colorSeed < 5) fanColor = awayTeam.primaryColor || "#f59e0b";
-          else if (colorSeed < 7) fanColor = "#f8fafc";
-          else if (colorSeed < 9) fanColor = "#64748b";
-
-          // Sutil animación de hinchas ondeando banderas o celebrando
-          const bob = Math.sin(nowMs * 0.003 + d * 0.5 + r) * 0.8;
-          ctx.fillStyle = fanColor;
-          ctx.beginPath();
-          ctx.arc(dx, rowY + rowH * 0.55 + bob, 1.4, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Flashes de cámaras fotográficas de los hinchas durante remates a portería
-      if (currentHighlightData && currentHighlightData.phase === "SHOT") {
-        for (let f = 0; f < 8; f++) {
-          if (Math.random() < 0.45) {
-            const fx = Math.random() * w;
-            const fy = standTopY + Math.random() * (standBotY - standTopY);
-            const fr = 2.0 + Math.random() * 3.2;
-            ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-            ctx.beginPath();
-            ctx.arc(fx, fy, fr, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      }
-
-      // 3. Focos de Estadio Profesionales (4 Torres de Iluminación Volumétrica)
-      const floodlights = [
-        { x: w * 0.06, y: h * 0.035, angle: 0.3 },
-        { x: w * 0.94, y: h * 0.035, angle: -0.3 }
-      ];
-
-      floodlights.forEach(fl => {
-        // Haz volumétrico cónico suave hacia el centro del campo
-        const beam = ctx.createRadialGradient(fl.x, fl.y, 6, fl.x + fl.angle * w * 0.3, h * 0.6, w * 0.5);
-        beam.addColorStop(0, "rgba(255, 255, 255, 0.45)");
-        beam.addColorStop(0.25, "rgba(224, 242, 254, 0.18)");
-        beam.addColorStop(1, "rgba(224, 242, 254, 0)");
-        ctx.fillStyle = beam;
-        ctx.beginPath();
-        ctx.moveTo(fl.x - 14, fl.y);
-        ctx.lineTo(fl.x - w * 0.38, h * 0.9);
-        ctx.lineTo(fl.x + w * 0.38, h * 0.9);
-        ctx.lineTo(fl.x + 14, fl.y);
-        ctx.closePath();
-        ctx.fill();
-
-        // Estructura y lámparas LED de la torre
-        ctx.fillStyle = "#ffffff";
-        for (let bx = -8; bx <= 8; bx += 4) {
-          for (let by = -4; by <= 4; by += 4) {
-            ctx.beginPath();
-            ctx.arc(fl.x + bx, fl.y + by, 1.4, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      });
-
-      // 4. Vallas publicitarias LED dinámicas en la banda superior (Estilo FM26 con marquesina animada)
-      const adL = toScreen3D(0, -2.2, 0, w, h);
-      const adR = toScreen3D(100, -2.2, 0, w, h);
-      const adPitchL = toScreen3D(0, 0, 0, w, h);
-      const adPitchR = toScreen3D(100, 0, 0, w, h);
-
-      ctx.beginPath();
-      ctx.moveTo(adL.groundX, adL.groundY - 11);
-      ctx.lineTo(adR.groundX, adR.groundY - 11);
-      ctx.lineTo(adPitchR.groundX, adPitchR.groundY);
-      ctx.lineTo(adPitchL.groundX, adPitchL.groundY);
-      ctx.closePath();
-      ctx.fillStyle = "#050914";
-      ctx.fill();
-
-      // Borde LED luminoso superior
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.9)";
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-
-      // Marquesina LED animada con marcas oficiales
-      const ledCycle = (nowMs * 0.05) % (w * 1.6);
-      const adMid = toScreen3D(50, -1, 0, w, h);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, adL.groundY - 12, w, 14);
-      ctx.clip();
-
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = `900 ${Math.max(8, Math.round(w * 0.023))}px monospace`;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      const bannerText = "⚽ FOOTBALL MANAGER 26 · LALIGA EA SPORTS · ENTRENATE-TE-TE · EA SPORTS FC · ADIDAS · NIKE · FLY EMIRATES ⚽   ";
-      const repX = (adMid.groundX - w * 0.8) + ledCycle;
-      ctx.fillText(bannerText, repX - w * 1.5, adL.groundY - 4);
-      ctx.fillText(bannerText, repX, adL.groundY - 4);
-      ctx.fillText(bannerText, repX + w * 1.5, adL.groundY - 4);
-      ctx.restore();
-
-      // 5. Perímetro exterior de césped de desahogo / moqueta técnica
-      const pTL = toScreen3D(-6, -4, 0, w, h);
-      const pTR = toScreen3D(106, -4, 0, w, h);
-      const pBR = toScreen3D(106, 105, 0, w, h);
-      const pBL = toScreen3D(-6, 105, 0, w, h);
-
-      ctx.beginPath();
-      ctx.moveTo(pTL.groundX, pTL.groundY);
-      ctx.lineTo(pTR.groundX, pTR.groundY);
-      ctx.lineTo(pBR.groundX, pBR.groundY);
-      ctx.lineTo(pBL.groundX, pBL.groundY);
-      ctx.closePath();
-      ctx.fillStyle = "#114a27";
-      ctx.fill();
-
-      // Banquillos en la banda con siluetas de técnicos y suplentes
-      const benchL = toScreen3D(35, 103, 0, w, h);
-      const benchR = toScreen3D(65, 103, 0, w, h);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.fillRect(benchL.groundX, benchL.groundY - 6, (benchR.groundX - benchL.groundX), 9);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-      ctx.strokeRect(benchL.groundX, benchL.groundY - 6, (benchR.groundX - benchL.groundX), 9);
-
-      // 6. Franjas segadas de césped cortado profesional FM (Alternancia verde esmeralda y textura idéntica a la foto)
-      const numStripes = 18;
-      for (let i = 0; i < numStripes; i++) {
-        const x1 = (i / numStripes) * 100;
-        const x2 = ((i + 1) / numStripes) * 100;
-        const sTL = toScreen3D(x1, 0, 0, w, h);
-        const sTR = toScreen3D(x2, 0, 0, w, h);
-        const sBR = toScreen3D(x2, 100, 0, w, h);
-        const sBL = toScreen3D(x1, 100, 0, w, h);
-
-        ctx.beginPath();
-        ctx.moveTo(sTL.groundX, sTL.groundY);
-        ctx.lineTo(sTR.groundX, sTR.groundY);
-        ctx.lineTo(sBR.groundX, sBR.groundY);
-        ctx.lineTo(sBL.groundX, sBL.groundY);
-        ctx.closePath();
-
-        // Tonalidad de césped rica y realista de alta fidelidad FM
-        ctx.fillStyle = i % 2 === 0 ? "#216d2f" : "#2a7f39";
-        ctx.fill();
-      }
-
-      // Textura de corte perpendicular fino del césped
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
-      ctx.lineWidth = 1.0;
-      for (let ly = 10; ly < 100; ly += 12) {
-        const pL = toScreen3D(0, ly, 0, w, h);
-        const pR = toScreen3D(100, ly, 0, w, h);
-        ctx.beginPath();
-        ctx.moveTo(pL.groundX, pL.groundY);
-        ctx.lineTo(pR.groundX, pR.groundY);
-        ctx.stroke();
-      }
-
-      // Sombra proyectada por la visera / cubierta de la grada del estadio (Exacta al pantallazo de Football Manager)
-      ctx.save();
-      const sh1 = toScreen3D(-4, -2, 0, w, h);
-      const sh2 = toScreen3D(42, -2, 0, w, h);
-      const sh3 = toScreen3D(18, 102, 0, w, h);
-      const sh4 = toScreen3D(-4, 102, 0, w, h);
-      ctx.beginPath();
-      ctx.moveTo(sh1.groundX, sh1.groundY);
-      ctx.lineTo(sh2.groundX, sh2.groundY);
-      ctx.lineTo(sh3.groundX, sh3.groundY);
-      ctx.lineTo(sh4.groundX, sh4.groundY);
-      ctx.closePath();
-      ctx.fillStyle = "rgba(0, 22, 6, 0.28)";
-      ctx.fill();
-      ctx.restore();
-
-      // Brillo e iluminación cenital en el centro del terreno
-      const pitchCenter = toScreen3D(50, 50, 0, w, h);
-      const pitchSheen = ctx.createRadialGradient(
-        pitchCenter.groundX, pitchCenter.groundY, 8,
-        pitchCenter.groundX, pitchCenter.groundY, w * 0.48
-      );
-      pitchSheen.addColorStop(0, "rgba(255, 255, 255, 0.08)");
-      pitchSheen.addColorStop(0.6, "rgba(255, 255, 255, 0.02)");
-      pitchSheen.addColorStop(1, "rgba(0, 0, 0, 0.10)");
-      ctx.fillStyle = pitchSheen;
-      ctx.beginPath();
-      const pC1 = toScreen3D(0, 0, 0, w, h);
-      const pC2 = toScreen3D(100, 0, 0, w, h);
-      const pC3 = toScreen3D(100, 100, 0, w, h);
-      const pC4 = toScreen3D(0, 100, 0, w, h);
-      ctx.moveTo(pC1.groundX, pC1.groundY);
-      ctx.lineTo(pC2.groundX, pC2.groundY);
-      ctx.lineTo(pC3.groundX, pC3.groundY);
-      ctx.lineTo(pC4.groundX, pC4.groundY);
-      ctx.closePath();
-      ctx.fill();
-
-      // 7. Líneas blancas del terreno de juego nítidas con antialiasing
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-      ctx.lineWidth = 2.1;
-
-      // Líneas de banda y fondo
-      ctx.beginPath();
-      ctx.moveTo(pC1.groundX, pC1.groundY);
-      ctx.lineTo(pC2.groundX, pC2.groundY);
-      ctx.lineTo(pC3.groundX, pC3.groundY);
-      ctx.lineTo(pC4.groundX, pC4.groundY);
-      ctx.closePath();
-      ctx.stroke();
-
-      // Línea de medio campo
-      const midT = toScreen3D(50, 0, 0, w, h);
-      const midB = toScreen3D(50, 100, 0, w, h);
-      ctx.beginPath();
-      ctx.moveTo(midT.groundX, midT.groundY);
-      ctx.lineTo(midB.groundX, midB.groundY);
-      ctx.stroke();
-
-      // Círculo central 3D elíptico (radio oficial)
-      ctx.beginPath();
-      for (let a = 0; a <= Math.PI * 2 + 0.1; a += 0.12) {
-        const cx = 50 + Math.cos(a) * 8.8;
-        const cy = 50 + Math.sin(a) * 13.5;
-        const pt = toScreen3D(cx, cy, 0, w, h);
-        if (a === 0) ctx.moveTo(pt.groundX, pt.groundY);
-        else ctx.lineTo(pt.groundX, pt.groundY);
-      }
-      ctx.stroke();
-
-      // Punto central
-      const centerDot = toScreen3D(50, 50, 0, w, h);
-      ctx.beginPath();
-      ctx.arc(centerDot.groundX, centerDot.groundY, 3.0, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-
-      // Áreas de Penalti y de Meta (Locales)
-      draw3DBox(ctx, 0, 20.5, 15.8, 79.5, w, h); // Área grande
-      draw3DBox(ctx, 0, 36.5, 5.3, 63.5, w, h);  // Área pequeña
-
-      // Punto de penalti local (11m)
-      const penDotH = toScreen3D(10.5, 50, 0, w, h);
-      ctx.beginPath();
-      ctx.arc(penDotH.groundX, penDotH.groundY, 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-
-      // Arco del área local (D-box)
-      ctx.beginPath();
-      for (let a = -0.68; a <= 0.68; a += 0.12) {
-        const ax = 10.5 + Math.cos(a) * 8.8;
-        const ay = 50 + Math.sin(a) * 13.5;
-        const pt = toScreen3D(ax, ay, 0, w, h);
-        if (a === -0.68) ctx.moveTo(pt.groundX, pt.groundY);
-        else ctx.lineTo(pt.groundX, pt.groundY);
-      }
-      ctx.stroke();
-
-      // Áreas de Penalti y de Meta (Visitantes)
-      draw3DBox(ctx, 84.2, 20.5, 100, 79.5, w, h); // Área grande
-      draw3DBox(ctx, 94.7, 36.5, 100, 63.5, w, h); // Área pequeña
-
-      // Punto de penalti visitante (11m)
-      const penDotA = toScreen3D(89.5, 50, 0, w, h);
-      ctx.beginPath();
-      ctx.arc(penDotA.groundX, penDotA.groundY, 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-
-      // Arco del área visitante (D-box)
-      ctx.beginPath();
-      for (let a = Math.PI - 0.68; a <= Math.PI + 0.68; a += 0.12) {
-        const ax = 89.5 + Math.cos(a) * 8.8;
-        const ay = 50 + Math.sin(a) * 13.5;
-        const pt = toScreen3D(ax, ay, 0, w, h);
-        if (a === Math.PI - 0.68) ctx.moveTo(pt.groundX, pt.groundY);
-        else ctx.lineTo(pt.groundX, pt.groundY);
-      }
-      ctx.stroke();
-
-      // Arcos de córner en las 4 esquinas
-      const corners = [
-        { x: 0, y: 0, a1: 0, a2: Math.PI / 2 },
-        { x: 100, y: 0, a1: Math.PI / 2, a2: Math.PI },
-        { x: 100, y: 100, a1: Math.PI, a2: (3 * Math.PI) / 2 },
-        { x: 0, y: 100, a1: (3 * Math.PI) / 2, a2: Math.PI * 2 }
-      ];
-
-      corners.forEach(cn => {
-        ctx.beginPath();
-        for (let a = cn.a1; a <= cn.a2 + 0.05; a += 0.2) {
-          const pt = toScreen3D(cn.x + Math.cos(a) * 1.5, cn.y + Math.sin(a) * 2.2, 0, w, h);
-          if (a === cn.a1) ctx.moveTo(pt.groundX, pt.groundY);
-          else ctx.lineTo(pt.groundX, pt.groundY);
-        }
-        ctx.stroke();
-
-        // Banderín de córner 3D (Mástil flexible y tela flameando)
-        const bBase = toScreen3D(cn.x, cn.y, 0, w, h);
-        const bTop = toScreen3D(cn.x, cn.y, 4.6, w, h);
-        ctx.strokeStyle = "#fef08a";
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.moveTo(bBase.groundX, bBase.groundY);
-        ctx.lineTo(bTop.screenX, bTop.screenY);
-        ctx.stroke();
-
-        // Bandera con ondulación de viento
-        const flagWave = Math.sin(nowMs * 0.008 + cn.x) * 1.2;
-        ctx.fillStyle = "#ef4444";
-        ctx.beginPath();
-        ctx.moveTo(bTop.screenX, bTop.screenY);
-        ctx.lineTo(bTop.screenX + (cn.x === 0 ? 5.5 : -5.5), bTop.screenY + 2 + flagWave);
-        ctx.lineTo(bTop.screenX, bTop.screenY + 4.5);
-        ctx.closePath();
-        ctx.fill();
-      });
-
-      // Porterías 3D oficiales con deformación física de red
-      draw3DGoal(ctx, 0, 44.5, 55.5, -1, w, h);
-      draw3DGoal(ctx, 100, 44.5, 55.5, 1, w, h);
-    }
-
-    // Dibujo de fichas circulares 2D estilo clásico Football Manager (🔴 con los colores de la equipación del equipo)
-    // Se usa durante la simulación normal del partido (fuera de las jugadas clave)
-    function drawRealisticPlayer3D(ctx, item) {
-      const { groundX, groundY, scale, side, isKeeper, number, isCarrier, playerId } = item;
-      const kit = side === "home" ? kits.home : kits.away;
-      const primaryColor = isKeeper ? (kit.keeper || "#10b981") : (kit.jersey || "#ef4444");
-      const secondaryColor = isKeeper ? "#ffffff" : (kit.collar || kit.shorts || "#ffffff");
-      const numberColor = isKeeper ? "#0f172a" : (kit.number || "#ffffff");
-
-      const sc = scale;
-      const nowMs = performance.now();
-      const radius = 7.4 * sc;
-      const centerY = groundY - 2.5 * sc;
-
-      ctx.save();
-
-      // 1. Sombra suave bajo la ficha 2D en el césped
-      ctx.fillStyle = "rgba(0, 20, 6, 0.42)";
-      ctx.beginPath();
-      ctx.ellipse(groundX, groundY + 1.2 * sc, radius * 0.95, radius * 0.48, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 2. Halo luminoso si el jugador lleva el balón
-      if (isCarrier) {
-        const pulse = Math.sin(nowMs * 0.01) * 1.5 * sc;
-        ctx.strokeStyle = "#fbbf24";
-        ctx.lineWidth = 2.0 * sc;
-        ctx.beginPath();
-        ctx.arc(groundX, centerY, radius + 3.0 * sc + pulse, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.fillStyle = "rgba(251, 191, 36, 0.22)";
-        ctx.fill();
-      }
-
-      // 3. Si es protagonista en repetición, aro indicador
-      const isShooter = currentHighlightData && currentHighlightData.shooter?.id === playerId;
-      const isPasser = currentHighlightData && currentHighlightData.passer?.id === playerId;
-      if (isShooter || isPasser) {
-        ctx.strokeStyle = isShooter ? "#10b981" : "#38bdf8";
-        ctx.lineWidth = 1.8 * sc;
-        ctx.beginPath();
-        ctx.arc(groundX, centerY, radius + 2.4 * sc, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      // 4. Contorno exterior oscuro de contraste sobre el césped
-      ctx.beginPath();
-      ctx.arc(groundX, centerY, radius + 1.0 * sc, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.fill();
-
-      // 5. Círculo principal con el color de la equipación del equipo
-      ctx.beginPath();
-      ctx.arc(groundX, centerY, radius, 0, Math.PI * 2);
-      ctx.fillStyle = primaryColor;
-      ctx.fill();
-
-      // Brillo esférico sutil tipo ficha 🔴
-      const shineGrad = ctx.createRadialGradient(
-        groundX - radius * 0.3,
-        centerY - radius * 0.3,
-        radius * 0.08,
-        groundX,
-        centerY,
-        radius
-      );
-      shineGrad.addColorStop(0, "rgba(255, 255, 255, 0.35)");
-      shineGrad.addColorStop(0.55, "rgba(255, 255, 255, 0.0)");
-      shineGrad.addColorStop(1, "rgba(0, 0, 0, 0.28)");
-      ctx.fillStyle = shineGrad;
-      ctx.fill();
-
-      // 6. Anillo interior con el color secundario de la equipación
-      ctx.strokeStyle = secondaryColor;
-      ctx.lineWidth = Math.max(1.2, 1.8 * sc);
-      ctx.stroke();
-
-      // 7. Dorsal del jugador centrado en la ficha
-      ctx.font = `900 ${Math.max(7, Math.round(7.2 * sc))}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.75)";
-      ctx.lineWidth = Math.max(1.5, 2.0 * sc);
-      ctx.strokeText(`${number}`, groundX, centerY + 0.4 * sc);
-      ctx.fillStyle = numberColor;
-      ctx.fillText(`${number}`, groundX, centerY + 0.4 * sc);
-
-      ctx.restore();
-    }
-
-    function drawMonigote3D(ctx, item) {
-      drawRealisticPlayer3D(ctx, item);
-    }
-
-    // Dibujo del balón 3D con luz solar directional, paneles oficiales y estela de velocidad
-    function drawBall3D(ctx, item) {
-      const { groundX, groundY, screenX, screenY, scale, z } = item;
-
-      // 1. Sombra direccional en el césped por la luz solar (Consistente con los futbolistas y el estadio)
-      const shadowDist = (2.2 + (z || 0) * 0.45) * scale;
-      const shadowR = (4.0 + (z || 0) * 0.15) * scale;
-      const shadowAlpha = Math.max(0.12, 0.44 - (z || 0) * 0.035);
-
-      ctx.save();
-      ctx.fillStyle = `rgba(0, 25, 8, ${shadowAlpha})`;
-      ctx.beginPath();
-      ctx.ellipse(groundX - shadowDist * 0.85, groundY + shadowDist * 0.45, shadowR, shadowR * 0.52, -0.38, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // 2. Estela cinemática de velocidad en disparos
-      if (ballTrail.length > 1) {
-        for (let t = 0; t < ballTrail.length - 1; t++) {
-          const tPt = toScreen3D(ballTrail[t].x, ballTrail[t].y, ballTrail[t].z || 0, canvas.width, canvas.height);
-          const tAlpha = (t / ballTrail.length) * 0.38;
-          ctx.beginPath();
-          ctx.arc(tPt.screenX, tPt.screenY, (3.0 * scale) * (0.35 + (t / ballTrail.length) * 0.65), 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(255, 255, 255, ${tAlpha})`;
-          ctx.fill();
-        }
-      }
-
-      // 3. Esfera del balón 3D con luz radial de focos y sol
-      const ballR = 4.4 * scale;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, ballR, 0, Math.PI * 2);
-
-      const grad = ctx.createRadialGradient(
-        screenX - ballR * 0.35, screenY - ballR * 0.35, ballR * 0.08,
-        screenX, screenY, ballR
-      );
-      grad.addColorStop(0, "#ffffff");
-      grad.addColorStop(0.7, "#f1f5f9");
-      grad.addColorStop(1, "#334155");
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.6)";
-      ctx.lineWidth = 1.0;
-      ctx.stroke();
-
-      // 4. Paneles pentagonales del balón oficial rotando
-      ctx.save();
-      ctx.translate(screenX, screenY);
-      ctx.rotate(ballRotation);
-
-      ctx.fillStyle = "#0f172a";
-      ctx.beginPath();
-      for (let p = 0; p < 5; p++) {
-        const pa = (p * Math.PI * 2) / 5;
-        const px = Math.cos(pa) * (ballR * 0.44);
-        const py = Math.sin(pa) * (ballR * 0.44);
-        if (p === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-      ctx.fill();
-
-      // Detalles aerodinámicos de color LaLiga
-      ctx.strokeStyle = "#f97316";
-      ctx.lineWidth = 1.2 * scale;
-      ctx.beginPath();
-      ctx.arc(0, 0, ballR * 0.74, 0.2, 1.4);
-      ctx.stroke();
-
-      ctx.restore();
-    }
-
     // ==========================================
     // ESTADO DE JUGADAS CLAVE Y REPETICIONES
     // ==========================================
@@ -13068,7 +12965,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       }
 
       if (phaseData.tacticalNote) {
-        updateFMCommentary(phaseData.tacticalNote, phaseData.phase === "BUILDUP" ? "CONSTRUCCIÓN" : phaseData.phase === "PASS" ? "ASISTENCIA" : "REMATE", true);
+        const badgeLabel = phaseData.phaseLabel || (phaseData.phase === "BUILDUP" ? "CONSTRUCCIÓN" : phaseData.phase === "PASS" ? "ASISTENCIA" : "EN VIVO");
+        updateFMCommentary(phaseData.tacticalNote, badgeLabel, true);
       }
     }
 
@@ -13403,2132 +13301,6 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       subChyronTimeout = setTimeout(closeChyron, 3200);
     }
 
-    // Bucle principal de renderizado 3D a 60 FPS estilo Football Manager 26
-    let lastBallX = 50;
-    let lastBallY = 50;
-
-    // ==========================================
-    // CÁMARA CINEMÁTICA 3D BROADCAST (ESTILO EA SPORTS FC / PREMIER LEAGUE TV)
-    // Con seguimiento dinámico de cámara y Modelado 3D Volumétrico de Futbolistas
-    // ==========================================
-    function shadeHexColor(hex, percent) {
-      if (!hex || typeof hex !== "string" || !hex.startsWith("#")) return hex || "#334155";
-      let c = hex.substring(1);
-      if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
-      const num = parseInt(c, 16);
-      if (isNaN(num)) return hex;
-      const r = Math.min(255, Math.max(0, ((num >> 16) & 0xff) + Math.round(2.55 * percent)));
-      const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + Math.round(2.55 * percent)));
-      const b = Math.min(255, Math.max(0, (num & 0xff) + Math.round(2.55 * percent)));
-      return `rgb(${r},${g},${b})`;
-    }
-
-    function draw3DCapsuleLimb(ctx, x1, y1, r1, x2, y2, r2, baseCol, darkCol, lightCol) {
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const len = Math.hypot(dx, dy);
-      if (len < 0.05) {
-        ctx.fillStyle = baseCol;
-        ctx.beginPath();
-        ctx.arc(x1, y1, r1, 0, Math.PI * 2);
-        ctx.fill();
-        return;
-      }
-      const nx = -dy / len;
-      const ny = dx / len;
-      const maxR = Math.max(r1, r2, 0.8);
-      const midX = (x1 + x2) * 0.5;
-      const midY = (y1 + y2) * 0.5;
-
-      const grad = ctx.createLinearGradient(
-        midX - nx * maxR,
-        midY - ny * maxR,
-        midX + nx * maxR,
-        midY + ny * maxR
-      );
-      grad.addColorStop(0, lightCol || baseCol);
-      grad.addColorStop(0.42, baseCol);
-      grad.addColorStop(1, darkCol || baseCol);
-
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(x1 + nx * r1, y1 + ny * r1);
-      ctx.lineTo(x2 + nx * r2, y2 + ny * r2);
-      ctx.arc(x2, y2, r2, Math.atan2(ny, nx), Math.atan2(-ny, -nx), false);
-      ctx.lineTo(x1 - nx * r1, y1 - ny * r1);
-      ctx.arc(x1, y1, r1, Math.atan2(-ny, -nx), Math.atan2(ny, nx), false);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    function projectEA3D(u, v, z, w, h, camU = 0, camV = 34) {
-      // u: metros desde la línea de fondo hacia el centro del campo (0 = línea de gol, 16.5 = borde área grande, 36 = medular)
-      // v: metros a través del ancho del campo (0 = banda lejana sup-dcha, 34 = centro portería, 68 = banda cercana inf-izq)
-      // z: altura en metros sobre el césped (2.44 = larguero)
-      const relU = u - camU * 0.62;
-      const relV = v - (camV - 34) * 0.35;
-      const uNorm = relU / 32;
-      const vNorm = relV / 55;
-      // Factor de expansión por cercanía a cámara
-      const persp = 1 + uNorm * 0.22 + vNorm * 0.18;
-
-      const baseX = 0.675 * w;
-      const baseY = 0.082 * h;
-
-      // Vector a lo largo de la línea de gol (+v: baja hacia la izquierda)
-      const vx = -0.0162 * w * (1 + uNorm * 0.14);
-      const vy = 0.00565 * h * (1 + uNorm * 0.12);
-
-      // Vector hacia el interior del campo (+u: baja hacia la derecha)
-      const ux = 0.0172 * w * (1 + vNorm * 0.06);
-      const uy = 0.0156 * h * (1 + vNorm * 0.15);
-
-      const groundX = baseX + relV * vx + relU * ux;
-      const groundY = baseY + relV * vy + relU * uy;
-
-      const scale = Math.max(0.50, Math.min(1.68, 0.72 * persp));
-      const screenY = groundY - z * (0.044 * h) * scale;
-
-      return {
-        x: groundX,
-        y: screenY,
-        groundY: groundY,
-        sc: scale * Math.min(w / 480, h / 290)
-      };
-    }
-
-    function drawFrontalBall(ctx, x, y, zPx, r, sc, spinPhase = 0) {
-      // Sombra proyectada sobre el césped con oclusión realista
-      ctx.save();
-      const shadowAlpha = Math.max(0.12, 0.52 - (zPx / (42 * sc)) * 0.34);
-      const shSpread = 1 + Math.min(0.6, zPx / (55 * sc));
-      ctx.fillStyle = `rgba(5, 18, 6, ${shadowAlpha})`;
-      ctx.beginPath();
-      ctx.ellipse(x + 1.4 * sc, y + 0.9 * sc, r * 1.32 * shSpread, r * 0.58 * shSpread, -0.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      const bY = y - zPx;
-      const bR = Math.max(3.0, r * 0.96);
-
-      // Esfera 3D volumétrica con iluminación especular estilo balón oficial Premier/LaLiga
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(x, bY, bR, 0, Math.PI * 2);
-      const bGrad = ctx.createRadialGradient(x - bR * 0.35, bY - bR * 0.38, bR * 0.06, x + bR * 0.1, bY + bR * 0.1, bR);
-      bGrad.addColorStop(0, "#ffffff");
-      bGrad.addColorStop(0.58, "#f8fafc");
-      bGrad.addColorStop(0.84, "#cbd5e1");
-      bGrad.addColorStop(1, "#334155");
-      ctx.fillStyle = bGrad;
-      ctx.fill();
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.55)";
-      ctx.lineWidth = Math.max(0.65, 0.78 * sc);
-      ctx.stroke();
-
-      // Gráficos rotatorios 3D del balón oficial (anillos magenta/púrpura/azul)
-      ctx.clip();
-      const offX = Math.cos(spinPhase) * bR * 0.28;
-      const offY = Math.sin(spinPhase) * bR * 0.22;
-      ctx.strokeStyle = "#be185d";
-      ctx.lineWidth = Math.max(0.85, 1.05 * sc);
-      ctx.beginPath();
-      ctx.arc(x + offX, bY + offY, bR * 0.56, 0.15, Math.PI * 1.4);
-      ctx.stroke();
-
-      ctx.strokeStyle = "#3b0764";
-      ctx.lineWidth = Math.max(0.75, 0.9 * sc);
-      ctx.beginPath();
-      ctx.arc(x - offX * 0.8, bY - offY * 0.8, bR * 0.48, Math.PI * 0.8, Math.PI * 2.05);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // ==========================================
-    // MOTOR DE MODELADO 3D VOLUMÉTRICO DE FUTBOLISTAS (ESTILO IMAGEN DE REFERENCIA)
-    // Anatomía articulada 3D en 360°, sombreado cilíndrico de extremidades, pliegues de equipación y biomecánica real
-    // ==========================================
-    function drawFrontalAthlete(ctx, ent) {
-      const { x, y, sc, kit, number, isKeeper, isReferee, isLinesman, pose, facing, yaw: rawYaw, name, elapsed, stridePhase } = ent;
-      const jerseyColor = isReferee ? "#1e293b" : (isLinesman ? "#0f172a" : (isKeeper ? (kit.keeper || "#84cc16") : (kit.jersey || "#2563eb")));
-      const jerseyLight = shadeHexColor(jerseyColor, 16);
-      const jerseyDark = shadeHexColor(jerseyColor, -24);
-
-      const shortsColor = isReferee || isLinesman ? "#090d16" : (isKeeper ? (kit.keeper || "#84cc16") : (kit.shorts || "#ffffff"));
-      const shortsLight = shadeHexColor(shortsColor, 12);
-      const shortsDark = shadeHexColor(shortsColor, -22);
-
-      const socksColor = isReferee || isLinesman ? "#090d16" : (isKeeper ? "#bef264" : (kit.socks || "#ffffff"));
-      const socksLight = shadeHexColor(socksColor, 10);
-      const socksDark = shadeHexColor(socksColor, -20);
-
-      const bootPalettes = [
-        { main: "#f97316", sole: "#7c2d12", highlight: "#fdba74" },
-        { main: "#f8fafc", sole: "#334155", highlight: "#ffffff" },
-        { main: "#111827", sole: "#030712", highlight: "#374151" },
-        { main: "#ef4444", sole: "#7f1d1d", highlight: "#fca5a5" },
-        { main: "#eab308", sole: "#713f12", highlight: "#fef08a" }
-      ];
-      const bootInfo = (isReferee || isLinesman)
-        ? bootPalettes[2]
-        : bootPalettes[(number || 1) % bootPalettes.length];
-
-      const skinPalettes = [
-        { base: "#f3c6a0", dark: "#c9936b", light: "#fde2c8" },
-        { base: "#e29d6c", dark: "#b36f42", light: "#f5be96" },
-        { base: "#8d5524", dark: "#5c3310", light: "#b0723c" },
-        { base: "#f0b484", dark: "#c28254", light: "#fbd3b3" },
-        { base: "#c68642", dark: "#8f5922", light: "#e0a360" },
-        { base: "#5c3818", dark: "#381f09", light: "#7d5027" }
-      ];
-      const hairColors = ["#1c1917", "#3f2305", "#78350f", "#090d16", "#a16207", "#d97706", "#27272a"];
-      const pHash = ((number || 1) * 37 + (name ? name.charCodeAt(0) * 13 : 7)) % 100;
-      const skin = skinPalettes[pHash % skinPalettes.length];
-      const hairColor = hairColors[pHash % hairColors.length];
-      const hairHighlight = shadeHexColor(hairColor, 18);
-      const hairStyle = pHash % 5; // 0: fade crop, 1: curly, 2: wavy, 3: side part, 4: undercut
-
-      ctx.save();
-      ctx.translate(x, y);
-
-      // Sombra de oclusión ambiental + sombras de contacto de los tacos sobre el césped
-      const zPx = ent.zPx || 0;
-      const shScale = Math.max(0.50, 1 - zPx / (48 * sc));
-      const aoGrad = ctx.createRadialGradient(-0.8 * sc, 0.4 * sc, 0.5 * sc, -0.8 * sc, 0.4 * sc, 8.2 * sc * shScale);
-      aoGrad.addColorStop(0, `rgba(4, 16, 4, ${0.48 * shScale})`);
-      aoGrad.addColorStop(0.55, `rgba(6, 22, 6, ${0.26 * shScale})`);
-      aoGrad.addColorStop(1, "rgba(6, 22, 6, 0)");
-      ctx.fillStyle = aoGrad;
-      ctx.beginPath();
-      ctx.ellipse(-0.8 * sc, 0.4 * sc, 8.2 * sc * shScale, 3.4 * sc * shScale, -0.18, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (zPx > 0) {
-        ctx.translate(0, -zPx);
-      }
-
-      // 1. PORTERO EN ESTIRADA AÉREA 3D (DIVE)
-      if (pose === "DIVE_RIGHT" || pose === "DIVE_LEFT") {
-        const dir = pose === "DIVE_RIGHT" ? 1 : -1;
-        ctx.save();
-        ctx.translate(0, -10.5 * sc);
-        ctx.rotate(dir * 0.64);
-
-        // Pierna atrasada y adelantada con volumen 3D
-        draw3DCapsuleLimb(ctx, -dir * 5.5 * sc, 0.5 * sc, 2.0 * sc, -dir * 13.5 * sc, 3.2 * sc, 1.45 * sc, skin.base, skin.dark, skin.light);
-        draw3DCapsuleLimb(ctx, -dir * 13.5 * sc, 3.2 * sc, 1.5 * sc, -dir * 21.5 * sc, 5.2 * sc, 1.1 * sc, socksColor, socksDark, socksLight);
-        draw3DCapsuleLimb(ctx, -dir * 4.5 * sc, -1.8 * sc, 1.9 * sc, -dir * 12.0 * sc, -0.4 * sc, 1.4 * sc, skin.base, skin.dark, skin.light);
-        draw3DCapsuleLimb(ctx, -dir * 12.0 * sc, -0.4 * sc, 1.45 * sc, -dir * 19.5 * sc, 1.0 * sc, 1.05 * sc, socksColor, socksDark, socksLight);
-
-        // Botas
-        ctx.fillStyle = bootInfo.main;
-        ctx.beginPath();
-        ctx.ellipse(-dir * 22.2 * sc, 5.6 * sc, 2.4 * sc, 1.15 * sc, 0.2 * dir, 0, Math.PI * 2);
-        ctx.ellipse(-dir * 20.2 * sc, 1.4 * sc, 2.4 * sc, 1.15 * sc, 0.2 * dir, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Pantalón 3D y Torso
-        draw3DCapsuleLimb(ctx, -dir * 6.5 * sc, -0.5 * sc, 3.2 * sc, -dir * 1.0 * sc, -0.5 * sc, 3.4 * sc, shortsColor, shortsDark, shortsLight);
-        draw3DCapsuleLimb(ctx, -dir * 1.5 * sc, -0.5 * sc, 3.6 * sc, dir * 8.2 * sc, -0.8 * sc, 4.2 * sc, jerseyColor, jerseyDark, jerseyLight);
-
-        // Brazos estirados hacia la escuadra/palo
-        draw3DCapsuleLimb(ctx, dir * 7.2 * sc, -2.5 * sc, 1.65 * sc, dir * 19.5 * sc, -4.2 * sc, 1.25 * sc, jerseyColor, jerseyDark, jerseyLight);
-        draw3DCapsuleLimb(ctx, dir * 7.2 * sc, 1.5 * sc, 1.65 * sc, dir * 18.0 * sc, -0.2 * sc, 1.25 * sc, jerseyColor, jerseyDark, jerseyLight);
-
-        // Guantes profesionales de portero
-        ctx.fillStyle = "#d9f99d";
-        ctx.beginPath();
-        ctx.ellipse(dir * 20.8 * sc, -4.3 * sc, 2.6 * sc, 1.8 * sc, -0.15 * dir, 0, Math.PI * 2);
-        ctx.ellipse(dir * 19.2 * sc, -0.2 * sc, 2.5 * sc, 1.7 * sc, -0.1 * dir, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Cabeza 3D
-        ctx.fillStyle = skin.base;
-        ctx.beginPath();
-        ctx.ellipse(dir * 10.6 * sc, -3.2 * sc, 3.2 * sc, 2.8 * sc, -0.1 * dir, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = hairColor;
-        ctx.beginPath();
-        ctx.arc(dir * 10.6 * sc, -4.0 * sc, 3.0 * sc, Math.PI, 0);
-        ctx.fill();
-
-        ctx.restore();
-        ctx.restore();
-        return;
-      }
-
-      // 2. PORTERO EN EL SUELO TRAS ESTIRADA
-      if (pose === "GROUND_RIGHT" || pose === "GROUND_LEFT" || pose === "CONCEDED") {
-        const dir = pose === "GROUND_LEFT" ? -1 : 1;
-        draw3DCapsuleLimb(ctx, -dir * 12 * sc, -2.0 * sc, 1.4 * sc, -dir * 5 * sc, -2.5 * sc, 2.4 * sc, socksColor, socksDark, socksLight);
-        draw3DCapsuleLimb(ctx, -dir * 6 * sc, -2.6 * sc, 3.0 * sc, -dir * 1 * sc, -2.8 * sc, 3.2 * sc, shortsColor, shortsDark, shortsLight);
-        draw3DCapsuleLimb(ctx, -dir * 1 * sc, -2.8 * sc, 3.3 * sc, dir * 7.5 * sc, -3.2 * sc, 3.6 * sc, jerseyColor, jerseyDark, jerseyLight);
-        ctx.fillStyle = skin.base;
-        ctx.beginPath();
-        ctx.arc(dir * 9.8 * sc, -4.8 * sc, 3.0 * sc, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = hairColor;
-        ctx.beginPath();
-        ctx.arc(dir * 9.8 * sc, -5.5 * sc, 2.9 * sc, Math.PI, 0);
-        ctx.fill();
-        ctx.restore();
-        return;
-      }
-
-      // 3. CENTRAL EN SEGADA DEFENSIVA 3D (SLIDE_BLOCK)
-      if (pose === "SLIDE_BLOCK") {
-        draw3DCapsuleLimb(ctx, -3 * sc, -3.5 * sc, 2.0 * sc, 6 * sc, -2.2 * sc, 1.55 * sc, skin.base, skin.dark, skin.light);
-        draw3DCapsuleLimb(ctx, 5.5 * sc, -2.2 * sc, 1.55 * sc, 14.5 * sc, -1.4 * sc, 1.15 * sc, socksColor, socksDark, socksLight);
-        ctx.fillStyle = bootInfo.main;
-        ctx.beginPath();
-        ctx.ellipse(15.2 * sc, -2.0 * sc, 2.6 * sc, 1.25 * sc, -0.3, 0, Math.PI * 2);
-        ctx.fill();
-
-        draw3DCapsuleLimb(ctx, -6.5 * sc, -4.5 * sc, 3.2 * sc, -1.5 * sc, -3.5 * sc, 2.8 * sc, shortsColor, shortsDark, shortsLight);
-        draw3DCapsuleLimb(ctx, -10.5 * sc, -11.5 * sc, 3.6 * sc, -5.5 * sc, -5.2 * sc, 3.3 * sc, jerseyColor, jerseyDark, jerseyLight);
-
-        ctx.fillStyle = skin.base;
-        ctx.beginPath();
-        ctx.arc(-11.2 * sc, -15.0 * sc, 3.0 * sc, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = hairColor;
-        ctx.beginPath();
-        ctx.arc(-11.2 * sc, -15.8 * sc, 2.9 * sc, Math.PI, 0);
-        ctx.fill();
-        ctx.restore();
-        return;
-      }
-
-      // 4. ANATOMÍA 3D ARTICULADA EN 360° (ESTILO IMAGEN DE REFERENCIA)
-      // Orientación continua en 360 grados (yaw en radianes en pantalla)
-      let yaw = rawYaw;
-      if (typeof yaw !== "number" || isNaN(yaw)) {
-        if (facing === "BACK_LEFT") yaw = -2.38; // Mirando arriba-izquierda hacia portería (vemos dorsal y perfil izq)
-        else if (facing === "FRONT_LEFT") yaw = 2.38;
-        else if (facing === "BACK_RIGHT") yaw = -0.76;
-        else yaw = 0.72; // Mirando abajo-derecha hacia el campo (vemos pecho y rostro 3/4)
-      }
-
-      const dirX = Math.cos(yaw); // Componente horizontal hacia donde mira el jugador
-      const dirY = Math.sin(yaw); // < 0: de espaldas mirando arriba; > 0: de frente mirando abajo
-      const isBackView = dirY < 0.18;
-
-      // Vector lateral de hombro izquierdo a hombro derecho en proyección 3D isométrica
-      // Cuando el jugador está de espaldas o de frente, el ancho de hombros es máximo; de perfil se acorta con perspectiva 3D
-      const sideX = -dirY;
-      const sideY = dirX * 0.26;
-      const profileFactor = Math.abs(dirX); // 1 = perfil puro lateral, 0 = frente/espalda puro
-      const frontalFactor = Math.abs(dirY);
-
-      const phase = (stridePhase !== undefined ? stridePhase : ((elapsed || 0) * 9.8 + (number || 1) * 1.9));
-      const isMoving = pose === "DRIBBLE" || pose === "RUNNING_UP" || pose === "SPRINT";
-      const isSprint = pose === "SPRINT";
-      const strideAmp = isMoving ? (isSprint ? 5.6 : 4.5) * sc : 0;
-      const sSin = isMoving ? Math.sin(phase) : 0;
-      const sCos = isMoving ? Math.cos(phase) : 0;
-      const bodyBob = isMoving ? Math.abs(sCos) * 1.15 * sc : 0;
-
-      // Alturas anatómicas esbeltas (~7.5 cabezas de proporción realista como en la imagen)
-      const crouchOffset = (pose === "JOCKEY" || pose === "GK_READY" || pose === "CONTROL") ? 1.8 * sc : 0;
-      const hipY = -12.6 * sc - bodyBob + crouchOffset;
-      const waistY = -15.4 * sc - bodyBob + crouchOffset * 0.8;
-      const shoulderY = -23.6 * sc - bodyBob + crouchOffset * 0.6;
-      const neckTopY = -25.4 * sc - bodyBob + crouchOffset * 0.5;
-      const headY = -27.8 * sc - bodyBob + crouchOffset * 0.5;
-      const headR = 2.85 * sc;
-
-      // Inclinación dinámica del torso según la acción (lean hacia la dirección de carrera o equilibrio de golpeo)
-      let leanX = isMoving ? dirX * (isSprint ? 2.1 : 1.35) * sc : 0;
-      let leanY = isMoving ? dirY * 0.55 * sc : 0;
-
-      // Separación de caderas en 3D
-      const hipHalfSpan = 2.15 * sc;
-      const lHipX = -sideX * hipHalfSpan + (sideX === 0 ? -1.1 * sc : 0);
-      const lHipY = hipY - sideY * hipHalfSpan;
-      const rHipX = sideX * hipHalfSpan + (sideX === 0 ? 1.1 * sc : 0);
-      const rHipY = hipY + sideY * hipHalfSpan;
-
-      // Cinemática 3D de rodillas y tobillos
-      let lKneeX, lKneeY, rKneeX, rKneeY;
-      let lAnkleX, lAnkleY, rAnkleX, rAnkleY;
-      let lToeX, lToeY, rToeX, rToeY;
-
-      if (pose === "WINDUP_SHOT") {
-        // Pose exacta al jugador #20 azul de la imagen adjunta:
-        // Pierna izquierda de apoyo plantada firme junto al balón, pierna derecha armada atrás con rodilla flexionada
-        lKneeX = lHipX + dirX * 1.4 * sc - 1.2 * sc;
-        lKneeY = -6.4 * sc;
-        lAnkleX = lKneeX - 0.8 * sc;
-        lAnkleY = -0.6 * sc;
-
-        rKneeX = rHipX - dirX * 2.2 * sc + 1.8 * sc;
-        rKneeY = -7.2 * sc;
-        rAnkleX = rKneeX - dirX * 4.2 * sc + 2.8 * sc;
-        rAnkleY = -5.4 * sc;
-        leanX = dirX * 1.6 * sc - 1.2 * sc;
-      } else if (pose === "SHOT_FOLLOW_THROUGH" || pose === "PASS_DELIVERY") {
-        // Pierna izquierda plantada y pierna derecha lanzada adelante tras impactar el balón
-        lKneeX = lHipX - dirX * 0.8 * sc + 1.0 * sc;
-        lKneeY = -6.2 * sc;
-        lAnkleX = lKneeX + 0.8 * sc;
-        lAnkleY = -0.4 * sc;
-
-        rKneeX = rHipX + dirX * 3.4 * sc - 1.5 * sc;
-        rKneeY = -7.6 * sc;
-        rAnkleX = rKneeX + dirX * 3.6 * sc - 2.2 * sc;
-        rAnkleY = -4.6 * sc;
-        leanX = -dirX * 1.1 * sc;
-      } else if (pose === "HEADER_JUMP") {
-        // Salto de cabeza / remate aéreo con rodillas flexionadas hacia atrás en el aire
-        lKneeX = lHipX + dirX * 1.0 * sc;
-        lKneeY = -6.8 * sc;
-        lAnkleX = lKneeX - dirX * 3.2 * sc;
-        lAnkleY = -3.8 * sc;
-
-        rKneeX = rHipX + dirX * 1.8 * sc;
-        rKneeY = -7.4 * sc;
-        rAnkleX = rKneeX - dirX * 3.6 * sc;
-        rAnkleY = -4.5 * sc;
-        leanX = dirX * 2.2 * sc;
-      } else if (pose === "GK_READY" || pose === "JOCKEY") {
-        // Postura atlética defensiva o de portero: piernas abiertas y rodillas flexionadas
-        const spread = (pose === "GK_READY" ? 4.4 : 3.4) * sc;
-        lKneeX = -spread * 0.82;
-        lKneeY = -6.2 * sc;
-        lAnkleX = -spread;
-        lAnkleY = -0.6 * sc;
-
-        rKneeX = spread * 0.82;
-        rKneeY = -6.2 * sc;
-        rAnkleX = spread;
-        rAnkleY = -0.6 * sc;
-      } else if (isMoving) {
-        // Ciclo biomecánico de carrera en 3D:
-        // Cuando la pierna avanza (swing > 0), la rodilla sube adelante; cuando queda atrás (swing < 0), el talón se recoge hacia el glúteo
-        const lSwing = sSin;
-        const rSwing = -sSin;
-        const lLift = Math.max(0, sCos) * 2.8 * sc;
-        const rLift = Math.max(0, -sCos) * 2.8 * sc;
-        const lHeelKick = Math.max(0, -lSwing) * 2.4 * sc;
-        const rHeelKick = Math.max(0, -rSwing) * 2.4 * sc;
-
-        lKneeX = lHipX + dirX * lSwing * strideAmp * 0.58;
-        lKneeY = -6.6 * sc - lLift * 0.65 + dirY * lSwing * 1.1 * sc;
-        lAnkleX = lKneeX + dirX * (lSwing * strideAmp * 0.52 - lHeelKick * 0.65);
-        lAnkleY = -0.7 * sc - lLift * 0.85 - lHeelKick * 1.15 + dirY * lSwing * 1.5 * sc;
-
-        rKneeX = rHipX + dirX * rSwing * strideAmp * 0.58;
-        rKneeY = -6.6 * sc - rLift * 0.65 + dirY * rSwing * 1.1 * sc;
-        rAnkleX = rKneeX + dirX * (rSwing * strideAmp * 0.52 - rHeelKick * 0.65);
-        rAnkleY = -0.7 * sc - rLift * 0.85 - rHeelKick * 1.15 + dirY * rSwing * 1.5 * sc;
-      } else {
-        // Postura natural de pie / control
-        const standSpread = Math.max(1.6 * sc, Math.abs(sideX) * 2.3 * sc);
-        lKneeX = -standSpread * 0.88 + dirX * 0.4 * sc;
-        lKneeY = -6.5 * sc;
-        lAnkleX = -standSpread;
-        lAnkleY = -0.6 * sc;
-
-        rKneeX = standSpread * 0.88 - dirX * 0.4 * sc;
-        rKneeY = -6.5 * sc;
-        rAnkleX = standSpread;
-        rAnkleY = -0.6 * sc;
-      }
-
-      lToeX = lAnkleX + dirX * 2.3 * sc;
-      lToeY = lAnkleY + dirY * 0.65 * sc + 0.25 * sc;
-      rToeX = rAnkleX + dirX * 2.3 * sc;
-      rToeY = rAnkleY + dirY * 0.65 * sc + 0.25 * sc;
-
-      // Sombras de contacto individuales bajo cada bota cuando están cerca del césped
-      if (zPx < 4 * sc) {
-        ctx.fillStyle = "rgba(3, 14, 4, 0.36)";
-        if (lAnkleY > -2.2 * sc) {
-          ctx.beginPath();
-          ctx.ellipse((lAnkleX + lToeX) * 0.5, 0.2 * sc, 2.3 * sc, 0.85 * sc, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        if (rAnkleY > -2.2 * sc) {
-          ctx.beginPath();
-          ctx.ellipse((rAnkleX + rToeX) * 0.5, 0.2 * sc, 2.3 * sc, 0.85 * sc, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Función que dibuja una pierna completa 3D (pernera del pantalón + muslo + rodilla + gemelo/media + bota 3D)
-      const drawSingleLeg3D = (hipX, hipYPos, kneeX, kneeYPos, ankleX, ankleYPos, toeX, toeYPos) => {
-        // Punto donde termina el pantalón corto (~58% del camino de cadera a rodilla)
-        const shortEndX = hipX + (kneeX - hipX) * 0.58;
-        const shortEndY = hipYPos + (kneeYPos - hipYPos) * 0.58;
-
-        // 1. Muslo desnudo y articulación de la rodilla con volumen 3D
-        draw3DCapsuleLimb(ctx, shortEndX, shortEndY, 1.72 * sc, kneeX, kneeYPos, 1.38 * sc, skin.base, skin.dark, skin.light);
-
-        // 2. Pantorrilla / Gemelo anatómico (más ancho en la parte alta del gemelo y afinándose hacia el tobillo)
-        const calfBulgeX = kneeX + (ankleX - kneeX) * 0.34 - dirX * 0.32 * sc;
-        const calfBulgeY = kneeYPos + (ankleYPos - kneeYPos) * 0.34;
-        draw3DCapsuleLimb(ctx, kneeX, kneeYPos + 0.35 * sc, 1.42 * sc, calfBulgeX, calfBulgeY, 1.56 * sc, socksColor, socksDark, socksLight);
-        draw3DCapsuleLimb(ctx, calfBulgeX, calfBulgeY, 1.54 * sc, ankleX, ankleYPos, 1.02 * sc, socksColor, socksDark, socksLight);
-
-        // Vuelta superior de la media (borde de color de la camiseta debajo de la rodilla)
-        ctx.strokeStyle = jerseyColor;
-        ctx.lineWidth = 0.95 * sc;
-        ctx.beginPath();
-        ctx.moveTo(kneeX - 1.2 * sc, kneeYPos + 0.85 * sc);
-        ctx.lineTo(kneeX + 1.2 * sc, kneeYPos + 0.85 * sc);
-        ctx.stroke();
-
-        // 3. Bota 3D esculpida (talón, empeine, puntera y suela)
-        draw3DCapsuleLimb(ctx, ankleX - dirX * 0.45 * sc, ankleYPos + 0.2 * sc, 1.12 * sc, toeX, toeYPos, 0.92 * sc, bootInfo.main, bootInfo.sole, bootInfo.highlight);
-        ctx.strokeStyle = bootInfo.sole;
-        ctx.lineWidth = 0.65 * sc;
-        ctx.beginPath();
-        ctx.moveTo(ankleX - dirX * 0.9 * sc, ankleYPos + 0.95 * sc);
-        ctx.lineTo(toeX + dirX * 0.4 * sc, toeYPos + 0.75 * sc);
-        ctx.stroke();
-
-        // 4. Cilindro 3D de la pernera del pantalón corto (gira solidario con el muslo)
-        draw3DCapsuleLimb(ctx, hipX, hipYPos, 2.35 * sc, shortEndX, shortEndY, 2.05 * sc, shortsColor, shortsDark, shortsLight);
-      };
-
-      // Ordenar las dos piernas por profundidad Y para que la pierna adelantada en pantalla tape a la atrasada
-      const leftDepth = lHipY + lAnkleY * 0.35;
-      const rightDepth = rHipY + rAnkleY * 0.35;
-      if (leftDepth < rightDepth) {
-        drawSingleLeg3D(lHipX, lHipY, lKneeX, lKneeY, lAnkleX, lAnkleY, lToeX, lToeY);
-        drawSingleLeg3D(rHipX, rHipY, rKneeX, rKneeY, rAnkleX, rAnkleY, rToeX, rToeY);
-      } else {
-        drawSingleLeg3D(rHipX, rHipY, rKneeX, rKneeY, rAnkleX, rAnkleY, rToeX, rToeY);
-        drawSingleLeg3D(lHipX, lHipY, lKneeX, lKneeY, lAnkleX, lAnkleY, lToeX, lToeY);
-      }
-
-      // Pelvis / Cintura del pantalón corto uniendo ambas caderas
-      draw3DCapsuleLimb(ctx, lHipX * 0.85, hipY - 0.8 * sc, 2.45 * sc, rHipX * 0.85, hipY - 0.8 * sc, 2.45 * sc, shortsColor, shortsDark, shortsLight);
-
-      // Posición 3D de los hombros (con la inclinación leanX, leanY del torso)
-      const shSpan = (3.4 + frontalFactor * 1.45) * sc;
-      const waistSpan = (2.5 + frontalFactor * 1.05) * sc;
-      const shCenterX = leanX;
-      const shCenterY = shoulderY + leanY;
-      const wCenterX = leanX * 0.38;
-      const wCenterY = waistY + leanY * 0.38;
-
-      const lShX = shCenterX - sideX * shSpan + (Math.abs(sideX) < 0.25 ? -1.4 * sc : 0);
-      const lShY = shCenterY - sideY * shSpan;
-      const rShX = shCenterX + sideX * shSpan + (Math.abs(sideX) < 0.25 ? 1.4 * sc : 0);
-      const rShY = shCenterY + sideY * shSpan;
-
-      // Cinemática 3D de los brazos (hombro -> codo -> muñeca/mano)
-      let lElbX, lElbY, lHandX, lHandY;
-      let rElbX, rElbY, rHandX, rHandY;
-
-      if (pose === "WINDUP_SHOT" || pose === "SHOT_FOLLOW_THROUGH" || pose === "PASS_DELIVERY") {
-        // Pose icónica del #20 de la foto: brazo derecho extendido arriba-derecha para equilibrar el disparo, brazo izquierdo flexionado
-        lElbX = lShX - 3.6 * sc + dirX * 1.2 * sc;
-        lElbY = lShY + 3.8 * sc;
-        lHandX = lElbX - 2.6 * sc + dirX * 2.2 * sc;
-        lHandY = lElbY + 1.4 * sc;
-
-        rElbX = rShX + 5.2 * sc;
-        rElbY = rShY - 1.2 * sc;
-        rHandX = rElbX + 5.4 * sc;
-        rHandY = rElbY - 1.6 * sc;
-      } else if (pose === "HEADER_JUMP") {
-        // Brazos abiertos arqueados en el salto de cabeza
-        lElbX = lShX - 4.5 * sc;
-        lElbY = lShY - 0.8 * sc;
-        lHandX = lElbX - 3.5 * sc;
-        lHandY = lElbY + 1.5 * sc;
-
-        rElbX = rShX + 4.5 * sc;
-        rElbY = rShY - 0.8 * sc;
-        rHandX = rElbX + 3.5 * sc;
-        rHandY = rElbY + 1.5 * sc;
-      } else if (pose === "CELEBRATE_JUMP") {
-        lElbX = lShX - 4.2 * sc;
-        lElbY = lShY - 3.8 * sc;
-        lHandX = lElbX - 3.2 * sc;
-        lHandY = lElbY - 4.2 * sc;
-
-        rElbX = rShX + 4.2 * sc;
-        rElbY = rShY - 3.8 * sc;
-        rHandX = rElbX + 3.2 * sc;
-        rHandY = rElbY - 4.2 * sc;
-      } else if (pose === "HANDS_ON_HEAD") {
-        lElbX = lShX - 3.8 * sc;
-        lElbY = lShY - 2.2 * sc;
-        lHandX = shCenterX - 1.8 * sc;
-        lHandY = headY - 0.5 * sc;
-
-        rElbX = rShX + 3.8 * sc;
-        rElbY = rShY - 2.2 * sc;
-        rHandX = shCenterX + 1.8 * sc;
-        rHandY = headY - 0.5 * sc;
-      } else if (isMoving) {
-        // Braceo natural contrapuesto al compás de las piernas (cuando pierna izq va adelante, brazo dcho va adelante)
-        const lArmSwing = -sSin;
-        const rArmSwing = sSin;
-
-        lElbX = lShX + dirX * lArmSwing * 2.8 * sc - sideX * 0.9 * sc;
-        lElbY = lShY + 4.4 * sc + dirY * lArmSwing * 1.1 * sc;
-        lHandX = lElbX + dirX * (lArmSwing * 2.6 + 1.6) * sc;
-        lHandY = lElbY + 1.2 * sc - Math.max(0, lArmSwing) * 2.4 * sc;
-
-        rElbX = rShX + dirX * rArmSwing * 2.8 * sc + sideX * 0.9 * sc;
-        rElbY = rShY + 4.4 * sc + dirY * rArmSwing * 1.1 * sc;
-        rHandX = rElbX + dirX * (rArmSwing * 2.6 + 1.6) * sc;
-        rHandY = rElbY + 1.2 * sc - Math.max(0, rArmSwing) * 2.4 * sc;
-      } else {
-        // Postura atlética natural en alerta
-        lElbX = lShX - sideX * 1.3 * sc - 0.8 * sc;
-        lElbY = lShY + 4.6 * sc;
-        lHandX = lElbX + dirX * 1.2 * sc - 0.4 * sc;
-        lHandY = lElbY + 3.6 * sc;
-
-        rElbX = rShX + sideX * 1.3 * sc + 0.8 * sc;
-        rElbY = rShY + 4.6 * sc;
-        rHandX = rElbX + dirX * 1.2 * sc + 0.4 * sc;
-        rHandY = rElbY + 3.6 * sc;
-      }
-
-      const drawSingleArm3D = (shX, shYPos, elbX, elbYPos, handX, handYPos, isRightArm) => {
-        // Manga corta 3D con deltoides redondeado
-        const sleeveEndX = shX + (elbX - shX) * 0.78;
-        const sleeveEndY = shYPos + (elbYPos - shYPos) * 0.78;
-        draw3DCapsuleLimb(ctx, shX, shYPos + 0.6 * sc, 1.68 * sc, sleeveEndX, sleeveEndY, 1.38 * sc, jerseyColor, jerseyDark, jerseyLight);
-
-        // Antebrazo muscular (piel o manga larga de portero)
-        const forearmBase = (isKeeper || isReferee) ? jerseyColor : skin.base;
-        const forearmDark = (isKeeper || isReferee) ? jerseyDark : skin.dark;
-        const forearmLight = (isKeeper || isReferee) ? jerseyLight : skin.light;
-        draw3DCapsuleLimb(ctx, elbX, elbYPos, 1.28 * sc, handX, handYPos, 0.95 * sc, forearmBase, forearmDark, forearmLight);
-
-        // Vendaje de muñeca blanco en algunos jugadores de campo
-        if (!isKeeper && !isReferee && !isLinesman && isRightArm && (number % 2 === 0)) {
-          const wristX = elbX + (handX - elbX) * 0.84;
-          const wristY = elbYPos + (handYPos - elbYPos) * 0.84;
-          ctx.strokeStyle = "#f8fafc";
-          ctx.lineWidth = 1.15 * sc;
-          ctx.beginPath();
-          ctx.arc(wristX, wristY, 0.95 * sc, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-
-        // Mano o guante 3D
-        ctx.fillStyle = isKeeper ? "#bef264" : skin.base;
-        ctx.beginPath();
-        ctx.arc(handX, handYPos, (isKeeper ? 1.95 : 1.18) * sc, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (isLinesman && isRightArm) {
-          ctx.strokeStyle = "#e2e8f0";
-          ctx.lineWidth = 1.0 * sc;
-          ctx.beginPath();
-          ctx.moveTo(handX, handYPos);
-          ctx.lineTo(handX + 2.5 * sc, handYPos + 5.5 * sc);
-          ctx.stroke();
-          ctx.fillStyle = "#ef4444";
-          ctx.fillRect(handX + 1.0 * sc, handYPos + 3.0 * sc, 3.2 * sc, 2.5 * sc);
-          ctx.fillStyle = "#facc15";
-          ctx.fillRect(handX + 2.6 * sc, handYPos + 3.0 * sc, 1.6 * sc, 2.5 * sc);
-        }
-      };
-
-      // Determinar qué brazo queda detrás del torso según el ángulo 3D
-      const leftArmBehind = lShY < rShY - 0.15 * sc;
-      const rightArmBehind = rShY < lShY - 0.15 * sc;
-      if (leftArmBehind) drawSingleArm3D(lShX, lShY, lElbX, lElbY, lHandX, lHandY, false);
-      if (rightArmBehind) drawSingleArm3D(rShX, rShY, rElbX, rElbY, rHandX, rHandY, true);
-
-      // 5. TORSO 3D VOLUMÉTRICO CON FORMA EN V, PLIEGUES DE TELA Y CAÍDA SOBRE EL PANTALÓN
-      const torsoTopW = (3.6 + frontalFactor * 1.45) * sc;
-      const torsoBotW = (2.75 + frontalFactor * 0.95) * sc;
-      const chestBulgeX = dirX * profileFactor * 1.15 * sc;
-
-      const tGrad = ctx.createLinearGradient(shCenterX - torsoTopW, shCenterY, shCenterX + torsoTopW, wCenterY);
-      tGrad.addColorStop(0, jerseyLight);
-      tGrad.addColorStop(0.52, jerseyColor);
-      tGrad.addColorStop(1, jerseyDark);
-      ctx.fillStyle = tGrad;
-
-      ctx.beginPath();
-      ctx.moveTo(shCenterX - torsoTopW, shCenterY + 0.5 * sc);
-      ctx.quadraticCurveTo(shCenterX, shCenterY - 0.9 * sc, shCenterX + torsoTopW, shCenterY + 0.5 * sc);
-      ctx.quadraticCurveTo(
-        (shCenterX + wCenterX) * 0.5 + torsoTopW * 0.85 + Math.max(0, chestBulgeX),
-        (shCenterY + wCenterY) * 0.5,
-        wCenterX + torsoBotW,
-        wCenterY + 2.4 * sc
-      );
-      // Faldón inferior curvado de la camiseta cayendo sobre el pantalón corto
-      ctx.quadraticCurveTo(wCenterX, wCenterY + 3.3 * sc, wCenterX - torsoBotW, wCenterY + 2.4 * sc);
-      ctx.quadraticCurveTo(
-        (shCenterX + wCenterX) * 0.5 - torsoTopW * 0.85 + Math.min(0, chestBulgeX),
-        (shCenterY + wCenterY) * 0.5,
-        shCenterX - torsoTopW,
-        shCenterY + 0.5 * sc
-      );
-      ctx.closePath();
-      ctx.fill();
-
-      // Pliegues dinámicos de tela y sombreado lateral en la camiseta
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.16)";
-      ctx.lineWidth = 0.75 * sc;
-      ctx.beginPath();
-      ctx.moveTo(shCenterX + torsoTopW * 0.35, shCenterY + 2.8 * sc);
-      ctx.quadraticCurveTo(wCenterX + torsoBotW * 0.15, wCenterY - 0.5 * sc, wCenterX + torsoBotW * 0.45, wCenterY + 2.0 * sc);
-      ctx.stroke();
-
-      // Cuello 3D de la equipación
-      ctx.strokeStyle = kit.collar || "#ffffff";
-      ctx.lineWidth = 1.05 * sc;
-      ctx.beginPath();
-      ctx.ellipse(shCenterX + dirX * 0.35 * sc, shCenterY + 0.45 * sc, 1.85 * sc, 0.95 * sc, 0, 0, Math.PI);
-      ctx.stroke();
-
-      // Dorsal y apellido en la espalda con escorzo 3D según el giro del cuerpo (como el #20 azul de la imagen)
-      if (isBackView && !isReferee && !isLinesman && frontalFactor > 0.34) {
-        const backScaleX = Math.max(0.42, frontalFactor * 0.88 + 0.12);
-        const backOffsetX = -dirX * 0.55 * sc;
-        ctx.save();
-        ctx.translate(shCenterX * 0.65 + wCenterX * 0.35 + backOffsetX, shCenterY + 5.2 * sc);
-        ctx.scale(backScaleX, 1);
-
-        // Nombre corto sobre el dorsal contenido dentro del ancho de los hombros
-        if (name && sc > 0.78 && frontalFactor > 0.48) {
-          const surname = name.split(" ").slice(-1)[0].toUpperCase().slice(0, 8);
-          ctx.font = `800 ${Math.max(2.6, Math.round(2.1 * sc))}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillStyle = kit.number || "#ffffff";
-          ctx.fillText(surname, 0, -3.2 * sc, 4.4 * sc);
-        }
-
-        // Dorsal numérico nítido
-        ctx.font = `900 ${Math.max(4.6, Math.round(5.4 * sc))}px "Impact", "Arial Black", sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.strokeStyle = "rgba(15, 23, 42, 0.68)";
-        ctx.lineWidth = Math.max(0.8, 1.1 * sc);
-        ctx.strokeText(`${number}`, 0, 0.7 * sc, 4.2 * sc);
-        ctx.fillStyle = kit.number || "#ffffff";
-        ctx.fillText(`${number}`, 0, 0.7 * sc, 4.2 * sc);
-        ctx.restore();
-      } else if (!isBackView && !isReferee && !isLinesman && !isKeeper && frontalFactor > 0.32) {
-        // Detalle de sponsor frontal en el pecho
-        ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
-        ctx.fillRect(shCenterX - 2.1 * sc + dirX * 0.6 * sc, shCenterY + 3.8 * sc, 4.2 * sc * frontalFactor, 1.1 * sc);
-      }
-
-      // Dibujar los brazos que quedan por delante del torso
-      if (!leftArmBehind) drawSingleArm3D(lShX, lShY, lElbX, lElbY, lHandX, lHandY, false);
-      if (!rightArmBehind) drawSingleArm3D(rShX, rShY, rElbX, rElbY, rHandX, rHandY, true);
-
-      // 6. CUELLO, CABEZA 3D ESCULPIDA Y CORTE DE PELO VOLUMÉTRICO
-      const neckX = shCenterX + dirX * 0.35 * sc;
-      const headCenterX = shCenterX + dirX * 0.68 * sc;
-
-      // Cilindro del cuello con sombra bajo la barbilla
-      draw3DCapsuleLimb(ctx, neckX, shCenterY + 0.3 * sc, 1.25 * sc, headCenterX, neckTopY, 1.15 * sc, skin.base, skin.dark, skin.light);
-
-      // Cráneo y mandíbula 3D
-      const headGrad = ctx.createRadialGradient(
-        headCenterX - 0.9 * sc,
-        headY - 0.9 * sc,
-        0.4 * sc,
-        headCenterX,
-        headY,
-        headR * 1.15
-      );
-      headGrad.addColorStop(0, skin.light);
-      headGrad.addColorStop(0.65, skin.base);
-      headGrad.addColorStop(1, skin.dark);
-      ctx.fillStyle = headGrad;
-      ctx.beginPath();
-      ctx.ellipse(headCenterX, headY, headR * 0.94, headR * 1.08, dirX * 0.12, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Silueta de nariz/perfil facial cuando se ve de perfil o de frente
-      if (!isBackView || profileFactor > 0.55) {
-        ctx.fillStyle = skin.base;
-        ctx.beginPath();
-        ctx.arc(headCenterX + dirX * headR * 0.88, headY + 0.25 * sc, 0.75 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Orejas visibles según orientación
-      ctx.fillStyle = skin.dark;
-      if (isBackView && frontalFactor > 0.45) {
-        ctx.beginPath();
-        ctx.ellipse(headCenterX - headR * 0.92, headY + 0.2 * sc, 0.48 * sc, 0.85 * sc, 0, 0, Math.PI * 2);
-        ctx.ellipse(headCenterX + headR * 0.92, headY + 0.2 * sc, 0.48 * sc, 0.85 * sc, 0, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.ellipse(headCenterX - dirX * headR * 0.28, headY + 0.25 * sc, 0.52 * sc, 0.88 * sc, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Cabello 3D multicapa (coronilla, nuca degradada/fade y flequillo)
-      ctx.fillStyle = hairColor;
-      ctx.beginPath();
-      if (isBackView) {
-        // Parte superior y nuca vista desde atrás/3-cuartos
-        ctx.arc(headCenterX - dirX * 0.2 * sc, headY - 0.45 * sc, headR * 0.98, 0.78 * Math.PI, 2.22 * Math.PI);
-        ctx.fill();
-        // Nuca con corte degradado (fade) o rizado
-        ctx.fillStyle = hairStyle % 2 === 0 ? shadeHexColor(hairColor, -12) : hairColor;
-        ctx.beginPath();
-        ctx.ellipse(headCenterX - dirX * 0.28 * sc, headY + 0.35 * sc, headR * 0.82, headR * 0.65, 0, 0, Math.PI);
-        ctx.fill();
-      } else {
-        // Vista frontal / perfil con volumen superior
-        ctx.arc(headCenterX - dirX * 0.22 * sc, headY - 0.65 * sc, headR * 0.98, Math.PI * 0.88, Math.PI * 2.12);
-        ctx.fill();
-      }
-
-      // Brillo volumétrico en la coronilla del pelo
-      if (hairStyle === 1 || hairStyle === 2) {
-        ctx.fillStyle = hairHighlight;
-        ctx.beginPath();
-        ctx.arc(headCenterX - 0.5 * sc, headY - headR * 0.72, headR * 0.42, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Indicador sutil sobre el portador activo del balón (cursor triangular limpio)
-      if (ent.isActiveCarrier) {
-        ctx.fillStyle = "rgba(56, 189, 248, 0.92)";
-        ctx.beginPath();
-        ctx.moveTo(headCenterX, headY - 5.2 * sc);
-        ctx.lineTo(headCenterX - 2.2 * sc, headY - 8.4 * sc);
-        ctx.lineTo(headCenterX + 2.2 * sc, headY - 8.4 * sc);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      ctx.restore();
-    }
-
-    function drawFrontalHighlightScene(ctx, w, h, hlData, onlyUpdateState = false) {
-      const now = performance.now();
-      if (!hlData.animStartTime) hlData.animStartTime = now;
-      const elapsed = (now - hlData.animStartTime) / 1000;
-
-      // Córneres, faltas y penaltis en 3D: interpolar posiciones físicas reales del balón parado
-      if (hlData.isSetPiece) {
-        simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.14;
-        simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.14;
-        simulator.ball.z = (simulator.ball.z || 0) + ((simulator.ball.targetZ || 0) - (simulator.ball.z || 0)) * 0.14;
-        simulator.home2D.forEach(p => {
-          p.curX += (p.targetX - p.curX) * 0.14;
-          p.curY += (p.targetY - p.curY) * 0.14;
-          p.curZ = (p.curZ || 0) * 0.85;
-          p.hlPose = null;
-        });
-        simulator.away2D.forEach(p => {
-          p.curX += (p.targetX - p.curX) * 0.14;
-          p.curY += (p.targetY - p.curY) * 0.14;
-          p.curZ = (p.curZ || 0) * 0.85;
-          p.hlPose = null;
-        });
-        if (onlyUpdateState) return;
-        if (ctx) {
-          const pDim = drawPitch2D(ctx, w, h);
-          const { padX, padY, pitchW, pitchH, dpr } = pDim;
-          simulator.home2D.forEach(p => {
-            drawPlayerToken2D(ctx, p, "home", false, padX, padY, pitchW, pitchH, dpr);
-          });
-          simulator.away2D.forEach(p => {
-            drawPlayerToken2D(ctx, p, "away", false, padX, padY, pitchW, pitchH, dpr);
-          });
-          drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
-        }
-        return;
-      }
-
-      const outcome = hlData.outcome || "GOAL";
-      const targetCorner = hlData.targetCorner || "TOP_RIGHT";
-      const wideDirection = hlData.wideDirection || (targetCorner.includes("LEFT") ? "LEFT" : "RIGHT");
-      const isHome = hlData.attackingSide === "home";
-      const atkTeam = isHome ? homeTeam : awayTeam;
-      const defTeam = isHome ? awayTeam : homeTeam;
-      const atkKit = isHome ? kits.home : kits.away;
-      const defKit = isHome ? kits.away : kits.home;
-
-      const sc = Math.min(w / 460, h / 290);
-      const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-      const lerp = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
-      const smooth01 = (t) => {
-        const c = Math.max(0, Math.min(1, t));
-        return c * c * (3 - 2 * c);
-      };
-      const smoothstep = smooth01;
-      const vPostRight = 30.34;
-      const vPostLeft = 37.66;
-
-      // Seguimiento suave de cámara broadcast conectado a la posición real del balón (manteniendo siempre la portería encuadrada)
-      if (hlData.camU === undefined) {
-        const initX = hlData.liveOrigin?.x ?? 50;
-        const initY = hlData.liveOrigin?.y ?? 50;
-        const initProg = isHome ? (100 - initX) : initX;
-        const initU = Math.max(2, Math.min(34, initProg * 0.62));
-        const initV = Math.max(6, Math.min(58, 3 + (initY / 100) * 58));
-        hlData.camU = clamp((initU - 14) * 0.25, 0, 4.2);
-        hlData.camV = 34 + clamp((initV - 34) * 0.16, -3.5, 3.5);
-      }
-      const p3d = (u, v, z = 0) => projectEA3D(u, v, z, w, h, hlData.camU || 0, hlData.camV || 34);
-
-      let pFrontL_bot = { x: 0, y: 0 };
-      let drawGoalFrontFrame = () => {};
-      if (!onlyUpdateState && ctx) {
-      // 1. FONDO DE GRADAS EN PERSPECTIVA DIAGONAL (FIEL A LA IMAGEN DE REFERENCIA)
-      ctx.fillStyle = "#18181b";
-      ctx.fillRect(0, 0, w, h);
-
-      // Polígono de la grada tras la línea de fondo (izquierda a centro-arriba) y banda lejana (centro-arriba a derecha)
-      const cornerAdBase = p3d(-1.5, -1.2, 0);
-      const leftAdBase = p3d(-1.5, 48, 0);
-      const rightAdBase = p3d(38, -1.2, 0);
-
-      // Grada de fondo (detrás de la portería, desde x=0 hasta el córner en x≈0.67w)
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(w, 0);
-      ctx.lineTo(rightAdBase.x, rightAdBase.y);
-      ctx.lineTo(cornerAdBase.x, cornerAdBase.y);
-      ctx.lineTo(leftAdBase.x, leftAdBase.y);
-      ctx.lineTo(0, leftAdBase.y + 20 * sc);
-      ctx.closePath();
-      ctx.clip();
-
-      // Base de hormigón y asientos rojos/grises del estadio
-      const standGrad = ctx.createLinearGradient(0, 0, 0, h * 0.36);
-      standGrad.addColorStop(0, "#1e1b24");
-      standGrad.addColorStop(0.5, "#27272a");
-      standGrad.addColorStop(1, "#3f3f46");
-      ctx.fillStyle = standGrad;
-      ctx.fillRect(0, 0, w, h * 0.42);
-
-      // Bloques de asientos rojos visibles entre aficionados (como en la foto)
-      for (let r = 0; r < 9; r++) {
-        const rowT = r / 9;
-        const yLeft = lerp(4 * sc, leftAdBase.y - 14 * sc, rowT);
-        const yCorner = lerp(-18 * sc, cornerAdBase.y - 11 * sc, rowT);
-        const yRight = lerp(-10 * sc, rightAdBase.y - 11 * sc, rowT);
-
-        // Filas de grada tras portería
-        ctx.strokeStyle = r % 2 === 0 ? "#dc2626" : "#991b1b";
-        ctx.lineWidth = 4.2 * sc;
-        ctx.beginPath();
-        ctx.moveTo(0, yLeft);
-        ctx.lineTo(cornerAdBase.x, yCorner);
-        ctx.lineTo(w, yRight);
-        ctx.stroke();
-      }
-
-      // Escaleras de hormigón con bordes amarillos de seguridad y vomitorios (como en la parte superior central de la foto)
-      const drawStairway = (topX, topY, botX, botY, stairW) => {
-        ctx.fillStyle = "#52525b";
-        ctx.beginPath();
-        ctx.moveTo(topX - stairW * 0.45, topY);
-        ctx.lineTo(topX + stairW * 0.45, topY);
-        ctx.lineTo(botX + stairW * 0.55, botY);
-        ctx.lineTo(botX - stairW * 0.55, botY);
-        ctx.closePath();
-        ctx.fill();
-
-        const steps = 8;
-        for (let s = 0; s <= steps; s++) {
-          const st = s / steps;
-          const sx = lerp(topX, botX, st);
-          const sy = lerp(topY, botY, st);
-          const sw = lerp(stairW * 0.45, stairW * 0.55, st);
-          ctx.strokeStyle = "#eab308";
-          ctx.lineWidth = 1.3 * sc;
-          ctx.beginPath();
-          ctx.moveTo(sx - sw, sy);
-          ctx.lineTo(sx + sw, sy);
-          ctx.stroke();
-        }
-      };
-
-      drawStairway(w * 0.15, -5 * sc, w * 0.21, lerp(leftAdBase.y, cornerAdBase.y, 0.34) - 8 * sc, 15 * sc);
-      drawStairway(w * 0.36, -5 * sc, w * 0.41, lerp(leftAdBase.y, cornerAdBase.y, 0.63) - 8 * sc, 14 * sc);
-      drawStairway(w * 0.91, -5 * sc, w * 0.93, lerp(cornerAdBase.y, rightAdBase.y, 0.78) - 8 * sc, 16 * sc);
-
-      // Vomitorio / túnel de esquina (arriba al centro-derecha, igual que en la foto)
-      ctx.fillStyle = "#d4d4d8";
-      ctx.fillRect(w * 0.56, 0, w * 0.14, cornerAdBase.y - 4 * sc);
-      ctx.fillStyle = "#18181b";
-      ctx.fillRect(w * 0.585, 0, w * 0.055, cornerAdBase.y - 12 * sc);
-      drawStairway(w * 0.565, 0, w * 0.58, cornerAdBase.y - 8 * sc, 11 * sc);
-      drawStairway(w * 0.685, 0, w * 0.70, cornerAdBase.y - 8 * sc, 12 * sc);
-
-      // Multitud detallada (cabezas y torsos con camisetas granates, rosas, blancas, azules y chaquetas oscuras)
-      const fanPalette = ["#881337", "#be123c", "#f472b6", "#fbcfe8", "#e2e8f0", "#1e293b", "#334155", "#7f1d1d", "#2563eb", "#d97706"];
-      const crowdCelebrate = (elapsed > 12.4 && outcome === "GOAL") ? Math.abs(Math.sin(now * 0.015)) * 2.5 * sc : 0;
-
-      for (let row = 0; row < 10; row++) {
-        const rowT = (row + 0.4) / 10;
-        // Grada izquierda (tras portería)
-        const numLeftFans = 58;
-        for (let i = 0; i < numLeftFans; i++) {
-          const uFan = i / numLeftFans;
-          const fx = lerp(0, cornerAdBase.x - 22 * sc, uFan);
-          // Saltar huecos de escaleras y vomitorio
-          if ((fx > w * 0.16 && fx < w * 0.21) || (fx > w * 0.37 && fx < w * 0.41) || (fx > w * 0.55 && fx < w * 0.71)) continue;
-          const fyBase = lerp(lerp(4 * sc, leftAdBase.y - 12 * sc, rowT), lerp(-16 * sc, cornerAdBase.y - 10 * sc, rowT), uFan);
-          const seed = (row * 73 + i * 31) % 100;
-          if (seed < 12) continue; // Asiento libre ocasional mostrando butaca roja
-          const jump = (seed % 3 === 0) ? crowdCelebrate : 0;
-          const fy = fyBase - jump;
-          const shirtCol = fanPalette[seed % fanPalette.length];
-
-          // Torso del aficionado
-          ctx.fillStyle = shirtCol;
-          ctx.beginPath();
-          ctx.roundRect(fx - 2.3 * sc, fy - 4.5 * sc, 4.6 * sc, 5.2 * sc, 1.2 * sc);
-          ctx.fill();
-          // Cabeza del aficionado
-          ctx.fillStyle = seed % 4 === 0 ? "#8d5524" : "#f5cba7";
-          ctx.beginPath();
-          ctx.arc(fx, fy - 5.8 * sc, 1.55 * sc, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = seed % 2 === 0 ? "#1c1917" : "#451a03";
-          ctx.beginPath();
-          ctx.arc(fx, fy - 6.2 * sc, 1.5 * sc, Math.PI, 0);
-          ctx.fill();
-        }
-
-        // Grada derecha (banda lateral superior)
-        const numRightFans = 28;
-        for (let i = 0; i < numRightFans; i++) {
-          const uFan = i / numRightFans;
-          const fx = lerp(cornerAdBase.x + 26 * sc, w, uFan);
-          if (fx > w * 0.90 && fx < w * 0.95) continue;
-          const fyBase = lerp(lerp(-12 * sc, cornerAdBase.y - 10 * sc, rowT), lerp(-6 * sc, rightAdBase.y - 10 * sc, rowT), uFan);
-          const seed = (row * 53 + i * 29) % 100;
-          if (seed < 14) continue;
-          const fy = fyBase - ((seed % 2 === 0) ? crowdCelebrate : 0);
-          ctx.fillStyle = fanPalette[(seed + 3) % fanPalette.length];
-          ctx.beginPath();
-          ctx.roundRect(fx - 2.3 * sc, fy - 4.5 * sc, 4.6 * sc, 5.2 * sc, 1.2 * sc);
-          ctx.fill();
-          ctx.fillStyle = "#f5cba7";
-          ctx.beginPath();
-          ctx.arc(fx, fy - 5.8 * sc, 1.5 * sc, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Stewards / Miembros de seguridad con chaleco reflectante naranja y amarillo frente a la valla (igual que en la foto)
-      const stewards = [0.22, 0.42, 0.59, 0.62, 0.68, 0.72, 0.75];
-      stewards.forEach((stPos, idx) => {
-        const sx = w * stPos;
-        const sy = stPos < 0.67
-          ? lerp(leftAdBase.y, cornerAdBase.y, stPos / 0.67) - 3 * sc
-          : lerp(cornerAdBase.y, rightAdBase.y, (stPos - 0.67) / 0.33) - 3 * sc;
-        ctx.fillStyle = idx === 5 ? "#bef264" : "#f97316";
-        ctx.beginPath();
-        ctx.roundRect(sx - 2.2 * sc, sy - 6 * sc, 4.4 * sc, 5.5 * sc, 1 * sc);
-        ctx.fill();
-        ctx.fillStyle = "#f5cba7";
-        ctx.beginPath();
-        ctx.arc(sx, sy - 7.5 * sc, 1.5 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      ctx.restore();
-
-      // 2. CÉSPED 3D CON FRANJAS DE CORTE TRANSVERSALES Y LONGITUDINALES (EXACTO A LA REFERENCIA)
-      const pitchPolyTL = p3d(-3, -3, 0);
-      const pitchPolyBL = p3d(-3, 66, 0);
-      const pitchPolyBR = p3d(58, 66, 0);
-      const pitchPolyTR = p3d(58, -3, 0);
-
-      ctx.fillStyle = "#2d6a22";
-      ctx.beginPath();
-      ctx.moveTo(pitchPolyTL.x, pitchPolyTL.y);
-      ctx.lineTo(pitchPolyTR.x, pitchPolyTR.y);
-      ctx.lineTo(pitchPolyBR.x, pitchPolyBR.y);
-      ctx.lineTo(pitchPolyBL.x, pitchPolyBL.y);
-      ctx.closePath();
-      ctx.fill();
-
-      // Bandas de siega paralelas a la línea de gol (cada 5.5m desde u = -3 hasta u = 55)
-      const stripeWidthU = 5.5;
-      for (let s = -1; s < 11; s++) {
-        const u0 = s * stripeWidthU;
-        const u1 = (s + 1) * stripeWidthU;
-        const q1 = p3d(u0, -3.5, 0);
-        const q2 = p3d(u1, -3.5, 0);
-        const q3 = p3d(u1, 66, 0);
-        const q4 = p3d(u0, 66, 0);
-
-        ctx.fillStyle = (s % 2 === 0) ? "#2d6b22" : "#357a28";
-        ctx.beginPath();
-        ctx.moveTo(q1.x, q1.y);
-        ctx.lineTo(q2.x, q2.y);
-        ctx.lineTo(q3.x, q3.y);
-        ctx.lineTo(q4.x, q4.y);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // Pasadas longitudinales sutiles de cortacésped (paralelas a la banda)
-      for (let lv = 0; lv < 14; lv++) {
-        if (lv % 2 === 0) continue;
-        const v0 = lv * 5.0;
-        const v1 = (lv + 1) * 5.0;
-        const l1 = p3d(-3, v0, 0);
-        const l2 = p3d(58, v0, 0);
-        const l3 = p3d(58, v1, 0);
-        const l4 = p3d(-3, v1, 0);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.025)";
-        ctx.beginPath();
-        ctx.moveTo(l1.x, l1.y);
-        ctx.lineTo(l2.x, l2.y);
-        ctx.lineTo(l3.x, l3.y);
-        ctx.lineTo(l4.x, l4.y);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // Iluminación ambiental de estadio sobre el terreno de juego
-      const grassLight = ctx.createRadialGradient(w * 0.45, h * 0.48, w * 0.05, w * 0.45, h * 0.48, w * 0.65);
-      grassLight.addColorStop(0, "rgba(255, 255, 255, 0.06)");
-      grassLight.addColorStop(0.6, "rgba(255, 255, 255, 0.0)");
-      grassLight.addColorStop(1, "rgba(0, 15, 5, 0.22)");
-      ctx.fillStyle = grassLight;
-      ctx.fillRect(0, 0, w, h);
-
-      // 3. VALLAS PUBLICITARIAS LED 3D EN ÁNGULO (ESTILO PREMIER LEAGUE / EA SPORTS)
-      const draw3DBannerSegment = (pA_bot, pB_bot, pB_top, pA_top, index) => {
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(pA_bot.x, pA_bot.y);
-        ctx.lineTo(pB_bot.x, pB_bot.y);
-        ctx.lineTo(pB_top.x, pB_top.y);
-        ctx.lineTo(pA_top.x, pA_top.y);
-        ctx.closePath();
-        ctx.clip();
-
-        // Fondo blanco luminoso con bloques diagonales púrpura, magenta, cian y verde lima (idéntico a la foto)
-        ctx.fillStyle = "#f8fafc";
-        ctx.fill();
-
-        const segGrad = ctx.createLinearGradient(pA_bot.x, pA_bot.y, pB_bot.x, pB_bot.y);
-        if (index % 2 === 0) {
-          segGrad.addColorStop(0, "#3b0764");
-          segGrad.addColorStop(0.24, "#3b0764");
-          segGrad.addColorStop(0.26, "#ffffff");
-          segGrad.addColorStop(0.72, "#ffffff");
-          segGrad.addColorStop(0.75, "#ec4899");
-          segGrad.addColorStop(0.88, "#f97316");
-          segGrad.addColorStop(1, "#84cc16");
-        } else {
-          segGrad.addColorStop(0, "#38bdf8");
-          segGrad.addColorStop(0.18, "#3b0764");
-          segGrad.addColorStop(0.22, "#ffffff");
-          segGrad.addColorStop(0.74, "#ffffff");
-          segGrad.addColorStop(0.78, "#a855f7");
-          segGrad.addColorStop(1, "#22c55e");
-        }
-        ctx.fillStyle = segGrad;
-        ctx.fill();
-
-        // Texto rotado siguiendo el ángulo exacto de la valla LED
-        const midX = (pA_bot.x + pB_bot.x + pA_top.x + pB_top.x) * 0.25;
-        const midY = (pA_bot.y + pB_bot.y + pA_top.y + pB_top.y) * 0.25;
-        const angle = Math.atan2(pB_bot.y - pA_bot.y, pB_bot.x - pA_bot.x);
-        const segLen = Math.hypot(pB_bot.x - pA_bot.x, pB_bot.y - pA_bot.y);
-
-        ctx.translate(midX, midY);
-        if (Math.abs(angle) > Math.PI / 2) {
-          ctx.rotate(angle + Math.PI);
-        } else {
-          ctx.rotate(angle);
-        }
-
-        ctx.fillStyle = "#2e1065";
-        ctx.font = `900 ${Math.max(6, Math.round(segLen * 0.11))}px "Trebuchet MS", sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const label = (elapsed > 12.4 && outcome === "GOAL")
-          ? `¡GOOOL! ${atkTeam.shortName}`
-          : "Premier  •  League";
-        ctx.fillText(label, 0, 0);
-        ctx.restore();
-
-        // Borde superior oscuro de la pantalla LED
-        ctx.strokeStyle = "#0f172a";
-        ctx.lineWidth = 1.0 * sc;
-        ctx.beginPath();
-        ctx.moveTo(pA_top.x, pA_top.y);
-        ctx.lineTo(pB_top.x, pB_top.y);
-        ctx.stroke();
-      };
-
-      // Vallas LED a lo largo de la línea de fondo (desde v = 46 hasta el córner en v = -1.2)
-      const goalLineSegs = 5;
-      for (let i = 0; i < goalLineSegs; i++) {
-        const vStart = 46 - i * (47.2 / goalLineSegs);
-        const vEnd = 46 - (i + 1) * (47.2 / goalLineSegs);
-        draw3DBannerSegment(
-          p3d(-1.4, vStart, 0),
-          p3d(-1.4, vEnd, 0),
-          p3d(-1.4, vEnd, 1.05),
-          p3d(-1.4, vStart, 1.05),
-          i
-        );
-      }
-
-      // Vallas LED a lo largo de la banda lejana (desde u = -1.4 hasta u = 48)
-      const touchLineSegs = 4;
-      for (let i = 0; i < touchLineSegs; i++) {
-        const uStart = -1.4 + i * (49.4 / touchLineSegs);
-        const uEnd = -1.4 + (i + 1) * (49.4 / touchLineSegs);
-        draw3DBannerSegment(
-          p3d(uStart, -1.2, 0),
-          p3d(uEnd, -1.2, 0),
-          p3d(uEnd, -1.2, 1.05),
-          p3d(uStart, -1.2, 1.05),
-          i + 1
-        );
-      }
-
-      // 4. LÍNEAS DE CAL EN PERSPECTIVA 3D EXACTA
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.88)";
-      ctx.lineWidth = 1.8 * sc;
-      ctx.lineJoin = "round";
-
-      const drawPitchLine3D = (u1, v1, u2, v2) => {
-        const p1 = p3d(u1, v1, 0);
-        const p2 = p3d(u2, v2, 0);
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-      };
-
-      // Línea de gol (u = 0), línea de banda lejana (v = 0) y línea de medio campo (u = 48)
-      drawPitchLine3D(0, 0, 0, 62);
-      drawPitchLine3D(0, 0, 56, 0);
-      drawPitchLine3D(48.0, 0, 48.0, 64);
-
-      // Círculo central en la medular (u = 48.0, v = 34.0, radio 9.15m)
-      ctx.beginPath();
-      for (let s = 0; s <= 32; s++) {
-        const ang = (s / 32) * Math.PI * 2;
-        const cp = p3d(48.0 + Math.cos(ang) * 9.15, 34.0 + Math.sin(ang) * 9.15, 0);
-        if (s === 0) ctx.moveTo(cp.x, cp.y);
-        else ctx.lineTo(cp.x, cp.y);
-      }
-      ctx.stroke();
-
-      // Área Grande (18 yardas: u = 0..16.5, v = 13.84..54.16)
-      drawPitchLine3D(0, 13.84, 16.5, 13.84);
-      drawPitchLine3D(16.5, 13.84, 16.5, 54.16);
-      drawPitchLine3D(16.5, 54.16, 0, 54.16);
-
-      // Área Pequeña (6 yardas: u = 0..5.5, v = 24.84..43.16)
-      drawPitchLine3D(0, 24.84, 5.5, 24.84);
-      drawPitchLine3D(5.5, 24.84, 5.5, 43.16);
-      drawPitchLine3D(5.5, 43.16, 0, 43.16);
-
-      // Punto de penalti (u = 11.0, v = 34.0)
-      const penSpot = p3d(11.0, 34.0, 0);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-      ctx.beginPath();
-      ctx.ellipse(penSpot.x, penSpot.y, 2.2 * sc, 1.3 * sc, -0.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Semicírculo del área grande (D-Arc: radio 9.15m desde (11, 34), para u >= 16.5)
-      ctx.beginPath();
-      const maxAngle = Math.acos((16.5 - 11.0) / 9.15); // ~0.926 rad
-      const arcSteps = 28;
-      for (let s = 0; s <= arcSteps; s++) {
-        const ang = -maxAngle + (s / arcSteps) * (2 * maxAngle);
-        const au = 11.0 + Math.cos(ang) * 9.15;
-        const av = 34.0 + Math.sin(ang) * 9.15;
-        const ap = p3d(au, av, 0);
-        if (s === 0) ctx.moveTo(ap.x, ap.y);
-        else ctx.lineTo(ap.x, ap.y);
-      }
-      ctx.stroke();
-
-      // Arco de córner en (0, 0) y banderín de córner
-      ctx.beginPath();
-      for (let s = 0; s <= 10; s++) {
-        const ang = (s / 10) * (Math.PI / 2);
-        const cp = p3d(Math.cos(ang) * 1.2, Math.sin(ang) * 1.2, 0);
-        if (s === 0) ctx.moveTo(cp.x, cp.y);
-        else ctx.lineTo(cp.x, cp.y);
-      }
-      ctx.stroke();
-
-      const cFlagBot = p3d(0, 0, 0);
-      const cFlagTop = p3d(0, 0, 1.5);
-      ctx.strokeStyle = "#f8fafc";
-      ctx.lineWidth = 1.2 * sc;
-      ctx.beginPath();
-      ctx.moveTo(cFlagBot.x, cFlagBot.y);
-      ctx.lineTo(cFlagTop.x, cFlagTop.y);
-      ctx.stroke();
-      ctx.fillStyle = "#ef4444";
-      ctx.beginPath();
-      ctx.moveTo(cFlagTop.x, cFlagTop.y);
-      ctx.lineTo(cFlagTop.x + 4.5 * sc, cFlagTop.y + 1.8 * sc);
-      ctx.lineTo(cFlagTop.x, cFlagTop.y + 3.6 * sc);
-      ctx.closePath();
-      ctx.fill();
-
-      // 5. PORTERÍA 3D CON CAJA DE RED PROFUNDA (u = 0, v = 30.34..37.66, z = 0..2.44)
-      const goalDepthU = -2.15; // Profundidad hacia atrás de la red
-
-      const pFrontR_bot = p3d(0, vPostRight, 0);
-      const pFrontR_top = p3d(0, vPostRight, 2.44);
-      pFrontL_bot = p3d(0, vPostLeft, 0);
-      const pFrontL_top = p3d(0, vPostLeft, 2.44);
-
-      const isGoalScored = outcome === "GOAL" && elapsed >= 12.5;
-      const netRipple = isGoalScored ? Math.max(0, 1 - (elapsed - 12.5) * 0.45) * Math.sin((elapsed - 12.5) * 18) * 0.35 : 0;
-
-      const pBackR_bot = p3d(goalDepthU - netRipple, vPostRight, 0);
-      const pBackR_top = p3d(goalDepthU - netRipple, vPostRight, 2.38);
-      const pBackL_bot = p3d(goalDepthU - netRipple, vPostLeft, 0);
-      const pBackL_top = p3d(goalDepthU - netRipple, vPostLeft, 2.38);
-
-      // Sombra de los postes y red en el césped
-      ctx.strokeStyle = "rgba(0, 20, 5, 0.28)";
-      ctx.lineWidth = 2.5 * sc;
-      ctx.beginPath();
-      ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
-      ctx.lineTo(pBackL_bot.x, pBackL_bot.y);
-      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
-      ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
-      ctx.stroke();
-
-      // Soportes traseros oscuros/metálicos de la red
-      ctx.strokeStyle = "rgba(148, 163, 184, 0.75)";
-      ctx.lineWidth = 1.6 * sc;
-      ctx.beginPath();
-      ctx.moveTo(pFrontR_top.x, pFrontR_top.y);
-      ctx.lineTo(pBackR_top.x, pBackR_top.y);
-      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
-      ctx.moveTo(pFrontL_top.x, pFrontL_top.y);
-      ctx.lineTo(pBackL_top.x, pBackL_top.y);
-      ctx.lineTo(pBackL_bot.x, pBackL_bot.y);
-      ctx.moveTo(pBackL_bot.x, pBackL_bot.y);
-      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
-      ctx.moveTo(pBackL_top.x, pBackL_top.y);
-      ctx.lineTo(pBackR_top.x, pBackR_top.y);
-      ctx.stroke();
-
-      // Función auxiliar para tejer malla 3D en un cuadrilátero de la red
-      const drawNetQuadMesh = (qTL, qTR, qBR, qBL, cols, rows, alpha) => {
-        ctx.fillStyle = `rgba(241, 245, 249, ${alpha * 0.45})`;
-        ctx.beginPath();
-        ctx.moveTo(qTL.x, qTL.y);
-        ctx.lineTo(qTR.x, qTR.y);
-        ctx.lineTo(qBR.x, qBR.y);
-        ctx.lineTo(qBL.x, qBL.y);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-        ctx.lineWidth = 0.75 * sc;
-        ctx.beginPath();
-        for (let c = 0; c <= cols; c++) {
-          const tc = c / cols;
-          const sx = lerp(qTL.x, qTR.x, tc);
-          const sy = lerp(qTL.y, qTR.y, tc);
-          const ex = lerp(qBL.x, qBR.x, tc);
-          const ey = lerp(qBL.y, qBR.y, tc);
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(ex, ey);
-        }
-        for (let r = 0; r <= rows; r++) {
-          const tr = r / rows;
-          const sx = lerp(qTL.x, qBL.x, tr);
-          const sy = lerp(qTL.y, qBL.y, tr);
-          const ex = lerp(qTR.x, qBR.x, tr);
-          const ey = lerp(qTR.y, qBR.y, tr);
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(ex, ey);
-        }
-        ctx.stroke();
-      };
-
-      // Red lateral derecha (fondo), red trasera, red superior (techo) y red lateral izquierda (primer plano)
-      drawNetQuadMesh(pBackR_top, pFrontR_top, pFrontR_bot, pBackR_bot, 7, 10, 0.36);
-      drawNetQuadMesh(pBackL_top, pBackR_top, pBackR_bot, pBackL_bot, 22, 10, 0.44);
-      drawNetQuadMesh(pBackL_top, pBackR_top, pFrontR_top, pFrontL_top, 20, 6, 0.38);
-
-      // Función que dibuja el marco frontal blanco brillante (postes y larguero) y el lateral izquierdo de la red
-      drawGoalFrontFrame = () => {
-        drawNetQuadMesh(pBackL_top, pFrontL_top, pFrontL_bot, pBackL_bot, 7, 10, 0.42);
-
-        // Postes y larguero cilíndricos blancos con volumen
-        ctx.strokeStyle = "rgba(15, 23, 42, 0.25)";
-        ctx.lineWidth = 4.6 * sc;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
-        ctx.lineTo(pFrontL_top.x, pFrontL_top.y);
-        ctx.lineTo(pFrontR_top.x, pFrontR_top.y);
-        ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
-        ctx.stroke();
-
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 3.4 * sc;
-        ctx.beginPath();
-        ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
-        ctx.lineTo(pFrontL_top.x, pFrontL_top.y);
-        ctx.lineTo(pFrontR_top.x, pFrontR_top.y);
-        ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
-        ctx.stroke();
-      };
-      } // Fin de if (!onlyUpdateState && ctx)
-
-      // 6. SIMULACIÓN DINÁMICA CONECTADA EN TIEMPO REAL CON LOS 22 JUGADORES DEL CAMPO
-      // - u = distancia a línea de gol (0 = portería atacada, 11 = penalti, 16.5 = frontal área, 34..36 = medular)
-      // - v = posición lateral en metros del campo (0 = banda der, 34 = centro de la portería, 68 = banda izq)
-      const isHomeAtk = isHome;
-      // Conversión métrica exacta para campo de 105x68m:
-      // Local ataca hacia x=105 (u=0 es x=105, u=105 es x=0): x2d = 100 - (u/105)*100 -> u = (100 - x2d)*1.05
-      // Visitante ataca hacia x=0 (u=0 es x=0, u=105 es x=105): x2d = (u/105)*100 -> u = x2d * 1.05
-      const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 1.05, 1.0, 52.0);
-      const to3DV = (y2d) => clamp((y2d / 100) * 68.0, 2.0, 66.0);
-      const to2DX = (u3d) => {
-        const progPct = clamp((u3d / 105.0) * 100.0, -4.0, 104.0);
-        return isHomeAtk ? (100.0 - progPct) : progPct;
-      };
-      const to2DY = (v3d) => clamp((v3d / 68.0) * 100.0, -2.0, 102.0);
-
-      const playPattern = hlData.playPattern || "TIKI_TAKA_CENTRAL";
-      const seed = hlData.patternSeed !== undefined ? hlData.patternSeed : 0.5;
-      const vJit = (seed - 0.5) * 2.4;
-
-      // Inicializar el estado vivo de los 22 jugadores a partir de sus posiciones reales en el campo 2D
-      if (!hlData._liveSimInit) {
-        hlData._liveSimInit = true;
-        const rawAtk = hlData.liveSnapshot?.atk || (isHomeAtk ? simulator?.home2D : simulator?.away2D) || [];
-        const rawDef = hlData.liveSnapshot?.def || (isHomeAtk ? simulator?.away2D : simulator?.home2D) || [];
-        const origBallX = hlData.liveOrigin?.x ?? simulator?.ball?.x ?? 55;
-        const origBallY = hlData.liveOrigin?.y ?? simulator?.ball?.y ?? 50;
-
-        hlData._origBallU = clamp(to3DU(origBallX), 15.0, 29.5);
-        hlData._origBallV = clamp(to3DV(origBallY), 8.0, 52.0);
-
-        const pivId = hlData.pivot?.id;
-        const pasId = hlData.passer?.id;
-        const shoId = hlData.shooter?.id;
-        const supId = hlData.supportAttacker?.id;
-        const blkId = hlData.defender?.id;
-
-        hlData._atkNodes = rawAtk.filter(p => !p.isGK).map((p, idx) => {
-          let u0 = to3DU(p.x ?? p.curX ?? 50);
-          let v0 = to3DV(p.y ?? p.curY ?? 50);
-          // Comprimir sutilmente jugadores muy atrasados para que entren en el plano de la jugada
-          if (u0 > 29.0) u0 = 24.5 + (u0 - 29.0) * 0.45;
-          let role = "COMPANION";
-          if (p.id === shoId) role = "STRIKER";
-          else if (p.id === pasId) role = "PASSER";
-          else if (p.id === pivId) role = "PIVOT";
-          else if (p.id === supId) role = "SUPPORT";
-          return {
-            id: p.id || `atk_${idx}`,
-            name: p.name,
-            number: p.number || (idx + 2),
-            pos: p.pos || "MC",
-            role,
-            u0,
-            v0,
-            u: u0,
-            v: v0,
-            z: 0,
-            yaw: Math.PI * 1.15,
-            speed: 0.4,
-            pose: "RUNNING_UP"
-          };
-        });
-
-        // Garantizar que existan los 4 roles clave aunque haya coincidencias
-        const ensureRole = (roleName, fallbackIdx, defU, defV, fallbackPlayer) => {
-          let found = hlData._atkNodes.find(n => n.role === roleName);
-          if (!found) {
-            found = hlData._atkNodes.find(n => n.role === "COMPANION");
-            if (found) {
-              found.role = roleName;
-              if (fallbackPlayer?.name) found.name = fallbackPlayer.name;
-              if (fallbackPlayer?.number) found.number = fallbackPlayer.number;
-            } else {
-              found = {
-                id: `role_${roleName}`,
-                name: fallbackPlayer?.name || roleName,
-                number: fallbackPlayer?.number || (fallbackIdx + 6),
-                pos: "MC",
-                role: roleName,
-                u0: defU,
-                v0: defV,
-                u: defU,
-                v: defV,
-                z: 0,
-                yaw: Math.PI * 1.15,
-                speed: 0.5,
-                pose: "RUNNING_UP"
-              };
-              hlData._atkNodes.push(found);
-            }
-          }
-          return found;
-        };
-
-        const pivNode = ensureRole("PIVOT", 0, hlData._origBallU, hlData._origBallV, hlData.pivot);
-        // El iniciador real de la jugada parte exactamente junto al balón real del partido
-        pivNode.u0 = hlData._origBallU + 0.5;
-        pivNode.v0 = hlData._origBallV;
-        const pasNode = ensureRole("PASSER", 1, clamp(hlData._origBallU - 6.5, 11.0, 25.0), clamp(hlData._origBallV + (hlData._origBallV > 34 ? -8 : 8), 8.0, 54.0), hlData.passer);
-        const supNode = ensureRole("SUPPORT", 2, clamp(hlData._origBallU - 4.0, 13.0, 27.0), clamp(34.0 + (hlData._origBallV > 34 ? -12 : 12), 10.0, 52.0), hlData.supportAttacker);
-        const strNode = ensureRole("STRIKER", 3, clamp(pasNode.u0 - 4.5, 9.5, 21.0), clamp(34.0 + vJit * 2.0, 18.0, 48.0), hlData.shooter);
-
-        // Calcular anclas tácticas orgánicas conectadas a las posiciones reales de los jugadores
-        const isAerialCross = playPattern === "WING_CROSS_HEADER" || playPattern === "CHIPPED_PASS_OVER_DEFENSE";
-        const isCutback = playPattern === "BYLINE_CUTBACK" || playPattern === "OVERLAPPING_FULLBACK_CROSS";
-        const isLongShot = playPattern === "LONG_RANGE_BOMB" || playPattern === "INDIVIDUAL_SLALOM" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
-
-        // Punto donde el PIVOT conecta con PASSER/SUPPORT
-        hlData._pivEndU = clamp(pivNode.u0 - 4.2, 14.5, 29.0);
-        hlData._pivEndV = clamp(lerp(pivNode.v0, pasNode.v0, 0.28), 7.0, 55.0);
-
-        // Recepción y conducción del asistente (PASSER)
-        hlData._pasRecvU = clamp(lerp(pasNode.u0, hlData._pivEndU - 3.5, 0.45), 11.5, 24.5);
-        hlData._pasRecvV = clamp(pasNode.v0, 6.5, 55.5);
-
-        if (isCutback || playPattern === "WING_CROSS_HEADER") {
-          const wingSideV = pasNode.v0 < 33.5 ? clamp(pasNode.v0 * 0.65, 5.2, 14.5) : clamp(pasNode.v0 + (58 - pasNode.v0) * 0.45, 47.5, 56.5);
-          hlData._pasDelivU = isCutback ? clamp(5.2 + seed * 2.5, 4.5, 8.5) : clamp(8.5 + seed * 3.5, 7.5, 13.0);
-          hlData._pasDelivV = wingSideV;
-        } else {
-          hlData._pasDelivU = clamp(Math.min(hlData._pasRecvU - 4.2, 15.8 + seed * 2.5), 11.8, 19.2);
-          hlData._pasDelivV = clamp(lerp(hlData._pasRecvV, 33.5, 0.38) + vJit, 14.0, 50.0);
-        }
-
-        // Punto exacto de remate (conectado a la trayectoria de desmarque de STRIKER)
-        if (isLongShot) {
-          hlData._shotU = clamp(lerp(strNode.u0, 15.8, 0.72), 14.2, 18.4);
-          hlData._shotV = clamp(lerp(strNode.v0, 34.0, 0.55) + vJit, 24.0, 44.0);
-          hlData._shotZ = 0;
-        } else if (isAerialCross) {
-          hlData._shotU = clamp(7.6 + seed * 2.2, 6.8, 10.2);
-          hlData._shotV = clamp(lerp(strNode.v0, 34.0, 0.68) + vJit, 28.5, 39.5);
-          hlData._shotZ = playPattern === "WING_CROSS_HEADER" ? 1.32 : 0.82;
-        } else {
-          hlData._shotU = clamp(lerp(strNode.u0, 9.8, 0.72), 7.2, 13.4);
-          hlData._shotV = clamp(lerp(strNode.v0, 34.0, 0.62) + vJit, 26.5, 41.5);
-          hlData._shotZ = isCutback ? 0.12 : 0;
-        }
-
-        // Inicializar los 10 defensores de campo desde sus posiciones reales en el 2D
-        hlData._defNodes = rawDef.filter(p => !p.isGK).map((p, idx) => {
-          let u0 = to3DU(p.x ?? p.curX ?? 20);
-          let v0 = to3DV(p.y ?? p.curY ?? 50);
-          if (u0 > 35.0) u0 = 28.5 + (u0 - 35.0) * 0.3;
-          return {
-            id: p.id || `def_${idx}`,
-            name: p.name,
-            number: p.number || (idx + 2),
-            pos: p.pos || "DFC",
-            isBlocker: p.id === blkId || idx === 1,
-            markTargetId: p.markTargetId || null,
-            u0,
-            v0,
-            u: u0,
-            v: v0,
-            z: 0,
-            yaw: Math.PI * 0.15,
-            speed: 0.4,
-            pose: "JOCKEY"
-          };
-        });
-
-        // Asegurar que al menos un defensor cercano al rematador actúe como marcador directo / bloqueador
-        if (!hlData._defNodes.some(d => d.isBlocker) && hlData._defNodes.length > 0) {
-          hlData._defNodes[0].isBlocker = true;
-        }
-      }
-
-      const pivNode = hlData._atkNodes.find(n => n.role === "PIVOT") || hlData._atkNodes[0];
-      const pasNode = hlData._atkNodes.find(n => n.role === "PASSER") || hlData._atkNodes[1] || pivNode;
-      const supNode = hlData._atkNodes.find(n => n.role === "SUPPORT") || hlData._atkNodes[2] || pasNode;
-      const strNode = hlData._atkNodes.find(n => n.role === "STRIKER") || hlData._atkNodes[3] || pasNode;
-
-      const shotOriginU = hlData._shotU;
-      const shotOriginV = hlData._shotV;
-      const shotOriginZ = hlData._shotZ;
-      const isAerialFinish = shotOriginZ >= 0.7;
-      const useSupportWallPass = (playPattern === "TIKI_TAKA_CENTRAL" || playPattern === "THIRD_MAN_TRIANGLE" || playPattern === "CHIPPED_PASS_OVER_DEFENSE") && supNode !== pasNode;
-
-      let ballU = hlData._origBallU;
-      let ballV = hlData._origBallV;
-      let ballZ = 0;
-      let activeCarrierId = pivNode.id;
-
-      // Función auxiliar para actualizar posición de un jugador y calcular su orientación 360° real (yaw) y velocidad
-      const updateNodeMotion = (node, prevU, prevV, nextU, nextV, lookAtU, lookAtV, basePose, zVal = 0) => {
-        const du = nextU - prevU;
-        const dv = nextV - prevV;
-        const dist = Math.hypot(du, dv);
-        node.u = nextU;
-        node.v = nextV;
-        node.z = zVal;
-        node.pose = basePose;
-        node.speed = clamp(dist * 14.0, 0.25, 1.35);
-
-        // Si se desplaza con velocidad apreciable, mira en la dirección de su carrera; si está plantado, mira hacia el balón/objetivo
-        const dirU = dist > 0.012 ? (prevU + du * 4.0) : lookAtU;
-        const dirV = dist > 0.012 ? (prevV + dv * 4.0) : lookAtV;
-        const pNow = p3d(nextU, nextV, 0);
-        const pAim = p3d(dirU, dirV, 0);
-        const sdx = pAim.x - pNow.x;
-        const sdy = pAim.groundY - pNow.groundY;
-        if (Math.hypot(sdx, sdy) > 0.1) {
-          const targetYaw = Math.atan2(sdx, sdy);
-          // Suavizado angular continuo en 360°
-          const diff = Math.atan2(Math.sin(targetYaw - (node.yaw ?? targetYaw)), Math.cos(targetYaw - (node.yaw ?? targetYaw)));
-          node.yaw = (node.yaw ?? targetYaw) + diff * 0.32;
-        }
-      };
-
-      // --- FASES TEMPORALES DE LA JUGADA EN TIEMPO REAL (0.0s -> 15.0s) ---
-      // 1. Movimiento de PIVOT (Iniciador real)
-      {
-        const prevU = pivNode.u, prevV = pivNode.v;
-        let u, v, pose = "RUNNING_UP";
-        if (elapsed < 2.5) {
-          const t = smooth01(elapsed / 2.5);
-          u = lerp(pivNode.u0, hlData._pivEndU, t);
-          v = lerp(pivNode.v0, hlData._pivEndV, t);
-          pose = elapsed < 2.15 ? "DRIBBLE" : "PASS_DELIVERY";
-        } else {
-          const t = smooth01((elapsed - 2.5) / 8.0);
-          u = lerp(hlData._pivEndU, Math.max(15.5, hlData._pivEndU - 5.5), t);
-          v = lerp(hlData._pivEndV, clamp(hlData._pivEndV + (34 - hlData._pivEndV) * 0.25, 12, 50), t);
-          pose = elapsed < 3.0 ? "PASS_DELIVERY" : (elapsed > 12.5 && outcome === "GOAL" ? "CELEBRATE_JUMP" : "RUNNING_UP");
-        }
-        updateNodeMotion(pivNode, prevU, prevV, u, v, ballU, ballV, pose, 0);
-      }
-
-      // 2. Movimiento de SUPPORT (Interior / Apoyo de ruptura o pared)
-      const supTouchU = lerp(hlData._pivEndU, hlData._pasRecvU, 0.55);
-      const supTouchV = clamp(lerp(supNode.v0, 34.0, 0.35), 12.0, 50.0);
-      {
-        const prevU = supNode.u, prevV = supNode.v;
-        let u, v, pose = "RUNNING_UP";
-        if (useSupportWallPass) {
-          if (elapsed < 3.4) {
-            const t = smooth01(elapsed / 3.4);
-            u = lerp(supNode.u0, supTouchU, t);
-            v = lerp(supNode.v0, supTouchV, t);
-            pose = elapsed >= 2.5 ? "DRIBBLE" : "RUNNING_UP";
-          } else if (elapsed < 4.8) {
-            const t = smooth01((elapsed - 3.4) / 1.4);
-            u = lerp(supTouchU, supTouchU - 1.2, t);
-            v = supTouchV;
-            pose = elapsed < 4.3 ? "PASS_DELIVERY" : "RUNNING_UP";
-          } else {
-            const t = smooth01((elapsed - 4.8) / 6.2);
-            u = lerp(supTouchU - 1.2, clamp(shotOriginU + 2.5, 9.5, 16.5), t);
-            v = lerp(supTouchV, clamp(supTouchV + (supTouchV > 34 ? 5 : -5), 12, 50), t);
-            pose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "SPRINT";
-          }
-        } else {
-          const t = smooth01(elapsed / 10.5);
-          const targetBoxU = clamp(shotOriginU + 1.8, 8.5, 15.5);
-          const targetBoxV = clamp(34.0 + (shotOriginV > 34.0 ? -7.5 : 7.5), 14.0, 48.0);
-          u = lerp(supNode.u0, targetBoxU, t);
-          v = lerp(supNode.v0, targetBoxV, t);
-          pose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : (elapsed < 9.5 ? "SPRINT" : "READY");
-        }
-        updateNodeMotion(supNode, prevU, prevV, u, v, ballU, ballV, pose, 0);
-      }
-
-      // 3. Movimiento de PASSER (Asistente / Extremo / Mediapunta real)
-      const pasStartCarryT = useSupportWallPass ? 4.8 : 3.7;
-      {
-        const prevU = pasNode.u, prevV = pasNode.v;
-        let u, v, pose = "RUNNING_UP";
-        if (elapsed < pasStartCarryT) {
-          const t = smooth01(elapsed / pasStartCarryT);
-          u = lerp(pasNode.u0, hlData._pasRecvU, t);
-          v = lerp(pasNode.v0, hlData._pasRecvV, t);
-          pose = "RUNNING_UP";
-        } else if (elapsed < 8.4) {
-          const t = smooth01((elapsed - pasStartCarryT) / (8.4 - pasStartCarryT));
-          const weave = Math.sin(t * Math.PI * 2.0) * 0.85;
-          u = lerp(hlData._pasRecvU, hlData._pasDelivU, t);
-          v = lerp(hlData._pasRecvV, hlData._pasDelivV, t) + weave;
-          pose = "DRIBBLE";
-        } else if (elapsed < 9.3) {
-          u = hlData._pasDelivU;
-          v = hlData._pasDelivV;
-          pose = "PASS_DELIVERY";
-        } else {
-          const t = smooth01((elapsed - 9.3) / 3.5);
-          u = lerp(hlData._pasDelivU, Math.max(5.5, hlData._pasDelivU - 1.4), t);
-          v = lerp(hlData._pasDelivV, hlData._pasDelivV + (34 - hlData._pasDelivV) * 0.12, t);
-          pose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
-        }
-        updateNodeMotion(pasNode, prevU, prevV, u, v, elapsed >= 8.2 ? shotOriginU : hlData._pasDelivU - 3, elapsed >= 8.2 ? shotOriginV : hlData._pasDelivV, pose, 0);
-      }
-
-      // 4. Movimiento de STRIKER (Rematador real)
-      {
-        const prevU = strNode.u, prevV = strNode.v;
-        let u, v, z = 0, pose = "RUNNING_UP";
-        const midRunU = lerp(strNode.u0, shotOriginU, 0.42) + 1.2;
-        const midRunV = clamp(lerp(strNode.v0, shotOriginV, 0.35) + (strNode.v0 > 34 ? 3.2 : -3.2), 12.0, 52.0);
-
-        if (elapsed < 5.2) {
-          const t = smooth01(elapsed / 5.2);
-          u = lerp(strNode.u0, midRunU, t);
-          v = lerp(strNode.v0, midRunV, t);
-          pose = "RUNNING_UP";
-        } else if (elapsed < 10.6) {
-          const t = smooth01((elapsed - 5.2) / 5.4);
-          u = lerp(midRunU, shotOriginU + 0.35, t);
-          v = lerp(midRunV, shotOriginV, t);
-          pose = "SPRINT";
-        } else if (elapsed < 11.5) {
-          const t = (elapsed - 10.6) / 0.9;
-          u = lerp(shotOriginU + 0.35, shotOriginU, t);
-          v = shotOriginV;
-          if (isAerialFinish) {
-            const jumpPhase = clamp((elapsed - 10.8) / 1.2, 0, 1);
-            z = Math.sin(jumpPhase * Math.PI) * (shotOriginZ * 0.88);
-            pose = elapsed < 11.15 ? "HEADER_JUMP" : "WINDUP_SHOT";
-          } else {
-            pose = elapsed < 11.05 ? "CONTROL" : "WINDUP_SHOT";
-          }
-        } else {
-          u = shotOriginU - 0.25;
-          v = shotOriginV;
-          if (isAerialFinish && elapsed < 12.0) {
-            const jumpPhase = clamp((elapsed - 10.8) / 1.2, 0, 1);
-            z = Math.max(0, Math.sin(jumpPhase * Math.PI) * (shotOriginZ * 0.88));
-          }
-          pose = elapsed < 12.55 ? "SHOT_FOLLOW_THROUGH" : (outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD");
-        }
-        const lookU = elapsed >= 10.4 ? 0.0 : shotOriginU;
-        const lookV = elapsed >= 10.4 ? 34.0 : shotOriginV;
-        updateNodeMotion(strNode, prevU, prevV, u, v, lookU, lookV, pose, z);
-      }
-
-      // 5. Movimiento del BALÓN 3D (0.0s - 11.5s) perfectamente sincronizado con los pies de los jugadores reales
-      if (elapsed < 2.2) {
-        activeCarrierId = pivNode.id;
-        ballU = pivNode.u - 0.52;
-        ballV = pivNode.v + (pivNode.v > 34 ? -0.35 : 0.35);
-        ballZ = 0;
-      } else if (useSupportWallPass && elapsed < 4.8) {
-        if (elapsed < 3.4) {
-          const t = smooth01((elapsed - 2.2) / 1.2);
-          activeCarrierId = t < 0.7 ? pivNode.id : supNode.id;
-          ballU = lerp(hlData._pivEndU - 0.4, supTouchU - 0.4, t);
-          ballV = lerp(hlData._pivEndV, supTouchV, t);
-          ballZ = Math.sin(t * Math.PI) * 0.12;
-        } else if (elapsed < 3.9) {
-          activeCarrierId = supNode.id;
-          ballU = supNode.u - 0.45;
-          ballV = supNode.v + 0.3;
-          ballZ = 0;
-        } else {
-          const t = smooth01((elapsed - 3.9) / 0.9);
-          activeCarrierId = t < 0.7 ? supNode.id : pasNode.id;
-          ballU = lerp(supTouchU - 1.0, hlData._pasRecvU - 0.4, t);
-          ballV = lerp(supTouchV, hlData._pasRecvV, t);
-          ballZ = Math.sin(t * Math.PI) * 0.14;
-        }
-      } else if (elapsed < pasStartCarryT) {
-        const t = smooth01((elapsed - 2.2) / Math.max(0.5, pasStartCarryT - 2.2));
-        activeCarrierId = t < 0.75 ? pivNode.id : pasNode.id;
-        ballU = lerp(hlData._pivEndU - 0.4, hlData._pasRecvU - 0.4, t);
-        ballV = lerp(hlData._pivEndV, hlData._pasRecvV, t);
-        ballZ = Math.sin(t * Math.PI) * 0.18;
-      } else if (elapsed < 8.4) {
-        activeCarrierId = pasNode.id;
-        ballU = pasNode.u - 0.52;
-        ballV = pasNode.v + (pasNode.v < 34 ? 0.42 : -0.42);
-        ballZ = 0;
-      } else if (elapsed < 10.6) {
-        const t = smooth01((elapsed - 8.4) / 2.2);
-        activeCarrierId = t < 0.65 ? pasNode.id : strNode.id;
-        ballU = lerp(hlData._pasDelivU - 0.35, shotOriginU + 0.15, t);
-        ballV = lerp(hlData._pasDelivV, shotOriginV + 0.25, t);
-        if (isAerialFinish) {
-          ballZ = lerp(0.1, shotOriginZ, t) + Math.sin(t * Math.PI) * 2.65;
-        } else if (playPattern === "BYLINE_CUTBACK" || playPattern === "OVERLAPPING_FULLBACK_CROSS") {
-          ballZ = Math.sin(t * Math.PI) * 0.28;
-        } else {
-          ballZ = Math.sin(t * Math.PI) * 0.14;
-        }
-      } else if (elapsed < 11.5) {
-        activeCarrierId = strNode.id;
-        ballU = strNode.u - 0.38;
-        ballV = strNode.v + 0.32;
-        ballZ = isAerialFinish ? shotOriginZ : 0;
-      }
-
-      // 6. Movimiento del resto de compañeros atacantes (COMPANION) acompañando la jugada desde su posición 2D real
-      hlData._atkNodes.forEach((node, idx) => {
-        if (node.role !== "COMPANION") return;
-        const prevU = node.u, prevV = node.v;
-        const progT = smooth01(elapsed / 10.5);
-        const advanceU = node.u0 > 24.0 ? 8.5 : 6.0;
-        const targetU = clamp(node.u0 - advanceU, 8.2 + (idx % 3) * 3.2, 30.0);
-        const targetV = clamp(lerp(node.v0, 34.0 + ((idx % 2 === 0 ? 1 : -1) * (10 + idx * 2)), 0.25), 7.0, 55.0);
-        const u = lerp(node.u0, targetU, progT);
-        const v = lerp(node.v0, targetV, progT);
-        const pose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : (u < 18 ? "SPRINT" : "RUNNING_UP");
-        updateNodeMotion(node, prevU, prevV, u, v, ballU, ballV, pose, 0);
-      });
-
-      // 7. Movimiento reactivo de los 10 defensores de campo reales (basculación, presión al portador y marcaje al rematador)
-      let blockDefNode = hlData._defNodes.find(d => d.isBlocker) || hlData._defNodes[0];
-      hlData._defNodes.forEach((d, idx) => {
-        const prevU = d.u, prevV = d.v;
-        let u = d.u0, v = d.v0, pose = "JOCKEY";
-        const progT = smooth01(elapsed / 10.8);
-
-        if (d.isBlocker) {
-          const blkTargetU = clamp(shotOriginU - 1.35, 5.5, 16.5);
-          const blkTargetV = clamp(shotOriginV + (d.v0 >= shotOriginV ? 0.85 : -0.85), 8.0, 54.0);
-          u = lerp(d.u0, blkTargetU, progT);
-          v = lerp(d.v0, blkTargetV, progT);
-          if (outcome === "BLOCK" && elapsed >= 11.25 && elapsed <= 12.7) {
-            pose = "SLIDE_BLOCK";
-          } else {
-            pose = elapsed > 6.0 ? "SPRINT" : "JOCKEY";
-          }
-        } else if (d.markTargetId) {
-          const markedAtk = hlData._atkNodes.find(a => a.id === d.markTargetId);
-          if (markedAtk) {
-            u = lerp(d.u0, Math.max(5.5, markedAtk.u - 1.1), progT * 0.92);
-            v = lerp(d.v0, markedAtk.v + 0.7, progT * 0.92);
-            pose = "SPRINT";
-          }
-        } else if (idx === 0 || (Math.hypot(d.u0 - hlData._pasDelivU, d.v0 - hlData._pasDelivV) < 8.5 && elapsed < 9.2)) {
-          const pressT = smooth01(Math.min(1, elapsed / 8.2));
-          u = lerp(d.u0, clamp(pasNode.u - 1.4, 5.5, 22.0), pressT * 0.78);
-          v = lerp(d.v0, clamp(pasNode.v + (d.v0 > pasNode.v ? 1.1 : -1.1), 6.0, 56.0), pressT * 0.78);
-          pose = (playPattern === "INDIVIDUAL_SLALOM" && elapsed >= 8.2 && elapsed <= 10.6) ? "SLIDE_BLOCK" : "JOCKEY";
-        } else {
-          const retreatU = d.u0 < 16.0 ? clamp(d.u0 - 2.8, 6.2, 13.5) : clamp(d.u0 - 5.2, 11.5, 24.5);
-          const shiftV = clamp(lerp(d.v0, ballV, 0.22), 7.5, 54.5);
-          u = lerp(d.u0, retreatU, progT);
-          v = lerp(d.v0, shiftV, progT);
-          pose = d.u - u > 0.04 ? "SPRINT" : "JOCKEY";
-        }
-
-        updateNodeMotion(d, prevU, prevV, u, v, ballU, ballV, pose, 0);
-      });
-
-      // Árbitro principal siguiendo la jugada a distancia prudencial y Juez de línea en banda
-      const refU = clamp(lerp(22.0, Math.max(15.5, shotOriginU + 5.5), Math.min(1, elapsed / 10)), 15.0, 26.0);
-      const refV = clamp(lerp(24.0, shotOriginV > 33 ? 21.5 : 44.5, Math.min(1, elapsed / 10)), 16.0, 48.0);
-      const linesmanU = clamp(Math.min(strNode.u, blockDefNode ? blockDefNode.u : 10.0), 4.5, 24.0);
-      const linesmanV = -0.5;
-
-      // 6.6 Guardameta bajo palos (u = 0.85, v = 34.0)
-      let gkU = 0.85, gkV = 34.0, gkZ = 0, gkPose = "GK_READY", gkYaw = Math.PI * 0.12;
-      const targetShotV = targetCorner.includes("LEFT") ? (vPostLeft - 0.85) : (vPostRight + 0.85);
-      const targetShotZ = targetCorner.includes("TOP") ? 2.05 : 0.45;
-      const isDiveLeft = targetShotV > 34.0;
-
-      if (elapsed < 11.5) {
-        gkU = playPattern === "COUNTER_THROUGH_BALL" ? lerp(0.85, 2.3, Math.min(1, elapsed / 11)) : 0.9;
-        gkV = clamp(34.0 + (ballV - 34.0) * 0.09 + Math.sin(now * 0.004) * 0.35, 31.2, 36.8);
-        gkPose = "GK_READY";
-      } else {
-        const shotProgress = Math.min(1.0, (elapsed - 11.5) / 0.95);
-        if (outcome === "SAVE") {
-          if (shotProgress < 0.82) {
-            const dp = shotProgress / 0.82;
-            gkU = 0.95;
-            gkV = lerp(34.0, targetShotV, dp);
-            gkZ = Math.sin(dp * Math.PI) * (targetCorner.includes("TOP") ? 1.15 : 0.45);
-            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
-          } else {
-            gkU = 0.95;
-            gkV = targetShotV;
-            gkZ = 0;
-            gkPose = isDiveLeft ? "GROUND_LEFT" : "GROUND_RIGHT";
-          }
-        } else if (outcome === "GOAL") {
-          if (shotProgress < 0.88) {
-            const dp = shotProgress / 0.88;
-            gkU = 0.85;
-            gkV = lerp(34.0, lerp(34.0, targetShotV, 0.65), dp);
-            gkZ = Math.sin(dp * Math.PI) * 0.65;
-            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
-          } else {
-            gkU = 0.85;
-            gkV = lerp(34.0, targetShotV, 0.65);
-            gkPose = "CONCEDED";
-          }
-        } else if (outcome === "POST") {
-          if (shotProgress < 0.85) {
-            gkV = lerp(34.0, targetShotV, (shotProgress / 0.85) * 0.7);
-            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
-          } else {
-            gkPose = "GK_READY";
-          }
-        } else if (outcome === "WIDE") {
-          gkV = 34.0 + (wideDirection === "LEFT" ? 1.4 : -1.4);
-          gkPose = "GK_READY";
-        } else {
-          gkPose = "GK_READY";
-        }
-      }
-      {
-        const pGk = p3d(gkU, gkV, 0);
-        const pBall = p3d(ballU, ballV, 0);
-        gkYaw = Math.atan2(pBall.x - pGk.x, pBall.groundY - pGk.groundY);
-      }
-
-      // 6.7 DESENLACE FÍSICO DEL DISPARO (11.5s - 15.0s, DESDE LA POSICIÓN EXACTA DEL REMATADOR)
-      if (elapsed >= 11.5) {
-        const shotProg = Math.min(1.0, (elapsed - 11.5) / 0.95);
-        const startU = shotOriginU - 0.35;
-        const startV = shotOriginV + 0.3;
-        const startZ = shotOriginZ;
-        const blkDef = blockDefNode || { u: 9.5, v: 34.0 };
-
-        if (outcome === "GOAL") {
-          if (shotProg < 1.0) {
-            ballU = lerp(startU, -0.35, shotProg);
-            ballV = lerp(startV, targetShotV, shotProg);
-            ballZ = lerp(startZ, targetShotZ, shotProg) + Math.sin(shotProg * Math.PI) * 0.65;
-          } else {
-            const dropP = Math.min(1.0, (elapsed - 12.45) / 1.1);
-            ballU = lerp(-0.35, -1.65, dropP * 0.7);
-            ballV = targetShotV + Math.sin(dropP * 5) * 0.35;
-            ballZ = Math.max(0, lerp(targetShotZ, 0, dropP));
-          }
-        } else if (outcome === "SAVE") {
-          if (shotProg < 0.82) {
-            const sp = shotProg / 0.82;
-            ballU = lerp(startU, 0.85, sp);
-            ballV = lerp(startV, targetShotV, sp);
-            ballZ = lerp(startZ, targetShotZ, sp) + Math.sin(sp * Math.PI) * 0.55;
-          } else {
-            const defP = Math.min(1.5, (elapsed - 12.28) / 1.2);
-            const cornerDir = isDiveLeft ? 1 : -1;
-            ballU = lerp(0.85, -2.5, defP);
-            ballV = targetShotV + cornerDir * defP * 6.5;
-            ballZ = Math.max(0, lerp(targetShotZ, 0.2, defP));
-          }
-        } else if (outcome === "POST") {
-          const postV = targetCorner.includes("LEFT") ? vPostLeft : vPostRight;
-          const postZ = targetCorner.includes("TOP") ? 2.42 : 1.35;
-          if (shotProg < 0.88) {
-            const sp = shotProg / 0.88;
-            ballU = lerp(startU, 0, sp);
-            ballV = lerp(startV, postV, sp);
-            ballZ = lerp(startZ, postZ, sp) + Math.sin(sp * Math.PI) * 0.45;
-          } else {
-            const rebP = Math.min(1.4, (elapsed - 12.34) / 1.2);
-            ballU = lerp(0, 7.5, rebP);
-            ballV = postV + (postV > 34 ? 1 : -1) * rebP * 4.2;
-            ballZ = Math.max(0, lerp(postZ, 0, rebP));
-          }
-        } else if (outcome === "WIDE") {
-          const wideV = wideDirection === "LEFT" ? (vPostLeft + 4.8) : (wideDirection === "RIGHT" ? (vPostRight - 4.8) : 34.0);
-          const wideZ = wideDirection === "HIGH" ? 4.2 : 1.6;
-          const totalP = Math.min(1.5, (elapsed - 11.5) / 1.0);
-          ballU = lerp(startU, -2.8, totalP);
-          ballV = lerp(startV, wideV, totalP);
-          ballZ = Math.max(0, lerp(startZ, wideZ, Math.min(1, totalP)) + Math.sin(Math.min(1, totalP) * Math.PI) * 0.55);
-        } else if (outcome === "BLOCK") {
-          if (shotProg < 0.42) {
-            const bp = shotProg / 0.42;
-            ballU = lerp(startU, blkDef.u, bp);
-            ballV = lerp(startV, blkDef.v, bp);
-            ballZ = lerp(startZ, 0.35, bp);
-          } else {
-            const rebP = Math.min(1.2, (shotProg - 0.42) / 0.58);
-            ballU = lerp(blkDef.u, blkDef.u + 4.5, rebP);
-            ballV = lerp(blkDef.v, blkDef.v + 5.0, rebP);
-            ballZ = Math.max(0, (1 - rebP) * 0.4);
-          }
-        }
-      }
-
-      // 6.8 SEGUIMIENTO DE CÁMARA 3D Y SINCRONIZACIÓN EN VIVO CON EL MOTOR 2D DEL PARTIDO
-      {
-        const targetCamU = elapsed < 9.8
-          ? clamp((ballU - 14.0) * 0.25, 0.0, 4.2)
-          : 0.0;
-        const targetCamV = elapsed < 9.8
-          ? 34.0 + clamp((ballV - 34.0) * 0.16, -3.5, 3.5)
-          : 34.0 + clamp((ballV - 34.0) * 0.08, -1.8, 1.8);
-        hlData.camU = lerp(hlData.camU ?? targetCamU, targetCamU, 0.09);
-        hlData.camV = lerp(hlData.camV ?? targetCamV, targetCamV, 0.09);
-
-        // Sincronizar las coordenadas actuales de vuelta a simulator.home2D, simulator.away2D y simulator.ball
-        if (simulator) {
-          const liveAtkArr = isHomeAtk ? simulator.home2D : simulator.away2D;
-          const liveDefArr = isHomeAtk ? simulator.away2D : simulator.home2D;
-          if (Array.isArray(liveAtkArr)) {
-            hlData._atkNodes.forEach(n => {
-              const matchP = liveAtkArr.find(p => p.id === n.id || p.number === n.number);
-              if (matchP) {
-                matchP.curX = to2DX(n.u);
-                matchP.curY = to2DY(n.v);
-                matchP.curZ = n.z || 0;
-                matchP.hlPose = n.pose;
-                matchP.hlSpeed = n.speed;
-              }
-            });
-          }
-          if (Array.isArray(liveDefArr)) {
-            hlData._defNodes.forEach(n => {
-              const matchP = liveDefArr.find(p => p.id === n.id || p.number === n.number);
-              if (matchP) {
-                matchP.curX = to2DX(n.u);
-                matchP.curY = to2DY(n.v);
-                matchP.curZ = n.z || 0;
-                matchP.hlPose = n.pose;
-                matchP.hlSpeed = n.speed;
-              }
-            });
-            const gkP = liveDefArr.find(p => p.isKeeper);
-            if (gkP) {
-              gkP.curX = to2DX(gkU);
-              gkP.curY = to2DY(gkV);
-              gkP.curZ = gkZ || 0;
-              gkP.hlPose = gkPose;
-            }
-          }
-          if (simulator.ball) {
-            simulator.ball.x = to2DX(ballU);
-            simulator.ball.y = to2DY(ballV);
-            simulator.ball.z = ballZ * 2.4;
-            simulator.ball.targetX = simulator.ball.x;
-            simulator.ball.targetY = simulator.ball.y;
-            simulator.ball.targetZ = simulator.ball.z;
-          }
-          if (outcome === "GOAL" && elapsed >= 12.45 && elapsed <= 12.95) {
-            if (isHomeAtk) netRippleA = 1.0;
-            else netRippleH = 1.0;
-          }
-        }
-      }
-
-      if (onlyUpdateState || !ctx) return;
-
-      // 7. CONSTRUCCIÓN Y ORDENACIÓN POR PROFUNDIDAD (PAINTER'S ALGORITHM) DE LOS 22 JUGADORES 3D
-      const createEnt = (id, u, v, z, kit, num, pose, facing, opts = {}) => {
-        const pt = p3d(u, v, z);
-        return {
-          id,
-          x: pt.x,
-          y: pt.groundY,
-          zPx: pt.groundY - pt.y,
-          sc: pt.sc,
-          kit,
-          number: num,
-          pose,
-          facing,
-          elapsed,
-          ...opts
-        };
-      };
-
-      const gkRealNum = hlData.goalkeeper?.number || 1;
-      const sceneEntities = [
-        // Guardameta bajo palos
-        createEnt("GK", gkU, gkV, gkZ, defKit, gkRealNum, gkPose, "FRONT_RIGHT", {
-          isKeeper: true,
-          name: hlData.goalkeeper?.name,
-          yaw: gkYaw,
-          speed: 0.35
-        }),
-        // Los 10 defensores de campo reales en sus posiciones conectadas
-        ...hlData._defNodes.map((d, idx) =>
-          createEnt(`DEF_${idx}`, d.u, d.v, d.z || 0, defKit, d.number, d.pose, "FRONT_RIGHT", {
-            isActiveCarrier: activeCarrierId === d.id,
-            name: d.name,
-            yaw: d.yaw,
-            speed: d.speed
-          })
-        ),
-        // Los 10 atacantes de campo reales en sus posiciones conectadas
-        ...hlData._atkNodes.map((a, idx) =>
-          createEnt(`ATK_${idx}`, a.u, a.v, a.z || 0, atkKit, a.number, a.pose, "BACK_LEFT", {
-            isActiveCarrier: activeCarrierId === a.id,
-            name: a.name,
-            yaw: a.yaw,
-            speed: a.speed
-          })
-        ),
-        // Árbitro principal y Juez de línea
-        createEnt("REFEREE", refU, refV, 0, defKit, 99, "READY", "FRONT_RIGHT", {
-          isReferee: true,
-          yaw: Math.atan2(p3d(ballU, ballV, 0).x - p3d(refU, refV, 0).x, p3d(ballU, ballV, 0).groundY - p3d(refU, refV, 0).groundY),
-          speed: 0.45
-        }),
-        createEnt("LINESMAN", linesmanU, linesmanV, 0, defKit, 98, "READY", "FRONT_RIGHT", {
-          isLinesman: true,
-          yaw: 0.15,
-          speed: 0.4
-        }),
-        // Balón 3D
-        (() => {
-          const bPt = p3d(ballU, ballV, ballZ);
-          return {
-            id: "BALL",
-            isBall: true,
-            x: bPt.x,
-            y: bPt.groundY,
-            zPx: bPt.groundY - bPt.y,
-            r: 4.1 * bPt.sc,
-            sc: bPt.sc
-          };
-        })()
-      ];
-
-      // Ordenar por coordenada Y en pantalla para superposición 3D natural
-      sceneEntities.sort((a, b) => a.y - b.y);
-
-      let goalFrameDrawn = false;
-      sceneEntities.forEach(ent => {
-        if (!goalFrameDrawn && ent.y > pFrontL_bot.y) {
-          drawGoalFrontFrame();
-          goalFrameDrawn = true;
-        }
-        if (ent.isBall) {
-          drawFrontalBall(ctx, ent.x, ent.y, ent.zPx, ent.r, ent.sc);
-        } else {
-          drawFrontalAthlete(ctx, ent);
-        }
-      });
-      if (!goalFrameDrawn) {
-        drawGoalFrontFrame();
-      }
-
-      // Chispazo de impacto en el poste si da a la madera
-      if (outcome === "POST" && elapsed >= 12.3 && elapsed <= 13.1) {
-        const hitPt = p3d(0, targetCorner.includes("LEFT") ? vPostLeft : vPostRight, targetCorner.includes("TOP") ? 2.42 : 1.35);
-        ctx.fillStyle = "rgba(254, 240, 138, 0.92)";
-        ctx.beginPath();
-        ctx.arc(hitPt.x, hitPt.y, 11 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
     // ==========================================
     // SIMULACIÓN GENERAL EN 2D (CAMPO CENITAL Y FICHAS CIRCULARES)
     // ==========================================
@@ -15831,50 +13603,61 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      if (THREE.ACESFilmicToneMapping !== undefined) {
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.06;
+      }
       if (THREE.sRGBEncoding !== undefined) {
         renderer.outputEncoding = THREE.sRGBEncoding;
       }
 
       const scene = new THREE.Scene();
-      const skyColorHex = matchWeather.id === "night" ? 0x050b16 : (matchWeather.id === "rain" ? 0x0f172a : 0x0b172a);
+      const skyColorHex = matchWeather.id === "night" ? 0x050b16 : (matchWeather.id === "rain" ? 0x0c1424 : 0x081120);
       scene.background = new THREE.Color(skyColorHex);
-      scene.fog = new THREE.FogExp2(skyColorHex, 0.0024);
+      scene.fog = new THREE.FogExp2(skyColorHex, 0.0020);
 
-      // 1. CÁMARA ESTILO RETRANSMISIÓN TV (PerspectiveCamera en lateral largo Y: 28, Z: 42)
+      // 1. CÁMARA ESTILO RETRANSMISIÓN TV (PerspectiveCamera en lateral largo Y: 21.5, Z: 36.0, FOV: 35)
       const rect0 = targetCanvas.getBoundingClientRect();
       const initAspect = (rect0.width > 0 && rect0.height > 0) ? (rect0.width / rect0.height) : (16 / 9);
-      const camera = new THREE.PerspectiveCamera(38, initAspect, 1.0, 320);
-      camera.position.set(0, 28, 42);
-      const camLookCurrent = new THREE.Vector3(0, 0.6, -1.5);
+      const camera = new THREE.PerspectiveCamera(35, initAspect, 1.0, 340);
+      camera.position.set(0, 21.5, 36.0);
+      const camLookCurrent = new THREE.Vector3(0, 0.55, -1.5);
       camera.lookAt(camLookCurrent);
 
-      // 2. ILUMINACIÓN Y SOMBRAS SUAVES (AmbientLight + DirectionalLight con shadowMap)
-      const ambientIntensity = matchWeather.id === "sunny" ? 0.68 : (matchWeather.id === "rain" ? 0.56 : 0.62);
-      const ambientLight = new THREE.AmbientLight(0xffffff, ambientIntensity);
+      // 2. ILUMINACIÓN AMBIENTAL SUAVE (HemisphereLight) + DIRECCIONAL CON SOMBRAS PROYECTADAS (castShadow)
+      const ambientIntensity = matchWeather.id === "sunny" ? 0.44 : (matchWeather.id === "rain" ? 0.36 : 0.40);
+      const ambientLight = new THREE.AmbientLight(0xeef6ff, ambientIntensity);
       scene.add(ambientLight);
 
-      const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x14532d, 0.34);
-      hemiLight.position.set(0, 60, 0);
+      // HemisphereLight: luz suave del cielo nocturno/estadio arriba y rebote verdoso del césped abajo
+      const hemiSkyColor = matchWeather.id === "sunny" ? 0xe0f2fe : 0xc7e2ff;
+      const hemiGroundColor = 0x14532d;
+      const hemiLight = new THREE.HemisphereLight(hemiSkyColor, hemiGroundColor, 0.56);
+      hemiLight.position.set(0, 68, 0);
       scene.add(hemiLight);
 
-      const sunColor = matchWeather.id === "sunny" ? 0xfffbeb : (matchWeather.id === "rain" ? 0xe2e8f0 : 0xf8fafc);
-      const dirLight = new THREE.DirectionalLight(sunColor, matchWeather.id === "sunny" ? 1.24 : 1.15);
-      dirLight.position.set(32, 62, 38);
+      // Luz Direccional principal (Focos del estadio / Sol) con sombras proyectadas nítidas sobre jugadores y balón
+      const sunColor = matchWeather.id === "sunny" ? 0xfff9e6 : (matchWeather.id === "rain" ? 0xe2e8f0 : 0xfff8eb);
+      const dirLight = new THREE.DirectionalLight(sunColor, matchWeather.id === "sunny" ? 1.42 : 1.32);
+      dirLight.position.set(34, 60, 36);
       dirLight.castShadow = true;
       dirLight.shadow.mapSize.width = 2048;
       dirLight.shadow.mapSize.height = 2048;
-      dirLight.shadow.camera.near = 10;
-      dirLight.shadow.camera.far = 155;
-      dirLight.shadow.camera.left = -64;
-      dirLight.shadow.camera.right = 64;
-      dirLight.shadow.camera.top = 46;
-      dirLight.shadow.camera.bottom = -46;
-      dirLight.shadow.bias = -0.0005;
+      dirLight.shadow.camera.near = 12;
+      dirLight.shadow.camera.far = 150;
+      dirLight.shadow.camera.left = -60;
+      dirLight.shadow.camera.right = 60;
+      dirLight.shadow.camera.top = 42;
+      dirLight.shadow.camera.bottom = -42;
+      dirLight.shadow.bias = -0.0004;
+      if (dirLight.shadow.normalBias !== undefined) {
+        dirLight.shadow.normalBias = 0.015;
+      }
       scene.add(dirLight);
 
-      // Luz de relleno suave desde el costado opuesto del estadio
-      const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.28);
-      fillLight.position.set(-36, 42, -35);
+      // Contraluz suave desde la tribuna opuesta para perfilar hombros y siluetas de jugadores
+      const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.38);
+      fillLight.position.set(-38, 40, -36);
       scene.add(fillLight);
 
       const disposableTextures = [];
@@ -15890,11 +13673,12 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       const trackGeo = (g) => { if (g) disposableGeometries.push(g); return g; };
       const trackMat = (m) => { if (m) disposableMaterials.push(m); return m; };
 
-      // 3. CAMPO DE FÚTBOL PROFESIONAL (Textura procedural en Canvas con franjas de dos tonos de verde y líneas de cal)
+      // 3. TEXTURA PROCEDURAL DE CÉSPED CON FRANJAS DE CORTE REALISTAS, RUGOSIDAD (roughnessMap/bumpMap) Y LÍNEAS DE CAL NÍTIDAS
       const APRON_X = 8; // Margen por cada fondo (total ancho X = 121)
       const APRON_Z = 6; // Margen por cada banda (total ancho Z = 80)
       const TOTAL_W = PITCH_L + APRON_X * 2;
       const TOTAL_H = PITCH_W + APRON_Z * 2;
+      const maxAniso = renderer.capabilities.getMaxAnisotropy ? Math.min(16, renderer.capabilities.getMaxAnisotropy()) : 4;
 
       function buildPitchCanvasTexture() {
         const cw = 2048;
@@ -15909,8 +13693,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         const scaleX = cw / TOTAL_W;
         const scaleZ = ch / TOTAL_H;
 
-        // Césped perimetral exterior (moqueta/desahogo)
-        g.fillStyle = "#195826";
+        // Moqueta perimetral oscura alrededor del césped
+        g.fillStyle = "#12421c";
         g.fillRect(0, 0, cw, ch);
 
         const x0 = m2pxX(-PITCH_L / 2);
@@ -15918,38 +13702,63 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         const pw = PITCH_L * scaleX;
         const ph = PITCH_W * scaleZ;
 
-        // 18 Franjas verticales alternas de dos tonos de verde profesional
+        // 18 Franjas verticales de siega con degradado longitudinal de reflexión de la hierba
         const numStripes = 18;
         const stripeW = pw / numStripes;
         for (let i = 0; i < numStripes; i++) {
-          g.fillStyle = (i % 2 === 0) ? "#216e30" : "#2b823a";
-          g.fillRect(x0 + i * stripeW, z0, stripeW + 0.8, ph);
+          const sx = x0 + i * stripeW;
+          const stripeGrad = g.createLinearGradient(sx, z0, sx, z0 + ph);
+          if (i % 2 === 0) {
+            stripeGrad.addColorStop(0, "#1d662b");
+            stripeGrad.addColorStop(0.5, "#237632");
+            stripeGrad.addColorStop(1, "#1c6329");
+          } else {
+            stripeGrad.addColorStop(0, "#278037");
+            stripeGrad.addColorStop(0.5, "#2f9040");
+            stripeGrad.addColorStop(1, "#267c35");
+          }
+          g.fillStyle = stripeGrad;
+          g.fillRect(sx, z0, stripeW + 0.9, ph);
+
+          // Sutil línea de transición del rodillo cortacésped entre franjas
+          g.fillStyle = (i % 2 === 0) ? "rgba(255,255,255,0.025)" : "rgba(0,20,5,0.035)";
+          g.fillRect(sx, z0, 2.2, ph);
         }
 
-        // Pasadas horizontales sutiles de cortacésped (efecto damero suave de estadio élite)
+        // Pasadas horizontales cruzadas de cortacésped (damero profesional de estadio)
         const hStripes = 12;
         const hStripeH = ph / hStripes;
         for (let j = 0; j < hStripes; j++) {
-          if (j % 2 === 0) {
-            g.fillStyle = "rgba(255, 255, 255, 0.028)";
-            g.fillRect(x0, z0 + j * hStripeH, pw, hStripeH);
-          }
+          g.fillStyle = (j % 2 === 0) ? "rgba(255, 255, 255, 0.032)" : "rgba(0, 18, 6, 0.024)";
+          g.fillRect(x0, z0 + j * hStripeH, pw, hStripeH);
         }
 
-        // Micro-grano orgánico de hierba
-        for (let n = 0; n < 4500; n++) {
-          const rx = Math.random() * cw;
-          const rz = Math.random() * ch;
-          g.fillStyle = (n % 2 === 0) ? "rgba(255,255,255,0.03)" : "rgba(0,20,5,0.04)";
-          g.fillRect(rx, rz, 2, 2);
+        // Micro-briznas orgánicas de hierba y desgaste sutil en bocas de gol
+        for (let n = 0; n < 14000; n++) {
+          const rx = x0 + Math.random() * pw;
+          const rz = z0 + Math.random() * ph;
+          g.fillStyle = (n % 2 === 0) ? "rgba(255,255,255,0.034)" : "rgba(0,22,6,0.044)";
+          g.fillRect(rx, rz, 1.8, 2.2);
         }
+        [m2pxX(-PITCH_L / 2 + 3.0), m2pxX(PITCH_L / 2 - 3.0)].forEach(wx => {
+          const wear = g.createRadialGradient(wx, m2pxZ(0), 3, wx, m2pxZ(0), 7.2 * scaleX);
+          wear.addColorStop(0, "rgba(124, 104, 64, 0.18)");
+          wear.addColorStop(1, "rgba(124, 104, 64, 0)");
+          g.fillStyle = wear;
+          g.beginPath();
+          g.arc(wx, m2pxZ(0), 7.2 * scaleX, 0, Math.PI * 2);
+          g.fill();
+        });
 
-        // LÍNEAS DE CAL BLANCAS BIEN DEFINIDAS
-        g.strokeStyle = "rgba(255, 255, 255, 0.96)";
+        // LÍNEAS DE CAL BLANCAS ULTRA NÍTIDAS CON REALCE DE PIGMENTO
+        g.save();
+        g.strokeStyle = "rgba(252, 254, 255, 0.98)";
         g.fillStyle = "#ffffff";
-        g.lineWidth = Math.max(4.5, 0.24 * scaleX);
+        g.lineWidth = Math.max(5.0, 0.25 * scaleX);
         g.lineJoin = "round";
         g.lineCap = "round";
+        g.shadowColor = "rgba(255, 255, 255, 0.28)";
+        g.shadowBlur = 1.5;
 
         // Bandas y líneas de fondo
         g.strokeRect(x0, z0, pw, ph);
@@ -16009,22 +13818,59 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         g.beginPath(); g.arc(x0 + pw, z0 + ph, cR, Math.PI, Math.PI * 1.5); g.stroke();
         g.beginPath(); g.arc(x0, z0 + ph, cR, Math.PI * 1.5, Math.PI * 2); g.stroke();
 
-        // Líneas discontinuas del área técnica junto a la banda inferior
-        g.strokeStyle = "rgba(255, 255, 255, 0.55)";
-        g.lineWidth = Math.max(2, 0.14 * scaleX);
+        // Líneas del área técnica junto a la banda
+        g.strokeStyle = "rgba(255, 255, 255, 0.62)";
+        g.lineWidth = Math.max(2.2, 0.14 * scaleX);
         g.strokeRect(m2pxX(-22), m2pxZ(PITCH_W / 2 + 1.0), 14 * scaleX, 3.2 * scaleZ);
         g.strokeRect(m2pxX(8), m2pxZ(PITCH_W / 2 + 1.0), 14 * scaleX, 3.2 * scaleZ);
+        g.restore();
 
         const tex = new THREE.CanvasTexture(c);
-        tex.anisotropy = renderer.capabilities.getMaxAnisotropy ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 4;
+        tex.anisotropy = maxAniso;
         tex.needsUpdate = true;
         return trackTex(tex);
       }
 
+      // Mapa procedural de rugosidad y micro-relieve de hierba (roughnessMap + bumpMap)
+      function buildPitchRoughnessBumpTexture() {
+        const rw = 1024, rh = 677;
+        const rc = document.createElement("canvas");
+        rc.width = rw;
+        rc.height = rh;
+        const rg = rc.getContext("2d");
+
+        rg.fillStyle = "#d4d4d8";
+        rg.fillRect(0, 0, rw, rh);
+
+        const numStripes = 18;
+        const stripeW = rw / numStripes;
+        for (let i = 0; i < numStripes; i++) {
+          // Alternar rugosidad según dirección de peinado de las briznas de césped
+          rg.fillStyle = (i % 2 === 0) ? "#c8c8d0" : "#dedee6";
+          rg.fillRect(i * stripeW, 0, stripeW, rh);
+        }
+
+        for (let n = 0; n < 18000; n++) {
+          const rx = Math.random() * rw;
+          const ry = Math.random() * rh;
+          rg.fillStyle = (n % 2 === 0) ? "rgba(255,255,255,0.14)" : "rgba(40,40,45,0.14)";
+          rg.fillRect(rx, ry, 2, 2);
+        }
+
+        const rTex = new THREE.CanvasTexture(rc);
+        rTex.anisotropy = maxAniso;
+        rTex.needsUpdate = true;
+        return disposableTextures.push(rTex), rTex;
+      }
+
+      const pitchBumpRoughTex = buildPitchRoughnessBumpTexture();
       const pitchGeo = trackGeo(new THREE.PlaneGeometry(TOTAL_W, TOTAL_H));
       const pitchMat = trackMat(new THREE.MeshStandardMaterial({
         map: buildPitchCanvasTexture(),
-        roughness: 0.88,
+        bumpMap: pitchBumpRoughTex,
+        bumpScale: 0.045,
+        roughnessMap: pitchBumpRoughTex,
+        roughness: matchWeather.id === "rain" ? 0.76 : 0.88,
         metalness: 0.02
       }));
       const pitchMesh = new THREE.Mesh(pitchGeo, pitchMat);
@@ -16032,12 +13878,13 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
       pitchMesh.receiveShadow = true;
       scene.add(pitchMesh);
 
-      // Suelo oscuro exterior bajo las gradas para sellar cualquier hueco
-      const outerGroundGeo = trackGeo(new THREE.PlaneGeometry(240, 180));
-      const outerGroundMat = trackMat(new THREE.MeshLambertMaterial({ color: 0x090d16 }));
+      // Suelo oscuro perimetral amplio bajo las gradas para eliminar por completo cualquier vacío exterior
+      const outerGroundGeo = trackGeo(new THREE.PlaneGeometry(340, 260));
+      const outerGroundMat = trackMat(new THREE.MeshStandardMaterial({ color: 0x050912, roughness: 0.96, metalness: 0.02 }));
       const outerGround = new THREE.Mesh(outerGroundGeo, outerGroundMat);
       outerGround.rotation.x = -Math.PI / 2;
       outerGround.position.y = -0.05;
+      outerGround.receiveShadow = true;
       scene.add(outerGround);
 
       // 4. BANDERINES DE CÓRNER 3D
@@ -16406,11 +14253,25 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         scene.add(stGroup);
       }
 
-      // 4 Gradas perimetrales (Norte/Fondo, Sur/Cámara, Oeste/Gol Local, Este/Gol Visitante)
-      createStadiumStand(PITCH_L + 36, PITCH_W / 2 + 5.8, 0);               // Tribuna Norte (frente a la cámara TV)
-      createStadiumStand(PITCH_L + 36, PITCH_W / 2 + 8.5, Math.PI);         // Tribuna Sur (detrás de cámara)
-      createStadiumStand(PITCH_W + 36, PITCH_L / 2 + 6.5, Math.PI / 2);     // Fondo Oeste (Portería Local)
-      createStadiumStand(PITCH_W + 36, PITCH_L / 2 + 6.5, -Math.PI / 2);    // Fondo Este (Portería Visitante)
+      // 4 Gradas perimetrales (Norte/Fondo, Sur/Cámara, Oeste/Gol Local, Este/Gol Visitante) + Cerramiento de esquinas del anillo
+      createStadiumStand(PITCH_L + 44, PITCH_W / 2 + 5.8, 0);               // Tribuna Norte (frente a la cámara TV)
+      createStadiumStand(PITCH_L + 44, PITCH_W / 2 + 8.5, Math.PI);         // Tribuna Sur (detrás de cámara)
+      createStadiumStand(PITCH_W + 44, PITCH_L / 2 + 6.5, Math.PI / 2);     // Fondo Oeste (Portería Local)
+      createStadiumStand(PITCH_W + 44, PITCH_L / 2 + 6.5, -Math.PI / 2);    // Fondo Este (Portería Visitante)
+
+      // Esquinas diagonales cerradas del estadio y anillo perimetral oscuro para eliminar cualquier hueco gris
+      const cornerWedgeGeo = trackGeo(new THREE.BoxGeometry(28, 22, 6));
+      [
+        [-PITCH_L / 2 - 12, -PITCH_W / 2 - 11, Math.PI * 0.25],
+        [PITCH_L / 2 + 12, -PITCH_W / 2 - 11, -Math.PI * 0.25],
+        [-PITCH_L / 2 - 12, PITCH_W / 2 + 12, Math.PI * 0.75],
+        [PITCH_L / 2 + 12, PITCH_W / 2 + 12, -Math.PI * 0.75]
+      ].forEach(([cx, cz, ry]) => {
+        const cw = new THREE.Mesh(cornerWedgeGeo, concreteMat);
+        cw.position.set(cx, 11, cz);
+        cw.rotation.y = ry;
+        scene.add(cw);
+      });
 
       // 4 Torres de iluminación en las esquinas del estadio
       const towerPoleGeo = trackGeo(new THREE.CylinderGeometry(0.6, 0.9, 34, 8));
@@ -16435,45 +14296,99 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         scene.add(tGroup);
       });
 
-      // 7. MODELADO 3D ARTICULADO DE LOS 22 JUGADORES Y EL BALÓN
+      // 7. MODELADO 3D ANATÓMICO ESTILO FOOTBALL MANAGER 27 (HUMANOIDES MULTI-ARTICULADOS)
       const jerseyTexCache = new Map();
+      const faceTexCache = new Map();
+      const sockTexCache = new Map();
 
-      function getJerseyTexture(jerseyHex, collarHex, numHex, number, isKeeper) {
-        const key = `${jerseyHex}_${collarHex}_${numHex}_${number}_${isKeeper ? 1 : 0}`;
+      function getJerseyTexture(jerseyHex, collarHex, numHex, number, playerName, isKeeper) {
+        const cleanLast = String(playerName || "").trim().split(/\s+/).slice(-1)[0].toUpperCase().slice(0, 11);
+        const key = `${jerseyHex}_${collarHex}_${numHex}_${number}_${cleanLast}_${isKeeper ? 1 : 0}`;
         if (jerseyTexCache.has(key)) return jerseyTexCache.get(key);
 
         const jc = document.createElement("canvas");
-        jc.width = 256;
-        jc.height = 256;
+        jc.width = 512;
+        jc.height = 512;
         const jg = jc.getContext("2d");
 
-        // Fondo de la camiseta
+        // Fondo de tela técnica deportiva
         jg.fillStyle = jerseyHex || "#ef4444";
-        jg.fillRect(0, 0, 256, 256);
+        jg.fillRect(0, 0, 512, 512);
 
-        // Sombreado lateral de pliegues
-        const grad = jg.createLinearGradient(0, 0, 256, 0);
-        grad.addColorStop(0, "rgba(0,0,0,0.18)");
-        grad.addColorStop(0.25, "rgba(255,255,255,0.08)");
-        grad.addColorStop(0.5, "rgba(0,0,0,0.12)");
-        grad.addColorStop(0.75, "rgba(255,255,255,0.08)");
-        grad.addColorStop(1, "rgba(0,0,0,0.18)");
+        // Micro-textura de tejido transpirable y sombreado anatómico de pecho/espalda
+        for (let y = 0; y < 512; y += 6) {
+          jg.fillStyle = (y % 12 === 0) ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.035)";
+          jg.fillRect(0, y, 512, 3);
+        }
+
+        // Sombreado volumétrico (cilindro mapeado: 0.25 = frente pecho, 0.75 = espalda dorsal)
+        const grad = jg.createLinearGradient(0, 0, 512, 0);
+        grad.addColorStop(0.00, "rgba(0,0,0,0.22)");
+        grad.addColorStop(0.18, "rgba(255,255,255,0.08)");
+        grad.addColorStop(0.32, "rgba(0,0,0,0.08)");
+        grad.addColorStop(0.50, "rgba(0,0,0,0.24)");
+        grad.addColorStop(0.75, "rgba(255,255,255,0.06)");
+        grad.addColorStop(1.00, "rgba(0,0,0,0.22)");
         jg.fillStyle = grad;
-        jg.fillRect(0, 0, 256, 256);
+        jg.fillRect(0, 0, 512, 512);
 
-        // Cuello superior y ribete inferior
+        // Cuello y ribete deportivo
         jg.fillStyle = collarHex || "#ffffff";
-        jg.fillRect(0, 0, 256, 18);
+        jg.fillRect(0, 0, 512, 26);
+        jg.fillStyle = "rgba(0,0,0,0.18)";
+        jg.fillRect(0, 26, 512, 6);
 
-        // Dorsal grande nítido para la espalda y pecho
-        jg.font = "900 112px 'Arial Black', Impact, sans-serif";
+        // Costuras laterales y patrocinador sutil en pecho (zona x ~ 128)
+        jg.fillStyle = "rgba(255,255,255,0.16)";
+        jg.fillRect(4, 32, 12, 460);
+        jg.fillRect(244, 32, 12, 460);
+
+        // Escudo del club en pecho izquierdo (x ~ 162, y ~ 115)
+        jg.save();
+        jg.fillStyle = collarHex || "#ffffff";
+        jg.beginPath();
+        jg.moveTo(156, 98);
+        jg.lineTo(180, 98);
+        jg.lineTo(180, 120);
+        jg.lineTo(168, 134);
+        jg.lineTo(156, 120);
+        jg.closePath();
+        jg.fill();
+        jg.strokeStyle = "rgba(15,23,42,0.55)";
+        jg.lineWidth = 2.5;
+        jg.stroke();
+        jg.restore();
+
+        // Pequeño dorsal / sponsor en el pecho (x ~ 128)
+        jg.fillStyle = numHex || "#ffffff";
+        jg.globalAlpha = 0.85;
+        jg.font = "900 32px 'Arial Black', sans-serif";
         jg.textAlign = "center";
         jg.textBaseline = "middle";
-        jg.lineWidth = 8;
-        jg.strokeStyle = "rgba(15, 23, 42, 0.75)";
-        jg.strokeText(`${number || 9}`, 128, 138);
+        jg.fillText(`${number || 9}`, 110, 118);
+        jg.fillRect(88, 185, 80, 10);
+        jg.globalAlpha = 1.0;
+
+        // ESPALDA (x ~ 384): Apellido + Dorsal grande nítido estilo retransmisión TV
+        if (cleanLast) {
+          jg.font = "800 30px 'Arial Narrow', Impact, sans-serif";
+          jg.textAlign = "center";
+          jg.textBaseline = "middle";
+          jg.lineWidth = 5;
+          jg.strokeStyle = "rgba(15, 23, 42, 0.72)";
+          jg.strokeText(cleanLast, 384, 102);
+          jg.fillStyle = numHex || "#ffffff";
+          jg.fillText(cleanLast, 384, 102);
+        }
+
+        jg.font = "900 176px 'Arial Black', Impact, sans-serif";
+        jg.textAlign = "center";
+        jg.textBaseline = "middle";
+        jg.lineWidth = 10;
+        jg.strokeStyle = "rgba(15, 23, 42, 0.78)";
+        jg.strokeText(`${number || 9}`, 384, 268);
         jg.fillStyle = numHex || "#ffffff";
-        jg.fillText(`${number || 9}`, 128, 138);
+        jg.fillText(`${number || 9}`, 384, 268);
 
         const tex = new THREE.CanvasTexture(jc);
         tex.needsUpdate = true;
@@ -16482,36 +14397,208 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         return tex;
       }
 
-      // Geometrías compartidas para los 22 futbolistas 3D (altura realista ~2.15m en escala TV para visibilidad perfecta)
-      const sharedTorsoGeo = trackGeo(new THREE.BoxGeometry(0.68, 0.78, 0.38));
-      const sharedShortsGeo = trackGeo(new THREE.BoxGeometry(0.64, 0.34, 0.36));
-      const sharedHeadGeo = trackGeo(new THREE.SphereGeometry(0.24, 14, 14));
-      const sharedHairGeo = trackGeo(new THREE.SphereGeometry(0.25, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.58));
-      const sharedThighGeo = trackGeo(new THREE.CylinderGeometry(0.125, 0.105, 0.42, 10));
-      const sharedSockGeo = trackGeo(new THREE.CylinderGeometry(0.105, 0.082, 0.44, 10));
-      const sharedBootGeo = trackGeo(new THREE.BoxGeometry(0.18, 0.12, 0.34));
-      const sharedSleeveGeo = trackGeo(new THREE.CylinderGeometry(0.11, 0.095, 0.30, 8));
-      const sharedForearmGeo = trackGeo(new THREE.CylinderGeometry(0.088, 0.072, 0.34, 8));
-      const sharedHandGeo = trackGeo(new THREE.SphereGeometry(0.085, 8, 8));
-      const sharedCarrierRingGeo = trackGeo(new THREE.RingGeometry(0.68, 0.92, 24));
-      const sharedShadowDiscGeo = trackGeo(new THREE.CircleGeometry(0.55, 16));
+      function getFaceTexture(skinHexInt, hairHexInt, hasBeard) {
+        const key = `${skinHexInt}_${hairHexInt}_${hasBeard ? 1 : 0}`;
+        if (faceTexCache.has(key)) return faceTexCache.get(key);
 
-      const skinTones = [0xf5cba7, 0xe0ac69, 0xd2996c, 0x8d5524, 0xf1c27d];
-      const hairColors = [0x1c1917, 0x3f2305, 0x713f12, 0x0f172a, 0x92400e];
-      const bootColors = [0x111827, 0xf97316, 0x38bdf8, 0xfacc15, 0xec4899];
+        const fc = document.createElement("canvas");
+        fc.width = 256;
+        fc.height = 128;
+        const fg = fc.getContext("2d");
+
+        const skinStr = "#" + skinHexInt.toString(16).padStart(6, "0");
+        const hairStr = "#" + hairHexInt.toString(16).padStart(6, "0");
+
+        fg.fillStyle = skinStr;
+        fg.fillRect(0, 0, 256, 128);
+
+        // Sombreado sutil de mejillas y mandíbula
+        const faceGrad = fg.createLinearGradient(0, 0, 0, 128);
+        faceGrad.addColorStop(0, "rgba(255,255,255,0.08)");
+        faceGrad.addColorStop(0.7, "rgba(0,0,0,0.04)");
+        faceGrad.addColorStop(1, "rgba(0,0,0,0.16)");
+        fg.fillStyle = faceGrad;
+        fg.fillRect(0, 0, 256, 128);
+
+        // Rostro centrado en u = 0.25 (x = 64) para esfera estándar Three.js mirando hacia +Z
+        const cx = 64;
+        // Cejas
+        fg.fillStyle = hairStr;
+        fg.fillRect(cx - 20, 50, 13, 3.5);
+        fg.fillRect(cx + 7, 50, 13, 3.5);
+
+        // Ojos realistas
+        fg.fillStyle = "#f8fafc";
+        fg.beginPath();
+        fg.ellipse(cx - 13, 59, 5.2, 3.2, 0, 0, Math.PI * 2);
+        fg.ellipse(cx + 13, 59, 5.2, 3.2, 0, 0, Math.PI * 2);
+        fg.fill();
+
+        fg.fillStyle = "#1e293b";
+        fg.beginPath();
+        fg.arc(cx - 13, 59, 2.3, 0, Math.PI * 2);
+        fg.arc(cx + 13, 59, 2.3, 0, Math.PI * 2);
+        fg.fill();
+
+        // Sombra de nariz
+        fg.fillStyle = "rgba(80, 40, 20, 0.22)";
+        fg.beginPath();
+        fg.moveTo(cx, 58);
+        fg.lineTo(cx - 3.5, 73);
+        fg.lineTo(cx + 3.5, 73);
+        fg.closePath();
+        fg.fill();
+
+        // Barba / sombra facial opcional
+        if (hasBeard) {
+          fg.fillStyle = hairStr;
+          fg.globalAlpha = 0.36;
+          fg.beginPath();
+          fg.ellipse(cx, 88, 22, 16, 0, 0, Math.PI * 2);
+          fg.fill();
+          fg.globalAlpha = 1.0;
+        }
+
+        // Boca
+        fg.strokeStyle = "rgba(110, 52, 42, 0.65)";
+        fg.lineWidth = 2.6;
+        fg.beginPath();
+        fg.moveTo(cx - 8, 83);
+        fg.quadraticCurveTo(cx, 86, cx + 8, 83);
+        fg.stroke();
+
+        const tex = new THREE.CanvasTexture(fc);
+        tex.needsUpdate = true;
+        trackTex(tex);
+        faceTexCache.set(key, tex);
+        return tex;
+      }
+
+      function getSockTexture(socksHex, accentHex) {
+        const key = `${socksHex}_${accentHex}`;
+        if (sockTexCache.has(key)) return sockTexCache.get(key);
+        const sc = document.createElement("canvas");
+        sc.width = 64;
+        sc.height = 128;
+        const sg = sc.getContext("2d");
+        sg.fillStyle = socksHex || "#ffffff";
+        sg.fillRect(0, 0, 64, 128);
+        // Franjas superiores de la media
+        sg.fillStyle = accentHex || "#ffffff";
+        sg.fillRect(0, 8, 64, 10);
+        sg.fillRect(0, 24, 64, 6);
+        // Vendaje blanco en tobillo (detalle clásico de futbolista)
+        sg.fillStyle = "#f8fafc";
+        sg.fillRect(0, 108, 64, 20);
+        const tex = new THREE.CanvasTexture(sc);
+        tex.needsUpdate = true;
+        trackTex(tex);
+        sockTexCache.set(key, tex);
+        return tex;
+      }
+
+      // Geometrías anatómicas compartidas (altura final exacta 1.80m sobre campo 105x68m)
+      // Siluetas esculpidas con THREE.LatheGeometry (perfiles curvos, nada cuadrado)
+      function buildLatheGeo(profile, segments, remapV) {
+        // Perfil siempre de abajo a arriba para que las normales apunten hacia fuera
+        if (profile[0][1] > profile[profile.length - 1][1]) profile = profile.slice().reverse();
+        const pts = profile.map(([r, y]) => new THREE.Vector2(Math.max(0.0005, r), y));
+        const geo = new THREE.LatheGeometry(pts, segments || 20);
+        if (remapV) {
+          // UV vertical proporcional a la altura real para que la textura (dorsal/escudo) no se deforme
+          const pos = geo.attributes.position;
+          const uv = geo.attributes.uv;
+          let yMin = Infinity, yMax = -Infinity;
+          for (let i = 0; i < pos.count; i++) {
+            const y = pos.getY(i);
+            if (y < yMin) yMin = y;
+            if (y > yMax) yMax = y;
+          }
+          const span = Math.max(0.0001, yMax - yMin);
+          for (let i = 0; i < pos.count; i++) {
+            uv.setY(i, (pos.getY(i) - yMin) / span);
+          }
+          uv.needsUpdate = true;
+        }
+        geo.computeVertexNormals();
+        return trackGeo(geo);
+      }
+
+      // Torso atlético en V: cintura fina, dorsales y pecho marcados, hombros anchos y trapecio suave
+      const sharedTorsoLatheGeo = buildLatheGeo([
+        [0.000, -0.040], [0.150, -0.040], [0.172, -0.010], [0.176, 0.050],
+        [0.168, 0.120], [0.166, 0.180], [0.180, 0.250], [0.205, 0.320],
+        [0.226, 0.390], [0.238, 0.450], [0.236, 0.495], [0.215, 0.530],
+        [0.170, 0.556], [0.115, 0.572], [0.070, 0.580], [0.000, 0.582]
+      ], 28, true);
+      const sharedCollarGeo = trackGeo(new THREE.TorusGeometry(0.082, 0.018, 8, 20));
+      const sharedNeckGeo = buildLatheGeo([
+        [0.000, -0.07], [0.090, -0.07], [0.078, -0.02], [0.066, 0.03], [0.064, 0.07], [0.000, 0.07]
+      ], 14);
+      const sharedShoulderCapGeo = trackGeo(new THREE.SphereGeometry(0.094, 16, 12));
+      // Pantalón: cadera redondeada y perneras con caída natural acampanada
+      const sharedPelvisGeo = buildLatheGeo([
+        [0.000, -0.105], [0.150, -0.105], [0.196, -0.075], [0.212, -0.010],
+        [0.206, 0.050], [0.186, 0.095], [0.000, 0.100]
+      ], 24);
+      const sharedShortLegGeo = buildLatheGeo([
+        [0.108, 0.115], [0.116, 0.060], [0.122, -0.010], [0.130, -0.075], [0.136, -0.115], [0.131, -0.122]
+      ], 18);
+      const sharedHipJointGeo = trackGeo(new THREE.SphereGeometry(0.112, 16, 12));
+      const sharedHeadGeo = trackGeo(new THREE.SphereGeometry(0.135, 20, 16));
+      const sharedEarGeo = trackGeo(new THREE.SphereGeometry(0.026, 8, 8));
+      const sharedHairCapGeo = trackGeo(new THREE.SphereGeometry(0.143, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.56));
+      const sharedHairFadeGeo = buildLatheGeo([
+        [0.000, -0.035], [0.135, -0.035], [0.132, 0.015], [0.105, 0.040], [0.000, 0.045]
+      ], 16);
+      const sharedHairBunGeo = trackGeo(new THREE.SphereGeometry(0.055, 10, 10));
+      // Extremidades con perfil muscular (cuádriceps, gemelo, antebrazo)
+      const sharedThighGeo = buildLatheGeo([
+        [0.092, 0.185], [0.101, 0.110], [0.100, 0.030], [0.092, -0.050], [0.080, -0.130], [0.073, -0.185]
+      ], 16);
+      const sharedKneeCapGeo = trackGeo(new THREE.SphereGeometry(0.075, 14, 10));
+      const sharedCalfGeo = buildLatheGeo([
+        [0.072, 0.195], [0.079, 0.120], [0.077, 0.050], [0.064, -0.040], [0.052, -0.130], [0.048, -0.195]
+      ], 16);
+      const sharedAnkleGeo = trackGeo(new THREE.SphereGeometry(0.050, 12, 10));
+      // Botas redondeadas: horma elipsoidal + puntera + talón + suela ovalada
+      const sharedBootUpperGeo = trackGeo(new THREE.SphereGeometry(0.056, 16, 12));
+      const sharedBootToeGeo = trackGeo(new THREE.SphereGeometry(0.052, 14, 10));
+      const sharedBootHeelGeo = trackGeo(new THREE.SphereGeometry(0.048, 12, 10));
+      const sharedBootSoleGeo = trackGeo(new THREE.CylinderGeometry(0.056, 0.056, 0.020, 20));
+      const sharedSleeveGeo = buildLatheGeo([
+        [0.080, 0.125], [0.083, 0.060], [0.078, -0.020], [0.072, -0.090], [0.070, -0.120]
+      ], 16);
+      const sharedUpperArmGeo = buildLatheGeo([
+        [0.064, 0.020], [0.060, -0.060], [0.054, -0.120]
+      ], 14);
+      const sharedElbowCapGeo = trackGeo(new THREE.SphereGeometry(0.056, 12, 10));
+      const sharedForearmGeo = buildLatheGeo([
+        [0.054, 0.130], [0.058, 0.070], [0.052, 0.000], [0.043, -0.080], [0.038, -0.130]
+      ], 14);
+      const sharedWristGeo = trackGeo(new THREE.SphereGeometry(0.039, 10, 8));
+      const sharedHandGeo = trackGeo(new THREE.SphereGeometry(0.048, 12, 10));
+      const sharedGloveGeo = trackGeo(new THREE.SphereGeometry(0.062, 14, 10));
+      const sharedCarrierRingGeo = trackGeo(new THREE.RingGeometry(0.48, 0.66, 28));
+      const sharedShadowDiscGeo = trackGeo(new THREE.CircleGeometry(0.44, 18));
+
+      const skinTones = [0xf5cba7, 0xe5b887, 0xd49b6a, 0x8d5524, 0x6b3e26, 0xf1c27d];
+      const hairColors = [0x171412, 0x3b2314, 0x6b3e19, 0x0f172a, 0x9a6b32, 0x2c1e16];
+      const bootColors = [0x111827, 0xf97316, 0x38bdf8, 0xfacc15, 0xec4899, 0x22c55e, 0xf8fafc];
 
       const shadowDiscMat = trackMat(new THREE.MeshBasicMaterial({
         color: 0x021206,
         transparent: true,
-        opacity: 0.36,
+        opacity: 0.40,
         depthWrite: false
       }));
       const carrierRingMat = trackMat(new THREE.MeshBasicMaterial({
         color: 0xfbbf24,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.92
+        opacity: 0.90
       }));
+      const soleMat = trackMat(new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.7 }));
 
       function createPlayer3DModel(side, pData, index) {
         const root = new THREE.Group();
@@ -16530,21 +14617,32 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         const skinCol = skinTones[seed % skinTones.length];
         const hairCol = hairColors[(seed * 3) % hairColors.length];
         const bootCol = bootColors[(seed * 7) % bootColors.length];
+        const hairStyle = seed % 5; // 0: clásico, 1: fade alto, 2: rapado, 3: rizado/volumen, 4: moño/coleta
+        const hasBeard = (seed % 3) === 0;
 
         const jerseyMat = trackMat(new THREE.MeshStandardMaterial({
-          map: getJerseyTexture(jerseyHex, collarHex, numHex, pData.number || (index + 1), isGK),
-          roughness: 0.62,
-          metalness: 0.05
+          map: getJerseyTexture(jerseyHex, collarHex, numHex, pData.number || (index + 1), pData.player?.name, isGK),
+          roughness: 0.58,
+          metalness: 0.04
         }));
-        const solidJerseyMat = trackMat(new THREE.MeshStandardMaterial({ color: jerseyHex, roughness: 0.65 }));
-        const shortsMat = trackMat(new THREE.MeshStandardMaterial({ color: shortsHex, roughness: 0.7 }));
-        const socksMat = trackMat(new THREE.MeshStandardMaterial({ color: socksHex, roughness: 0.7 }));
-        const skinMat = trackMat(new THREE.MeshStandardMaterial({ color: skinCol, roughness: 0.65 }));
-        const hairMat = trackMat(new THREE.MeshStandardMaterial({ color: hairCol, roughness: 0.85 }));
-        const bootMat = trackMat(new THREE.MeshStandardMaterial({ color: bootCol, roughness: 0.4, metalness: 0.15 }));
-        const gloveMat = trackMat(new THREE.MeshStandardMaterial({ color: isGK ? 0xd9f99d : skinCol, roughness: 0.5 }));
+        const solidJerseyMat = trackMat(new THREE.MeshStandardMaterial({ color: jerseyHex, roughness: 0.60, metalness: 0.04 }));
+        const collarMat = trackMat(new THREE.MeshStandardMaterial({ color: collarHex, roughness: 0.55 }));
+        const shortsMat = trackMat(new THREE.MeshStandardMaterial({ color: shortsHex, roughness: 0.65 }));
+        const socksMat = trackMat(new THREE.MeshStandardMaterial({
+          map: getSockTexture(socksHex, collarHex),
+          roughness: 0.68
+        }));
+        const skinMat = trackMat(new THREE.MeshStandardMaterial({ color: skinCol, roughness: 0.58, metalness: 0.02 }));
+        const faceMat = trackMat(new THREE.MeshStandardMaterial({
+          map: getFaceTexture(skinCol, hairCol, hasBeard),
+          roughness: 0.56,
+          metalness: 0.02
+        }));
+        const hairMat = trackMat(new THREE.MeshStandardMaterial({ color: hairCol, roughness: 0.86 }));
+        const bootMat = trackMat(new THREE.MeshStandardMaterial({ color: bootCol, roughness: 0.34, metalness: 0.18 }));
+        const gloveMat = trackMat(new THREE.MeshStandardMaterial({ color: isGK ? 0xd9f99d : skinCol, roughness: 0.48 }));
 
-        // Sombra de oclusión de contacto en el césped + Aro de jugador activo
+        // Sombra de contacto en césped + Aro de portador
         const contactShadow = new THREE.Mesh(sharedShadowDiscGeo, shadowDiscMat);
         contactShadow.rotation.x = -Math.PI / 2;
         contactShadow.position.y = 0.02;
@@ -16552,93 +14650,223 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
         const carrierRing = new THREE.Mesh(sharedCarrierRingGeo, carrierRingMat);
         carrierRing.rotation.x = -Math.PI / 2;
-        carrierRing.position.y = 0.035;
+        carrierRing.position.y = 0.032;
         carrierRing.visible = false;
         root.add(carrierRing);
 
-        // Torso con dorsal
-        const torso = new THREE.Mesh(sharedTorsoGeo, jerseyMat);
-        torso.position.y = 1.32;
-        torso.castShadow = true;
-        torso.receiveShadow = true;
-        bodyGroup.add(torso);
+        // --- TREN SUPERIOR (Torso atlético en V esculpido con LatheGeometry + Hombros + Cuello + Cabeza) ---
+        const torsoGroup = new THREE.Group();
+        torsoGroup.position.set(0, 0.94, 0);
+        bodyGroup.add(torsoGroup);
 
-        // Pantalón corto (pelvis)
-        const shorts = new THREE.Mesh(sharedShortsGeo, shortsMat);
-        shorts.position.y = 0.84;
-        shorts.castShadow = true;
-        bodyGroup.add(shorts);
+        // Pecho, espalda y cintura en una sola superficie curva continua con textura de camiseta
+        const upperTorso = new THREE.Mesh(sharedTorsoLatheGeo, jerseyMat);
+        upperTorso.scale.set(1.14, 1.0, 0.70);
+        upperTorso.castShadow = true;
+        upperTorso.receiveShadow = true;
+        torsoGroup.add(upperTorso);
 
-        // Cabeza y pelo
+        // Cuello de la camiseta
+        const collarRing = new THREE.Mesh(sharedCollarGeo, collarMat);
+        collarRing.rotation.x = Math.PI / 2;
+        collarRing.scale.set(1.0, 0.82, 1.0);
+        collarRing.position.set(0, 0.575, 0);
+        torsoGroup.add(collarRing);
+
+        // Deltoides redondeados que funden torso y brazo sin cortes
+        [-0.252, 0.252].forEach(sx => {
+          const sh = new THREE.Mesh(sharedShoulderCapGeo, solidJerseyMat);
+          sh.scale.set(1.0, 0.92, 0.88);
+          sh.position.set(sx, 0.485, 0);
+          sh.castShadow = true;
+          torsoGroup.add(sh);
+        });
+
+        // Cuello anatómico y Cabeza con rostro + orejas + peinado variado
+        const neck = new THREE.Mesh(sharedNeckGeo, skinMat);
+        neck.position.set(0, 0.63, 0.005);
+        neck.castShadow = true;
+        torsoGroup.add(neck);
+
         const headGroup = new THREE.Group();
-        headGroup.position.set(0, 1.92, 0);
-        const headMesh = new THREE.Mesh(sharedHeadGeo, skinMat);
+        headGroup.position.set(0, 0.79, 0.012);
+        const headMesh = new THREE.Mesh(sharedHeadGeo, faceMat);
+        headMesh.scale.set(0.88, 1.04, 0.95);
         headMesh.castShadow = true;
         headGroup.add(headMesh);
 
-        const hairMesh = new THREE.Mesh(sharedHairGeo, hairMat);
-        hairMesh.rotation.x = -0.18;
-        hairMesh.position.y = 0.02;
-        hairMesh.castShadow = true;
-        headGroup.add(hairMesh);
-        bodyGroup.add(headGroup);
+        // Orejas
+        [-0.118, 0.118].forEach(ex => {
+          const ear = new THREE.Mesh(sharedEarGeo, skinMat);
+          ear.scale.set(0.65, 1.15, 0.8);
+          ear.position.set(ex, 0.0, -0.01);
+          headGroup.add(ear);
+        });
 
-        // Piernas articuladas (Izquierda y Derecha)
-        function buildLeg(offsetX) {
-          const legPivot = new THREE.Group();
-          legPivot.position.set(offsetX, 0.78, 0);
+        // Peinado según semilla del futbolista
+        if (hairStyle !== 2) {
+          const hairCap = new THREE.Mesh(sharedHairCapGeo, hairMat);
+          hairCap.scale.set(hairStyle === 3 ? 0.98 : 0.91, hairStyle === 3 ? 1.12 : 1.02, 0.98);
+          hairCap.rotation.x = -0.20;
+          hairCap.position.set(0, 0.018, -0.008);
+          hairCap.castShadow = true;
+          headGroup.add(hairCap);
 
-          const thigh = new THREE.Mesh(sharedThighGeo, skinMat);
-          thigh.position.y = -0.20;
-          thigh.castShadow = true;
-          legPivot.add(thigh);
-
-          const sock = new THREE.Mesh(sharedSockGeo, socksMat);
-          sock.position.y = -0.54;
-          sock.castShadow = true;
-          legPivot.add(sock);
-
-          const boot = new THREE.Mesh(sharedBootGeo, bootMat);
-          boot.position.set(0, -0.74, 0.06);
-          boot.castShadow = true;
-          legPivot.add(boot);
-
-          bodyGroup.add(legPivot);
-          return legPivot;
+          if (hairStyle === 1) {
+            const topFade = new THREE.Mesh(sharedHairFadeGeo, hairMat);
+            topFade.scale.set(0.85, 1.0, 0.90);
+            topFade.position.set(0, 0.115, 0.0);
+            headGroup.add(topFade);
+          } else if (hairStyle === 4) {
+            const bun = new THREE.Mesh(sharedHairBunGeo, hairMat);
+            bun.position.set(0, 0.07, -0.145);
+            headGroup.add(bun);
+          }
         }
+        torsoGroup.add(headGroup);
 
-        const leftLeg = buildLeg(-0.18);
-        const rightLeg = buildLeg(0.18);
-
-        // Brazos articulados (Izquierdo y Derecho)
-        function buildArm(offsetX) {
+        // --- BRAZOS MULTI-ARTICULADOS (Hombro -> Codo -> Muñeca -> Mano/Guante) con esferas de unión ---
+        const armSkinMat = isGK ? solidJerseyMat : skinMat;
+        function buildArticulatedArm(sideSign) {
           const armPivot = new THREE.Group();
-          armPivot.position.set(offsetX, 1.62, 0);
+          armPivot.position.set(sideSign * 0.272, 0.478, 0);
+
+          // Esfera de hombro (mismo material que la manga) que rota con el brazo
+          const shoulderJoint = new THREE.Mesh(sharedShoulderCapGeo, solidJerseyMat);
+          shoulderJoint.scale.set(0.86, 0.86, 0.86);
+          shoulderJoint.castShadow = true;
+          armPivot.add(shoulderJoint);
 
           const sleeve = new THREE.Mesh(sharedSleeveGeo, solidJerseyMat);
-          sleeve.position.y = -0.14;
+          sleeve.position.y = -0.11;
           sleeve.castShadow = true;
           armPivot.add(sleeve);
 
-          const forearm = new THREE.Mesh(sharedForearmGeo, isGK ? solidJerseyMat : skinMat);
-          forearm.position.y = -0.40;
+          // Bíceps visible bajo la manga
+          const upperArm = new THREE.Mesh(sharedUpperArmGeo, armSkinMat);
+          upperArm.position.y = -0.225;
+          upperArm.castShadow = true;
+          armPivot.add(upperArm);
+
+          const elbowPivot = new THREE.Group();
+          elbowPivot.position.set(0, -0.255, 0);
+
+          // Esfera de codo (mismo material que antebrazo) que oculta el corte al flexionar
+          const elbowJoint = new THREE.Mesh(sharedElbowCapGeo, armSkinMat);
+          elbowPivot.add(elbowJoint);
+
+          const forearm = new THREE.Mesh(sharedForearmGeo, armSkinMat);
+          forearm.position.y = -0.13;
           forearm.castShadow = true;
-          armPivot.add(forearm);
+          elbowPivot.add(forearm);
 
-          const hand = new THREE.Mesh(sharedHandGeo, gloveMat);
-          hand.position.y = -0.58;
+          const wrist = new THREE.Mesh(sharedWristGeo, isGK ? gloveMat : skinMat);
+          wrist.position.y = -0.262;
+          elbowPivot.add(wrist);
+
+          const hand = new THREE.Mesh(isGK ? sharedGloveGeo : sharedHandGeo, gloveMat);
+          hand.scale.set(0.82, 1.12, 0.62);
+          hand.position.y = -0.302;
           hand.castShadow = true;
-          armPivot.add(hand);
+          elbowPivot.add(hand);
 
-          bodyGroup.add(armPivot);
-          return armPivot;
+          armPivot.add(elbowPivot);
+          torsoGroup.add(armPivot);
+          return { armPivot, elbowPivot };
         }
 
-        const leftArm = buildArm(-0.43);
-        const rightArm = buildArm(0.43);
+        const leftArmRig = buildArticulatedArm(-1);
+        const rightArmRig = buildArticulatedArm(1);
 
-        // Escala global esbelta y visible en cámara de TV
-        bodyGroup.scale.set(1.18, 1.18, 1.18);
+        // --- PELVIS Y PANTALÓN CORTO (LatheGeometry redondeada) ---
+        const pelvis = new THREE.Mesh(sharedPelvisGeo, shortsMat);
+        pelvis.scale.set(1.04, 1.0, 0.76);
+        pelvis.position.set(0, 0.88, 0);
+        pelvis.castShadow = true;
+        bodyGroup.add(pelvis);
+
+        // --- PIERNAS MULTI-ARTICULADAS (Cadera -> Rodilla -> Tobillo -> Bota) con esferas de unión ---
+        function buildArticulatedLeg(offsetX) {
+          const hipPivot = new THREE.Group();
+          hipPivot.position.set(offsetX, 0.84, 0);
+
+          // Esfera de cadera (material del pantalón) para unir pelvis y pernera sin cortes
+          const hipJoint = new THREE.Mesh(sharedHipJointGeo, shortsMat);
+          hipJoint.scale.set(1.0, 0.95, 0.92);
+          hipJoint.castShadow = true;
+          hipPivot.add(hipJoint);
+
+          // Pernera con caída natural que acompaña al muslo
+          const shortLeg = new THREE.Mesh(sharedShortLegGeo, shortsMat);
+          shortLeg.position.y = -0.085;
+          shortLeg.castShadow = true;
+          hipPivot.add(shortLeg);
+
+          // Muslo atlético (cuádriceps)
+          const thigh = new THREE.Mesh(sharedThighGeo, skinMat);
+          thigh.position.y = -0.225;
+          thigh.castShadow = true;
+          hipPivot.add(thigh);
+
+          // Pivote de rodilla (flexión natural al correr y chutar)
+          const kneePivot = new THREE.Group();
+          kneePivot.position.set(0, -0.41, 0);
+
+          // Rótula esférica dentro del pivote: cubre la unión muslo-gemelo en cualquier flexión
+          const kneeCap = new THREE.Mesh(sharedKneeCapGeo, skinMat);
+          kneeCap.scale.set(1.0, 1.0, 1.02);
+          kneeCap.castShadow = true;
+          kneePivot.add(kneeCap);
+
+          // Gemelo con media y franjas
+          const calf = new THREE.Mesh(sharedCalfGeo, socksMat);
+          calf.position.y = -0.195;
+          calf.castShadow = true;
+          kneePivot.add(calf);
+
+          // Tobillo redondeado
+          const ankle = new THREE.Mesh(sharedAnkleGeo, socksMat);
+          ankle.position.y = -0.385;
+          kneePivot.add(ankle);
+
+          // Bota de fútbol redondeada: horma elipsoidal + puntera + talón + suela ovalada
+          const bootGroup = new THREE.Group();
+          bootGroup.position.set(0, -0.40, 0.04);
+
+          const bootUpper = new THREE.Mesh(sharedBootUpperGeo, bootMat);
+          bootUpper.scale.set(0.98, 0.78, 2.05);
+          bootUpper.position.set(0, 0.002, 0.012);
+          bootUpper.castShadow = true;
+          bootGroup.add(bootUpper);
+
+          const bootToe = new THREE.Mesh(sharedBootToeGeo, bootMat);
+          bootToe.scale.set(0.96, 0.66, 1.15);
+          bootToe.position.set(0, -0.014, 0.098);
+          bootToe.castShadow = true;
+          bootGroup.add(bootToe);
+
+          const bootHeel = new THREE.Mesh(sharedBootHeelGeo, bootMat);
+          bootHeel.scale.set(1.0, 0.92, 0.95);
+          bootHeel.position.set(0, 0.004, -0.078);
+          bootGroup.add(bootHeel);
+
+          const bootSole = new THREE.Mesh(sharedBootSoleGeo, soleMat);
+          bootSole.scale.set(1.0, 1.0, 2.35);
+          bootSole.position.set(0, -0.044, 0.012);
+          bootGroup.add(bootSole);
+
+          kneePivot.add(bootGroup);
+          hipPivot.add(kneePivot);
+          bodyGroup.add(hipPivot);
+          return { hipPivot, kneePivot };
+        }
+
+        const leftLegRig = buildArticulatedLeg(-0.112);
+        const rightLegRig = buildArticulatedLeg(0.112);
+
+        // Variación natural de estatura humana (1.76m - 1.88m)
+        const heightScale = 0.96 + ((seed % 7) * 0.014);
+        bodyGroup.scale.set(heightScale, heightScale, heightScale);
 
         // Etiqueta flotante con el nombre (visible solo en portador o receptor del pase)
         const buildNameTagTexture = (rawName, teamSide) => {
@@ -16686,8 +14914,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           depthWrite: false
         }));
         const nameSprite = new THREE.Sprite(nameSpriteMat);
-        nameSprite.position.set(0, 3.05, 0);
-        nameSprite.scale.set(3.4, 0.82, 1);
+        nameSprite.position.set(0, 2.25, 0);
+        nameSprite.scale.set(2.6, 0.62, 1);
         nameSprite.visible = false;
         nameSprite.renderOrder = 20;
         root.add(nameSprite);
@@ -16696,17 +14924,39 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         return {
           root,
           bodyGroup,
-          torso,
-          leftLeg,
-          rightLeg,
-          leftArm,
-          rightArm,
+          torsoGroup,
+          headGroup,
+          leftLeg: leftLegRig.hipPivot,
+          leftKnee: leftLegRig.kneePivot,
+          rightLeg: rightLegRig.hipPivot,
+          rightKnee: rightLegRig.kneePivot,
+          leftArm: leftArmRig.armPivot,
+          leftElbow: leftArmRig.elbowPivot,
+          rightArm: rightArmRig.armPivot,
+          rightElbow: rightArmRig.elbowPivot,
           carrierRing,
           nameSprite,
           nameSpriteMat,
           buildNameTagTexture,
           lastLabelName: pData.player?.name || `#${pData.number}`,
           jerseyMat,
+          solidJerseyMat,
+          shortsMat,
+          socksMat,
+          skinMat,
+          hairMat,
+          bootMat,
+          jerseyHex,
+          shortsHex,
+          socksHex,
+          skinCol,
+          hairCol,
+          bootCol,
+          heightScale,
+          smoothSpeed: 0,
+          kickT: 9,
+          kickActive: false,
+          prevKickPose: false,
           side,
           lastNumber: pData.number,
           isKeeper: isGK,
@@ -16818,6 +15068,9 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
       let prevBallWX = 0;
       let prevBallWZ = 0;
+      let smoothFocusX = 0;
+      let smoothFocusZ = 0;
+      let lastCamRenderTs = performance.now();
 
       function updateAndRender(closestLiveP, minLiveDist) {
         const rect = targetCanvas.getBoundingClientRect();
@@ -16830,7 +15083,10 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           camera.updateProjectionMatrix();
         }
 
-        const nowSec = performance.now() * 0.001;
+        const nowMs = performance.now();
+        const frameDt = Math.min(0.05, Math.max(0.004, (nowMs - lastCamRenderTs) * 0.001));
+        lastCamRenderTs = nowMs;
+        const nowSec = nowMs * 0.001;
 
         // Ondulación suave de banderines de córner y marquesina LED
         cornerFlags.forEach((fl, idx) => {
@@ -16856,10 +15112,8 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         // Posición 3D del balón
         const ballWX = simToWorldX(simulator.ball.x);
         const ballWZ = simToWorldZ(simulator.ball.y);
-        // En simulación continua real, usar la altura física exacta (pases rasos ruedan; cambios/centros levantan vuelo)
-        const distToTarget = Math.hypot((simulator.ball.targetX ?? simulator.ball.x) - simulator.ball.x, (simulator.ball.targetY ?? simulator.ball.y) - simulator.ball.y);
-        const autoArcY = (!simulator.useRealTime && !currentHighlightData && distToTarget > 6.5) ? Math.min(2.6, (distToTarget - 6.5) * 0.14) : 0;
-        const ballWY = ballRadius + Math.max(simToWorldY(simulator.ball.z), autoArcY);
+        // En simulación continua y replayBuffer, usar siempre la altura física real de simulator.ball.z
+        const ballWY = ballRadius + simToWorldY(simulator.ball.z);
 
         const bvx = ballWX - prevBallWX;
         const bvz = ballWZ - prevBallWZ;
@@ -16880,6 +15134,11 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           ? (simulator.ball.carrier || simulator.ball.passTarget || (minLiveDist < 4.5 ? closestLiveP : null))
           : (minLiveDist < 5.8 ? closestLiveP : null);
 
+        // Animación continua de vallas LED perimetrales estilo TV
+        if (adTex) {
+          adTex.offset.x = (nowSec * 0.025) % 1;
+        }
+
         // Actualizar los 22 jugadores 3D (11 Locales + 11 Visitantes)
         const syncTeamModels = (simArr, modelsArr) => {
           simArr.forEach((p, idx) => {
@@ -16893,7 +15152,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               const jerseyHex = m.isKeeper ? (kit.keeper || "#10b981") : (kit.jersey || (m.side === "home" ? homeTeam.primaryColor : awayTeam.primaryColor) || "#ef4444");
               const collarHex = m.isKeeper ? "#ffffff" : (kit.collar || "#ffffff");
               const numHex = m.isKeeper ? "#0f172a" : (kit.number || "#ffffff");
-              m.jerseyMat.map = getJerseyTexture(jerseyHex, collarHex, numHex, p.number, m.isKeeper);
+              m.jerseyMat.map = getJerseyTexture(jerseyHex, collarHex, numHex, p.number, p.player?.name, m.isKeeper);
               m.jerseyMat.needsUpdate = true;
             }
             const curName = p.player?.name || `#${p.number}`;
@@ -16915,7 +15174,7 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
 
             m.root.position.set(wx, wy, wz);
 
-            // Orientación corporal suave (lerp del ángulo): mira hacia donde corre o hacia el balón si está perfilado/esperando
+            // Orientación corporal suave (lerp del ángulo): mira hacia donde corre o hacia el balón
             let targetYaw = m.yaw;
             if (simulator.useRealTime && p.facingX !== undefined && p.facingZ !== undefined) {
               if ((p.speedMps || 0) > 0.45) {
@@ -16940,6 +15199,13 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
             m.yaw += angleDiff * 0.14;
             m.bodyGroup.rotation.y = m.yaw;
 
+            // Seguimiento natural de cabeza hacia el balón
+            if (m.headGroup) {
+              const ballYaw = Math.atan2(ballWX - wx, ballWZ - wz);
+              const headDelta = Math.atan2(Math.sin(ballYaw - m.yaw), Math.cos(ballYaw - m.yaw));
+              m.headGroup.rotation.y = Math.max(-0.65, Math.min(0.65, headDelta * 0.65));
+            }
+
             // Aro indicador y etiqueta flotante solo sobre portador o receptor del pase
             const isFocus = (p === focusPlayer);
             m.carrierRing.visible = isFocus;
@@ -16951,64 +15217,179 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
               m.carrierRing.scale.set(pulse, pulse, 1);
             }
 
-            // Animación biomecánica de piernas, brazos y torso
-            const hlPose = currentHighlightData ? p.hlPose : null;
-            m.bodyGroup.rotation.z = 0;
-            m.bodyGroup.rotation.x = 0;
+            // Animación procedural fluida (independiente de FPS): carrera biomecánica, golpeo en 3 fases y poses especiales
+            const simPose = p.pose;
+            const dtA = Math.max(0.001, Math.min(0.05, frameDt || (1 / 60)));
+            const kJoint = 1 - Math.exp(-14 * dtA);
+            const damp = (cur, target, k) => cur + (target - cur) * (k === undefined ? kJoint : k);
 
-            if (hlPose === "DIVE_LEFT" || hlPose === "DIVE_RIGHT") {
-              const dir = hlPose === "DIVE_LEFT" ? 1 : -1;
-              m.bodyGroup.rotation.z = dir * 1.18;
-              m.leftArm.rotation.x = -2.5;
-              m.rightArm.rotation.x = -2.5;
-              m.leftLeg.rotation.x = 0.25;
-              m.rightLeg.rotation.x = -0.25;
-            } else if (hlPose === "SLIDE_BLOCK") {
-              m.bodyGroup.rotation.x = -0.75;
-              m.leftLeg.rotation.x = -1.1;
-              m.rightLeg.rotation.x = 0.4;
-              m.leftArm.rotation.x = -0.6;
-              m.rightArm.rotation.x = 0.6;
-            } else if (hlPose === "WINDUP_SHOT") {
-              m.bodyGroup.rotation.x = 0.14;
-              m.leftLeg.rotation.x = -0.25;
-              m.rightLeg.rotation.x = 0.95; // Pierna derecha armada atrás para disparar
-              m.leftArm.rotation.x = -0.65;
-              m.rightArm.rotation.x = 0.75;
-            } else if (hlPose === "SHOT_FOLLOW_THROUGH" || hlPose === "PASS_DELIVERY") {
-              m.bodyGroup.rotation.x = -0.12;
-              m.leftLeg.rotation.x = 0.35;
-              m.rightLeg.rotation.x = -1.05; // Pierna de golpeo lanzada adelante
-              m.leftArm.rotation.x = 0.65;
-              m.rightArm.rotation.x = -0.75;
-            } else if (hlPose === "CELEBRATE_JUMP") {
-              m.bodyGroup.position.y = Math.abs(Math.sin(nowSec * 10 + idx)) * 0.35;
-              m.leftArm.rotation.x = -2.6;
-              m.rightArm.rotation.x = -2.6;
-              m.leftLeg.rotation.x = 0.2;
-              m.rightLeg.rotation.x = -0.2;
-            } else {
-              const effectiveSpeed = clamp(speed * 13.5, 0, 1.35);
-              if (effectiveSpeed > 0.08) {
-                m.stridePhase += 0.22 + effectiveSpeed * 0.26;
-                const amp = Math.min(0.88, 0.28 + effectiveSpeed * 0.48);
-                const s = Math.sin(m.stridePhase);
-                const c = Math.cos(m.stridePhase);
-                m.leftLeg.rotation.x = s * amp;
-                m.rightLeg.rotation.x = -s * amp;
-                m.leftArm.rotation.x = -s * amp * 0.75;
-                m.rightArm.rotation.x = s * amp * 0.75;
-                m.bodyGroup.position.y = Math.abs(c) * 0.08;
-                m.bodyGroup.rotation.x = Math.min(0.18, effectiveSpeed * 0.11);
+            // Velocidad real medida en el visor (m/s) suavizada para evitar saltos de ritmo
+            const measuredMps = Math.min(10.5, speed / dtA);
+            m.smoothSpeed = (m.smoothSpeed || 0) + (measuredMps - (m.smoothSpeed || 0)) * (1 - Math.exp(-7 * dtA));
+            const mps = m.smoothSpeed;
+
+            const isKickPose = (simPose === "kick" || simPose === "SHOT_FOLLOW_THROUGH" || simPose === "PASS_DELIVERY" || simPose === "SHOOT" || simPose === "PASS");
+            if (isKickPose && !m.prevKickPose) {
+              m.kickT = 0;
+              m.kickActive = true;
+            }
+            m.prevKickPose = isKickPose;
+            if (m.kickActive) {
+              m.kickT += dtA;
+              if (!isKickPose && m.kickT > 0.62) m.kickActive = false;
+            }
+
+            let tBodyY = 0, tBodyRX = 0, tBodyRZ = 0;
+            let tTorsoRX = 0.02, tTorsoRY = 0, tTorsoRZ = 0;
+            let tLLegX = 0, tRLegX = 0, tLLegZ = 0, tRLegZ = 0, tLKneeX = 0.10, tRKneeX = 0.10;
+            let tLArmX = 0.04, tRArmX = 0.04, tLArmZ = -0.10, tRArmZ = 0.10;
+            let tLElbowX = -0.30, tRElbowX = -0.30;
+            let k = kJoint;
+
+            if (simPose === "dive" || simPose === "DIVE_LEFT" || simPose === "DIVE_RIGHT") {
+              const dir = simPose === "DIVE_RIGHT" ? -1 : (ballWZ >= wz ? -1 : 1);
+              tBodyY = 0.35;
+              tBodyRZ = dir * 1.28;
+              tLArmX = -2.65; tRArmX = -2.65;
+              tLElbowX = -0.15; tRElbowX = -0.15;
+              tLLegX = 0.22; tRLegX = -0.18;
+              tLKneeX = 0.35; tRKneeX = 0.45;
+              k = 1 - Math.exp(-10 * dtA);
+            } else if (simPose === "SLIDE_BLOCK" || simPose === "slide") {
+              tBodyY = -0.35;
+              tBodyRX = -0.92;
+              tLLegX = -1.15; tRLegX = 0.45;
+              tLKneeX = 0.15; tRKneeX = 1.25;
+              tLArmX = -0.5; tRArmX = 0.65;
+              tLElbowX = -0.6; tRElbowX = -0.8;
+              k = 1 - Math.exp(-10 * dtA);
+            } else if (simPose === "jump" || simPose === "HEADER") {
+              tBodyY = 0.48;
+              tTorsoRX = 0.20;
+              tLLegX = -0.22; tRLegX = 0.18;
+              tLKneeX = 0.68; tRKneeX = 0.72;
+              tLArmX = -0.45; tRArmX = -0.45;
+              tLArmZ = -0.55; tRArmZ = 0.55;
+              tLElbowX = -0.75; tRElbowX = -0.75;
+              k = 1 - Math.exp(-10 * dtA);
+            } else if (simPose === "celebrate" || simPose === "CELEBRATE_JUMP") {
+              tBodyY = Math.abs(Math.sin(nowSec * 10 + idx)) * 0.36;
+              tLArmX = -2.55; tRArmX = -2.55;
+              tLArmZ = -0.35; tRArmZ = 0.35;
+              tLElbowX = -0.25; tRElbowX = -0.25;
+              tLLegX = 0.2; tRLegX = -0.2;
+              tLKneeX = 0.45; tRKneeX = 0.45;
+            } else if (m.kickActive) {
+              // GOLPEO EN 3 FASES: armado (pierna atrás, rodilla flexionada) -> impacto (latigazo) -> acompañamiento
+              const t = m.kickT;
+              const ease = (x) => x * x * (3 - 2 * x);
+              let legX, kneeX;
+              if (t < 0.17) {
+                const u = ease(t / 0.17);
+                legX = 0.78 * u;
+                kneeX = 0.15 + 1.25 * u;
+                tTorsoRX = -0.04 - 0.08 * u;
+                tTorsoRY = 0.22 * u;
+              } else if (t < 0.29) {
+                const u = ease((t - 0.17) / 0.12);
+                legX = 0.78 - 1.98 * u;
+                kneeX = 1.40 - 1.25 * u;
+                tTorsoRY = 0.22 - 0.50 * u;
+                tTorsoRX = -0.12 + 0.02 * u;
               } else {
-                // Postura de alerta respirando suavemente
-                m.leftLeg.rotation.x *= 0.8;
-                m.rightLeg.rotation.x *= 0.8;
-                m.leftArm.rotation.x = Math.sin(nowSec * 2.5 + idx) * 0.06;
-                m.rightArm.rotation.x = -Math.sin(nowSec * 2.5 + idx) * 0.06;
-                m.bodyGroup.position.y = 0;
+                const u = ease(Math.min(1, (t - 0.29) / 0.33));
+                legX = -1.20 + 0.75 * u;
+                kneeX = 0.15 + 0.20 * u;
+                tTorsoRY = -0.28 + 0.20 * u;
+                tTorsoRX = -0.10 + 0.08 * u;
+              }
+              tRLegX = legX;
+              tRKneeX = kneeX;
+              tLLegX = 0.16;
+              tLKneeX = 0.32;
+              tBodyY = -0.035;
+              // Brazos de equilibrio: el contrario abierto y adelantado, el del lado del golpeo atrás
+              tLArmX = -0.45; tLArmZ = -0.72; tLElbowX = -0.55;
+              tRArmX = 0.55; tRArmZ = 0.30; tRElbowX = -0.70;
+              tTorsoRZ = 0.06;
+              k = 1 - Math.exp(-26 * dtA);
+            } else {
+              // CARRERA BIOMECÁNICA: cadencia y amplitud dependientes de la velocidad real (trote -> sprint)
+              const gaitW = clamp((mps - 0.25) / 1.4, 0, 1);
+              const strideHz = 0.85 + Math.min(mps, 9) * 0.135;
+              m.stridePhase += Math.PI * 2 * strideHz * dtA * (0.35 + 0.65 * gaitW);
+              const ph = m.stridePhase;
+              const s = Math.sin(ph);
+              const c = Math.cos(ph);
+              const sprintF = clamp((mps - 3.5) / 4.5, 0, 1);
+
+              const hipAmp = (0.22 + Math.min(mps, 9) * 0.075) * gaitW;
+              const kneeAmp = (0.45 + Math.min(mps, 9) * 0.15) * gaitW;
+              const armAmp = (0.16 + Math.min(mps, 9) * 0.085) * gaitW;
+
+              // Caderas en oposición (avance = rotación negativa)
+              tLLegX = -s * hipAmp;
+              tRLegX = s * hipAmp;
+              // Rodilla: flexión máxima en la fase de recobro (pierna pasando bajo el cuerpo hacia delante),
+              // leve amortiguación en el apoyo y talón alto al esprintar
+              const swingL = Math.max(0, c);
+              const swingR = Math.max(0, -c);
+              tLKneeX = 0.10 + kneeAmp * Math.pow(swingL, 1.4) + 0.14 * gaitW * Math.max(0, s) * (1 - swingL);
+              tRKneeX = 0.10 + kneeAmp * Math.pow(swingR, 1.4) + 0.14 * gaitW * Math.max(0, -s) * (1 - swingR);
+
+              // Brazos contrarios a las piernas con codos más cerrados al esprintar
+              tLArmX = s * armAmp + 0.04;
+              tRArmX = -s * armAmp + 0.04;
+              tLArmZ = -0.10 - 0.05 * sprintF;
+              tRArmZ = 0.10 + 0.05 * sprintF;
+              const elbowBase = 0.30 + (0.55 + 0.45 * sprintF) * gaitW;
+              tLElbowX = -elbowBase - 0.22 * gaitW * Math.max(0, -s);
+              tRElbowX = -elbowBase - 0.22 * gaitW * Math.max(0, s);
+
+              // Rebote vertical (2 por zancada), inclinación del tronco hacia delante y contra-rotación de hombros
+              tBodyY = Math.abs(s) * Math.min(0.055, 0.007 * mps) * gaitW - 0.012 * gaitW;
+              tTorsoRX = 0.03 + Math.min(0.30, 0.028 * mps) * gaitW;
+              tTorsoRY = s * (0.05 + 0.06 * sprintF) * gaitW;
+              tBodyRZ = c * 0.025 * gaitW;
+
+              // Inclinación hacia el interior de la curva al cambiar de dirección a velocidad
+              tBodyRZ += clamp(-angleDiff * 0.9 * Math.min(1, mps / 6), -0.18, 0.18);
+
+              if (gaitW < 1) {
+                // Reposo activo: respiración, peso repartido, rodillas ligeramente flexionadas
+                const idleW = 1 - gaitW;
+                const br = Math.sin(nowSec * 2.2 + idx * 0.7);
+                tBodyY += br * 0.006 * idleW;
+                tTorsoRX += br * 0.012 * idleW;
+                tLArmX += br * 0.03 * idleW;
+                tRArmX -= br * 0.03 * idleW;
+                tLKneeX += 0.06 * idleW;
+                tRKneeX += 0.06 * idleW;
+                tLLegZ = -0.03 * idleW;
+                tRLegZ = 0.03 * idleW;
               }
             }
+
+            m.bodyGroup.position.y = damp(m.bodyGroup.position.y, tBodyY, k);
+            m.bodyGroup.rotation.x = damp(m.bodyGroup.rotation.x, tBodyRX, k);
+            m.bodyGroup.rotation.z = damp(m.bodyGroup.rotation.z, tBodyRZ, k);
+            if (m.torsoGroup) {
+              m.torsoGroup.rotation.x = damp(m.torsoGroup.rotation.x, tTorsoRX, k);
+              m.torsoGroup.rotation.y = damp(m.torsoGroup.rotation.y, tTorsoRY, k);
+              m.torsoGroup.rotation.z = damp(m.torsoGroup.rotation.z, tTorsoRZ, k);
+            }
+            m.leftLeg.rotation.x = damp(m.leftLeg.rotation.x, tLLegX, k);
+            m.rightLeg.rotation.x = damp(m.rightLeg.rotation.x, tRLegX, k);
+            m.leftLeg.rotation.z = damp(m.leftLeg.rotation.z, tLLegZ, k);
+            m.rightLeg.rotation.z = damp(m.rightLeg.rotation.z, tRLegZ, k);
+            if (m.leftKnee) m.leftKnee.rotation.x = damp(m.leftKnee.rotation.x, tLKneeX, k);
+            if (m.rightKnee) m.rightKnee.rotation.x = damp(m.rightKnee.rotation.x, tRKneeX, k);
+            m.leftArm.rotation.x = damp(m.leftArm.rotation.x, tLArmX, k);
+            m.rightArm.rotation.x = damp(m.rightArm.rotation.x, tRArmX, k);
+            m.leftArm.rotation.z = damp(m.leftArm.rotation.z, tLArmZ, k);
+            m.rightArm.rotation.z = damp(m.rightArm.rotation.z, tRArmZ, k);
+            if (m.leftElbow) m.leftElbow.rotation.x = damp(m.leftElbow.rotation.x, tLElbowX, k);
+            if (m.rightElbow) m.rightElbow.rotation.x = damp(m.rightElbow.rotation.x, tRElbowX, k);
           });
         };
 
@@ -17030,59 +15411,62 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           posAttr.needsUpdate = true;
         }
 
-        // CÁMARA ESTILO RETRANSMISIÓN TV CON INTERPOLACIÓN SUAVE (LERP) Y ZOOM EN LAS ÁREAS
-        // Posición base lateral largo a media altura: Y: 28, Z: 42 mirando hacia el centro/balón
-        const absBallX = Math.abs(ballWX);
+        // CÁMARA ESTILO RETRANSMISIÓN TV CON DOBLE INTERPOLACIÓN EXPONENCIAL (LERP SIN TIRONES) Y ZOOM EN LAS ÁREAS
+        // Primero filtramos el punto focal del balón para absorber pases rápidos o rebotes bruscos
+        const focusAlpha = 1 - Math.exp(-3.6 * frameDt);
+        smoothFocusX += (ballWX - smoothFocusX) * focusAlpha;
+        smoothFocusZ += (ballWZ - smoothFocusZ) * focusAlpha;
+
+        const absBallX = Math.abs(smoothFocusX);
         const areaProximity = Math.max(0, Math.min(1, (absBallX - 22) / 28)); // 0 en centro, -> 1 al acercarse al área
-        const highlightBoost = currentHighlightData ? 0.55 : 0;
+        const highlightBoost = currentHighlightData ? 0.45 : 0;
         const zoomFactor = Math.min(1, areaProximity + highlightBoost);
 
         let targetCamX, targetCamY, targetCamZ, targetFov;
         let targetLookX, targetLookY, targetLookZ;
 
         if (cameraMode === "tactical") {
-          targetCamX = ballWX * 0.38;
+          targetCamX = smoothFocusX * 0.38;
           targetCamY = 44;
-          targetCamZ = 50 + ballWZ * 0.12;
+          targetCamZ = 50 + smoothFocusZ * 0.12;
           targetFov = 40;
-          targetLookX = ballWX * 0.55;
+          targetLookX = smoothFocusX * 0.55;
           targetLookY = 0.4;
-          targetLookZ = ballWZ * 0.25;
+          targetLookZ = smoothFocusZ * 0.25;
         } else if (cameraMode === "action") {
-          targetCamX = ballWX * 0.82;
+          targetCamX = smoothFocusX * 0.80;
           targetCamY = 20 - zoomFactor * 2.5;
-          targetCamZ = 31 + ballWZ * 0.32 - zoomFactor * 3.5;
+          targetCamZ = 31 + smoothFocusZ * 0.30 - zoomFactor * 3.5;
           targetFov = 33 - zoomFactor * 2.5;
-          targetLookX = ballWX * 0.94;
+          targetLookX = smoothFocusX * 0.92;
           targetLookY = 0.8;
-          targetLookZ = ballWZ * 0.48;
+          targetLookZ = smoothFocusZ * 0.45;
         } else {
-          // "broadcast" (Por defecto): Cámara TV de análisis táctico (plano abierto 12-14+ jugadores)
-          targetCamX = ballWX * (0.68 + zoomFactor * 0.12);
-          targetCamY = 34 - zoomFactor * 4.5;
-          targetCamZ = (52 - zoomFactor * 6.0) + ballWZ * 0.20;
-          targetFov = 42 - zoomFactor * 3.5;
+          // "broadcast" (Por defecto): Cámara TV cercana a la acción (Y=21.5, Z=36.0, FOV=35) con seguimiento suave y ligero zoom al área
+          targetCamX = smoothFocusX * 0.65;
+          targetCamY = 21.5 - zoomFactor * 2.2;
+          targetCamZ = (36.0 - zoomFactor * 3.2) + smoothFocusZ * 0.22;
+          targetFov = 35 - zoomFactor * 2.0;
 
-          // Encuadrar líneas tácticas de defensa y mediocampo
-          const goalFocusX = ballWX >= 0 ? (PITCH_L / 2 - 2.0) : (-PITCH_L / 2 + 2.0);
-          targetLookX = ballWX * (1 - zoomFactor * 0.30) + goalFocusX * (zoomFactor * 0.30);
-          targetLookY = 0.8 + Math.min(1.2, (ballWY - ballRadius) * 0.22);
-          targetLookZ = ballWZ * 0.32 - 2.5 * (1 - zoomFactor * 0.45);
+          targetLookX = smoothFocusX * 0.72;
+          targetLookY = 0.55;
+          targetLookZ = smoothFocusZ * 0.28 - 1.2;
         }
 
-        // Interpolación muy suave (factor 0.04) para evitar tirones en pases rápidos
-        const camLerp = currentHighlightData ? 0.14 : 0.04;
-        camera.position.x += (targetCamX - camera.position.x) * camLerp;
-        camera.position.y += (targetCamY - camera.position.y) * camLerp;
-        camera.position.z += (targetCamZ - camera.position.z) * camLerp;
+        // Interpolación exponencial independiente de FPS (1 - exp(-k * dt)) para eliminar cualquier tirón
+        const camPosLerp = 1 - Math.exp(-3.0 * frameDt);
+        const camLookLerp = 1 - Math.exp(-3.8 * frameDt);
+        camera.position.x += (targetCamX - camera.position.x) * camPosLerp;
+        camera.position.y += (targetCamY - camera.position.y) * camPosLerp;
+        camera.position.z += (targetCamZ - camera.position.z) * camPosLerp;
 
-        camLookCurrent.x += (targetLookX - camLookCurrent.x) * (camLerp * 1.25);
-        camLookCurrent.y += (targetLookY - camLookCurrent.y) * (camLerp * 1.25);
-        camLookCurrent.z += (targetLookZ - camLookCurrent.z) * (camLerp * 1.25);
+        camLookCurrent.x += (targetLookX - camLookCurrent.x) * camLookLerp;
+        camLookCurrent.y += (targetLookY - camLookCurrent.y) * camLookLerp;
+        camLookCurrent.z += (targetLookZ - camLookCurrent.z) * camLookLerp;
         camera.lookAt(camLookCurrent);
 
-        if (Math.abs(camera.fov - targetFov) > 0.05) {
-          camera.fov += (targetFov - camera.fov) * camLerp;
+        if (Math.abs(camera.fov - targetFov) > 0.02) {
+          camera.fov += (targetFov - camera.fov) * camPosLerp;
           camera.updateProjectionMatrix();
         }
 
@@ -17106,40 +15490,63 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
     function drawPitch() {
       if (!canvas) return;
 
+      const nowTs = performance.now();
+      const dtSec = lastRealTimeTs !== null
+        ? Math.min(0.05, Math.max(0.004, (nowTs - lastRealTimeTs) / 1000))
+        : (1 / 60);
+      lastRealTimeTs = nowTs;
+
       // Inicializar motor 3D Three.js si está disponible (para jugadas clave)
       ensureThreeLoadedAndInit();
 
-      // Si hay una jugada clave activa (ataque relevante, ocasión, parada, bloqueo o balón parado), renderizar en 3D
-      const is3DHighlightActive = Boolean(currentHighlightData || simulator.isHighlightRunning || simulator.isSetPieceRunning);
+      // Si hay un highlight o jugada a balón parado activa, avanzar el replayBuffer a 1x (60 FPS interpolados)
+      // sin que ninguna animación legacy sobreescriba curX/curY de home2D y away2D
+      const is3DHighlightActive = Boolean(simulator.activeReplay || simulator.isHighlightRunning || simulator.isSetPieceRunning);
+      if (is3DHighlightActive && typeof simulator.stepReplayPlayback === "function") {
+        simulator.stepReplayPlayback(dtSec);
+      }
 
-      if (is3DHighlightActive && currentHighlightData) {
+      if (is3DHighlightActive) {
         if (threeEngine && canvas3d) {
           canvas3d.style.display = "block";
           canvas.style.display = "none";
-          drawFrontalHighlightScene(null, 800, 450, currentHighlightData, true);
 
-          // Buscar al futbolista poseedor o más cercano al balón en 3D
-          let closestLiveP = null;
-          let minLiveDist = 999;
-          [...simulator.home2D, ...simulator.away2D].forEach(p => {
-            const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
-            if (d < minLiveDist) {
-              minLiveDist = d;
-              closestLiveP = p;
-            }
-          });
+          // Buscar al futbolista poseedor o más cercano al balón en el replay 3D
+          let closestLiveP = simulator.ball.carrier || null;
+          let minLiveDist = closestLiveP ? 0.5 : 999;
+          if (!closestLiveP) {
+            [...simulator.home2D, ...simulator.away2D].forEach(p => {
+              const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+              if (d < minLiveDist) {
+                minLiveDist = d;
+                closestLiveP = p;
+              }
+            });
+          }
           threeEngine.updateAndRender(closestLiveP, minLiveDist);
         } else {
           if (canvas3d) canvas3d.style.display = "none";
           canvas.style.display = "block";
           if (!ctx) ctx = canvas.getContext("2d");
-          resizeCanvas();
-          drawFrontalHighlightScene(ctx, canvas.width, canvas.height, currentHighlightData, false);
-          drawWeatherOverlay(ctx, canvas.width, canvas.height, matchWeather.id);
+          if (ctx) {
+            resizeCanvas();
+            const w = canvas.width;
+            const h = canvas.height;
+            const pDim = drawPitch2D(ctx, w, h);
+            const { padX, padY, pitchW, pitchH, dpr } = pDim;
+            simulator.home2D.forEach(p => {
+              drawPlayerToken2D(ctx, p, "home", (p === simulator.ball.carrier), padX, padY, pitchW, pitchH, dpr);
+            });
+            simulator.away2D.forEach(p => {
+              drawPlayerToken2D(ctx, p, "away", (p === simulator.ball.carrier), padX, padY, pitchW, pitchH, dpr);
+            });
+            drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
+            drawWeatherOverlay(ctx, w, h, matchWeather.id);
+          }
         }
       } else {
         // MODO FAST_SIM (Tiempo entre jugadas clave):
-        // Mostrar exclusivamente la simulación táctica en 2D con las fichas y dibujo táctico en el césped
+        // Mostrar las posiciones físicas reales curX/curY calculadas por el motor autónomo a 20 Hz sin sobreescribirlas
         if (canvas3d) canvas3d.style.display = "none";
         canvas.style.display = "block";
         if (!ctx) ctx = canvas.getContext("2d");
@@ -17148,28 +15555,18 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
           const w = canvas.width;
           const h = canvas.height;
 
-          // Interpolación suave y orgánica de las fichas 2D hacia sus anclas tácticas
-          simulator.ball.x += ((simulator.ball.targetX ?? simulator.ball.x) - simulator.ball.x) * 0.14;
-          simulator.ball.y += ((simulator.ball.targetY ?? simulator.ball.y) - simulator.ball.y) * 0.14;
-          simulator.home2D.forEach(p => {
-            p.curX += ((p.targetX ?? p.curX) - p.curX) * 0.12;
-            p.curY += ((p.targetY ?? p.curY) - p.curY) * 0.12;
-          });
-          simulator.away2D.forEach(p => {
-            p.curX += ((p.targetX ?? p.curX) - p.curX) * 0.12;
-            p.curY += ((p.targetY ?? p.curY) - p.curY) * 0.12;
-          });
-
           // Buscar jugador poseedor o más cercano al balón en 2D
-          let closestLiveP = null;
-          let minLiveDist = 999;
-          [...simulator.home2D, ...simulator.away2D].forEach(p => {
-            const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
-            if (d < minLiveDist) {
-              minLiveDist = d;
-              closestLiveP = p;
-            }
-          });
+          let closestLiveP = simulator.ball.carrier || null;
+          let minLiveDist = closestLiveP ? 0.5 : 999;
+          if (!closestLiveP) {
+            [...simulator.home2D, ...simulator.away2D].forEach(p => {
+              const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+              if (d < minLiveDist) {
+                minLiveDist = d;
+                closestLiveP = p;
+              }
+            });
+          }
 
           const pDim = drawPitch2D(ctx, w, h);
           const { padX, padY, pitchW, pitchH, dpr } = pDim;
@@ -17607,6 +16004,25 @@ function renderMatchView(container, gameState, onMatchFinished, onBackToHub) {
         simulator.showKeyHighlights = userShowHighlights;
         updateHlModeUI();
         showMatchAlert({ text: userShowHighlights ? "🎬 Jugadas clave activadas (Modo visualización)" : "⚡ Jugadas clave en modo rápido (Resolución directa)" });
+      };
+    }
+
+    // Toggle de Pantalla Completa / Vista Panorámica Ampliada 16:9
+    const btnToggleFs = container.querySelector("#btn-toggle-fullscreen");
+    const viewportWrapper = container.querySelector("#match-viewport-wrapper");
+    if (btnToggleFs && viewportWrapper) {
+      btnToggleFs.onclick = () => {
+        if (!document.fullscreenElement) {
+          if (viewportWrapper.requestFullscreen) {
+            viewportWrapper.requestFullscreen().catch(() => {});
+          } else if (viewportWrapper.webkitRequestFullscreen) {
+            viewportWrapper.webkitRequestFullscreen();
+          }
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          }
+        }
       };
     }
 

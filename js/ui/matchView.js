@@ -546,6 +546,26 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               }).join('')}
             </div>
           </div>
+
+          <!-- Anchura Defensiva / Control de Bandas -->
+          <div>
+            <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+              <span>Anchura Defensiva (Control de Bandas)</span>
+              <span class="text-rose-400 font-mono text-[9px]">${TACTICAL_OPTIONS.defenseWidth.find(o => o.id === (instructions.outOfPossession?.defenseWidth || 'balanced'))?.label || 'Equilibrada'}</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5">
+              ${TACTICAL_OPTIONS.defenseWidth.map(opt => {
+                const isSel = (instructions.outOfPossession?.defenseWidth || 'balanced') === opt.id;
+                return `
+                  <button type="button" class="btn-${prefix}-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-rose-500/25 border-rose-400 text-white shadow-sm ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="outOfPossession" data-param="defenseWidth" data-val="${opt.id}">
+                    <span class="text-sm mb-0.5">${opt.icon}</span>
+                    <span class="text-[11px] font-bold ${isSel ? 'text-rose-300' : 'text-slate-200'}">${opt.label}</span>
+                    <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                  </button>
+                `;
+              }).join('')}
+            </div>
+          </div>
         </div>
 
         <!-- Panel de Impacto en el Motor -->
@@ -1949,8 +1969,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       onTick: updateMatchUI,
       onAlert: showMatchAlert,
       onCommentary: (text, badge) => {
-        if (!currentHighlightData && !isKickoffInProgress) {
-          updateFMCommentary(text, badge || "MATCH ENGINE");
+        if (!isKickoffInProgress) {
+          updateFMCommentary(text, badge || "MATCH ENGINE", Boolean(currentHighlightData || simulator.activeReplay));
         }
       },
       onGoal: (goalData) => handleGoalSequence(goalData),
@@ -2023,12 +2043,16 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             </div>
           </div>
 
-          <div class="relative w-full aspect-[16/10] sm:aspect-[16/9] min-h-[300px] sm:min-h-[390px] bg-slate-950 rounded-2xl border-2 border-slate-800 shadow-2xl overflow-hidden">
+          <div id="match-viewport-wrapper" class="relative w-full aspect-[16/9] min-h-[310px] max-w-5xl mx-auto bg-slate-950 rounded-2xl border-2 border-slate-800 shadow-2xl overflow-hidden transition-all duration-300">
             <!-- Canvas 3D -->
             <canvas id="match-canvas" class="w-full h-full block cursor-pointer" title="Toca para cambiar de cámara"></canvas>
 
-            <!-- Badge de Cámara 3D TV y Selector de Modo Jugadas Clave -->
+            <!-- Badge de Cámara 3D TV, Selector de Modo Jugadas Clave y Pantalla Completa Panorámica -->
             <div class="absolute top-2 right-2 flex items-center gap-1.5 z-20">
+              <button id="btn-toggle-fullscreen" class="flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2 py-1 rounded-lg border border-slate-700/80 text-[9px] font-bold shadow-lg text-slate-300 hover:text-white hover:border-slate-500 active:scale-95 transition cursor-pointer" title="Expandir a Pantalla Completa Panorámica">
+                <span id="btn-fullscreen-icon">⛶</span>
+                <span class="hidden sm:inline">16:9</span>
+              </button>
               <button id="btn-toggle-hl-mode" class="flex items-center gap-1 bg-slate-950/90 backdrop-blur-md px-2.5 py-1 rounded-lg border border-amber-500/70 text-[9px] font-bold shadow-lg text-amber-400 active:scale-95 transition cursor-pointer" title="Elegir ver o pasar automáticamente las jugadas clave">
                 <span id="btn-toggle-hl-icon">🎬</span>
                 <span id="btn-toggle-hl-text">Jugadas: VER</span>
@@ -2688,776 +2712,6 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
     const kits = matchKits;
 
-    // Proyección de coordenadas 3D a pantalla con perspectiva isométrica de retransmisión televisiva Football Manager (Exacta al pantallazo)
-    function toScreen3D(pitchX, pitchY, pitchZ = 0, w, h) {
-      let groundX, groundY, scale;
-      const baseResScale = Math.min(w / 460, h / 290);
-
-      if (cameraMode === "tactical") {
-        // Vista Táctica Elevada (Cámara panorámica para observar colocación táctica del bloque)
-        const camOffset = (cameraPitchX - 50) * 0.16;
-        const relX = pitchX - camOffset;
-        const nx = relX / 100;
-        const ny = Math.max(-8, Math.min(108, pitchY)) / 100;
-
-        const topY = h * 0.14;
-        const botY = h * 0.94;
-        groundY = topY + ny * (botY - topY);
-
-        const topXMin = w * 0.08;
-        const topXMax = w * 0.92;
-        const botXMin = w * 0.02;
-        const botXMax = w * 0.98;
-
-        const leftX = topXMin + ny * (botXMin - topXMin);
-        const rightX = topXMax + ny * (botXMax - topXMax);
-        groundX = leftX + nx * (rightX - leftX);
-
-        scale = (0.68 + ny * 0.44) * baseResScale;
-      } else if (cameraMode === "goal") {
-        // Vista Tras Portería (Cámara cinemática de gol detrás de la red)
-        const camOffset = (cameraPitchX - 50) * 0.46;
-        const relX = pitchX - camOffset;
-        const nx = relX / 100;
-        const ny = Math.max(-12, Math.min(112, pitchY)) / 100;
-
-        const topY = h * 0.18;
-        const botY = h * 0.88;
-        groundY = topY + ny * (botY - topY);
-
-        const topXMin = w * 0.14;
-        const topXMax = w * 0.86;
-        const botXMin = w * 0.01;
-        const botXMax = w * 0.99;
-
-        const leftX = topXMin + ny * (botXMin - topXMin);
-        const rightX = topXMax + ny * (botXMax - topXMax);
-        groundX = leftX + nx * (rightX - leftX);
-
-        scale = (0.75 + ny * 0.58) * baseResScale;
-      } else if (cameraMode === "action") {
-        // Vista de Acción FM (Primer plano cinemático con inclinación diagonal e inmersión)
-        const zoom = Math.max(1.20, Math.min(1.65, cameraZoom));
-        const tiltAngle = ((cameraPitchX - 50) / 50) * 0.20; // Giro diagonal
-        const cosT = Math.cos(tiltAngle);
-        const sinT = Math.sin(tiltAngle);
-
-        const dx = (pitchX - cameraPitchX);
-        const dy = (pitchY - 50);
-
-        const rx = dx * cosT - dy * sinT;
-        const ry = dx * sinT + dy * cosT;
-
-        const normY = Math.max(-0.2, Math.min(1.2, (ry + 50) / 100));
-        const depthFactor = 0.74 + normY * 0.52;
-
-        const midX = w * 0.50;
-        const midY = h * 0.53;
-        const spanX = w * 0.96 * zoom;
-        const spanY = h * 0.74 * zoom;
-
-        groundX = midX + (rx / 50) * (spanX * 0.5) * depthFactor;
-        groundY = midY + (ry / 50) * (spanY * 0.5);
-
-        scale = depthFactor * baseResScale * zoom;
-      } else {
-        // "broadcast" - Vista lateral clásica de retransmisión televisiva (como estaba)
-        const zoom = Math.max(0.95, Math.min(1.25, cameraZoom));
-        const camOffsetX = (cameraPitchX - 50) * 0.38;
-        const camOffsetY = (cameraPitchY - 50) * 0.18;
-
-        const relX = pitchX - camOffsetX;
-        const relY = pitchY - camOffsetY;
-
-        const nx = relX / 100;
-        const ny = Math.max(-10, Math.min(110, relY)) / 100;
-
-        const baseTopY = h * 0.20;
-        const baseBotY = h * 0.88;
-        const midY = (baseTopY + baseBotY) / 2;
-        const topY = midY - (midY - baseTopY) * zoom;
-        const botY = midY + (baseBotY - midY) * zoom;
-
-        groundY = topY + ny * (botY - topY);
-
-        const midX = w / 2;
-        const baseTopSpan = w * 0.78 * zoom;
-        const baseBotSpan = w * 0.94 * zoom;
-
-        const leftX = (midX - baseTopSpan / 2) + ny * ((midX - baseBotSpan / 2) - (midX - baseTopSpan / 2));
-        const rightX = (midX + baseTopSpan / 2) + ny * ((midX + baseBotSpan / 2) - (midX + baseTopSpan / 2));
-        groundX = leftX + nx * (rightX - leftX);
-
-        scale = (0.74 + ny * 0.54) * baseResScale * zoom;
-      }
-
-      // Elevación vertical 3D (eje Z para balones aéreos y saltos de cabeza)
-      const screenX = groundX;
-      const screenY = groundY - (pitchZ * scale * 2.3);
-
-      return { groundX, groundY, screenX, screenY, scale };
-    }
-
-    // Sistema de 4 sombras suaves de proyectores en esquinas del estadio (Sello característico Football Manager)
-    function drawStadiumShadows(ctx, groundX, groundY, scale, heightZ = 0, radius = 6.0) {
-      const zOffset = Math.min(heightZ, 25);
-      const expand = 1 + zOffset * 0.08;
-      const fade = Math.max(0.04, 0.22 - zOffset * 0.007);
-
-      const rX = radius * scale * expand;
-      const rY = (radius * 0.44) * scale * expand;
-
-      // Desplazamientos proyectados por los 4 focos del estadio
-      const dist = (6.5 + zOffset * 0.65) * scale;
-      const shadows = [
-        { dx: dist * 0.85, dy: dist * 0.42 },   // Foco Noroeste (hacia Sureste)
-        { dx: -dist * 0.85, dy: dist * 0.42 },  // Foco Noreste (hacia Suroeste)
-        { dx: dist * 0.65, dy: -dist * 0.32 },  // Foco Suroeste (hacia Noreste)
-        { dx: -dist * 0.65, dy: -dist * 0.32 }  // Foco Sureste (hacia Noroeste)
-      ];
-
-      ctx.fillStyle = `rgba(0, 0, 0, ${fade})`;
-      shadows.forEach(s => {
-        ctx.beginPath();
-        ctx.ellipse(groundX + s.dx, groundY + s.dy, rX, rY, 0, 0, Math.PI * 2);
-        ctx.fill();
-      });
-
-      // Sombra central densa de oclusión ambiental bajo los pies/balón
-      const aoFade = Math.max(0.05, 0.55 - zOffset * 0.025);
-      ctx.fillStyle = `rgba(0, 0, 0, ${aoFade})`;
-      ctx.beginPath();
-      ctx.ellipse(groundX, groundY, (radius * 0.8) * scale, (radius * 0.35) * scale, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    function draw3DBox(ctx, x1, y1, x2, y2, w, h) {
-      const p1 = toScreen3D(x1, y1, 0, w, h);
-      const p2 = toScreen3D(x2, y1, 0, w, h);
-      const p3 = toScreen3D(x2, y2, 0, w, h);
-      const p4 = toScreen3D(x1, y2, 0, w, h);
-
-      ctx.beginPath();
-      ctx.moveTo(p1.groundX, p1.groundY);
-      ctx.lineTo(p2.groundX, p2.groundY);
-      ctx.lineTo(p3.groundX, p3.groundY);
-      ctx.lineTo(p4.groundX, p4.groundY);
-      ctx.closePath();
-      ctx.stroke();
-    }
-
-    // Portería 3D realista con postes cilíndricos, larguero, tensión de red física y deformación por gol
-    function draw3DGoal(ctx, x, y1, y2, dir, w, h) {
-      const gPost1 = toScreen3D(x, y1, 0, w, h);
-      const gPost2 = toScreen3D(x, y2, 0, w, h);
-      const gTop1 = toScreen3D(x, y1, 10.5, w, h);
-      const gTop2 = toScreen3D(x, y2, 10.5, w, h);
-
-      const ripple = dir === -1 ? netRippleH : netRippleA;
-      const rippleBack = ripple * 2.8;
-
-      const netBackX = x - dir * (4.2 + rippleBack);
-      const tNet1 = toScreen3D(netBackX, y1, 8.5, w, h);
-      const tNet2 = toScreen3D(netBackX, y2, 8.5, w, h);
-      const bNet1 = toScreen3D(netBackX, y1, 0, w, h);
-      const bNet2 = toScreen3D(netBackX, y2, 0, w, h);
-
-      // Sombra de los postes en el suelo
-      ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
-      ctx.beginPath();
-      ctx.ellipse(gPost1.groundX, gPost1.groundY, 4, 2, 0, 0, Math.PI * 2);
-      ctx.ellipse(gPost2.groundX, gPost2.groundY, 4, 2, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Red superior y trasera con volumen y transparencia translúcida
-      ctx.fillStyle = "rgba(240, 249, 255, 0.22)";
-      ctx.beginPath();
-      ctx.moveTo(gTop1.screenX, gTop1.screenY);
-      ctx.lineTo(gTop2.screenX, gTop2.screenY);
-      ctx.lineTo(tNet2.screenX, tNet2.screenY);
-      ctx.lineTo(tNet1.screenX, tNet1.screenY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Red de fondo con efecto de bombeo por impacto de gol
-      ctx.fillStyle = "rgba(240, 249, 255, 0.16)";
-      ctx.beginPath();
-      ctx.moveTo(tNet1.screenX, tNet1.screenY);
-      ctx.lineTo(tNet2.screenX, tNet2.screenY);
-      ctx.lineTo(bNet2.groundX, bNet2.groundY);
-      ctx.lineTo(bNet1.groundX, bNet1.groundY);
-      ctx.closePath();
-      ctx.fill();
-
-      // Trama hexagonal/diagonal de la red
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.28)";
-      ctx.lineWidth = 0.9;
-      ctx.beginPath();
-      for (let s = 0.2; s <= 0.8; s += 0.2) {
-        const mxTop = gTop1.screenX + (gTop2.screenX - gTop1.screenX) * s;
-        const myTop = gTop1.screenY + (gTop2.screenY - gTop1.screenY) * s;
-        const mxBot = bNet1.groundX + (bNet2.groundX - bNet1.groundX) * s;
-        const myBot = bNet1.groundY + (bNet2.groundY - bNet1.groundY) * s;
-        ctx.moveTo(mxTop, myTop);
-        ctx.lineTo(mxBot, myBot);
-      }
-      ctx.stroke();
-
-      // Postes y larguero 3D blancos con acabado brillante y reborde metálico
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 3.2;
-      ctx.lineCap = "round";
-
-      ctx.beginPath();
-      ctx.moveTo(gPost1.groundX, gPost1.groundY);
-      ctx.lineTo(gTop1.screenX, gTop1.screenY);
-      ctx.lineTo(gTop2.screenX, gTop2.screenY);
-      ctx.lineTo(gPost2.groundX, gPost2.groundY);
-      ctx.stroke();
-
-      // Tirantes traseros de sujeción
-      ctx.strokeStyle = "rgba(226, 232, 240, 0.7)";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.moveTo(gTop1.screenX, gTop1.screenY);
-      ctx.lineTo(tNet1.screenX, tNet1.screenY);
-      ctx.lineTo(bNet1.groundX, bNet1.groundY);
-      ctx.moveTo(gTop2.screenX, gTop2.screenY);
-      ctx.lineTo(tNet2.screenX, tNet2.screenY);
-      ctx.lineTo(bNet2.groundX, bNet2.groundY);
-      ctx.stroke();
-    }
-
-    // Dibujo del Estadio 3D estilo FM26: Gradas multitudinarias, focos volumétricos, vallas LED y césped segado
-    function draw3DPitch(ctx, w, h) {
-      const nowMs = performance.now();
-
-      // 1. Cielo nocturno y atmósfera de estadio con gradiente cinemático
-      const skyGrad = ctx.createLinearGradient(0, 0, 0, h * 0.28);
-      skyGrad.addColorStop(0, "#020617");
-      skyGrad.addColorStop(0.65, "#0b1536");
-      skyGrad.addColorStop(1, "#1e293b");
-      ctx.fillStyle = skyGrad;
-      ctx.fillRect(0, 0, w, h);
-
-      // Cerchas y vigas metálicas del techo del estadio (Estructura arquitectónica)
-      ctx.strokeStyle = "rgba(30, 41, 59, 0.7)";
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      for (let tx = 0; tx <= w; tx += w * 0.12) {
-        ctx.moveTo(tx, 0);
-        ctx.lineTo(tx + w * 0.06, h * 0.08);
-        ctx.lineTo(tx + w * 0.12, 0);
-      }
-      ctx.stroke();
-
-      // 2. Grada del Estadio con Miles de Aficionados (Crowd Backdrop animado)
-      const standTopY = h * 0.03;
-      const standBotY = h * 0.19;
-      const numRows = 8;
-      for (let r = 0; r < numRows; r++) {
-        const rowY = standTopY + (r / numRows) * (standBotY - standTopY);
-        const rowH = (standBotY - standTopY) / numRows;
-
-        // Base de gradas de hormigón
-        ctx.fillStyle = r % 2 === 0 ? "#0f172a" : "#1e293b";
-        ctx.fillRect(0, rowY, w, rowH);
-
-        // Mosaico de hinchas con colores de equipaciones locales y visitantes
-        const dots = Math.floor(w / 6.5);
-        for (let d = 0; d < dots; d++) {
-          const dx = d * 6.5 + (r % 2 === 0 ? 3 : 0);
-          const colorSeed = (d * 19 + r * 37) % 11;
-          let fanColor = "#334155";
-          if (colorSeed < 3) fanColor = homeTeam.primaryColor || "#38bdf8";
-          else if (colorSeed < 5) fanColor = awayTeam.primaryColor || "#f59e0b";
-          else if (colorSeed < 7) fanColor = "#f8fafc";
-          else if (colorSeed < 9) fanColor = "#64748b";
-
-          // Sutil animación de hinchas ondeando banderas o celebrando
-          const bob = Math.sin(nowMs * 0.003 + d * 0.5 + r) * 0.8;
-          ctx.fillStyle = fanColor;
-          ctx.beginPath();
-          ctx.arc(dx, rowY + rowH * 0.55 + bob, 1.4, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Flashes de cámaras fotográficas de los hinchas durante remates a portería
-      if (currentHighlightData && currentHighlightData.phase === "SHOT") {
-        for (let f = 0; f < 8; f++) {
-          if (Math.random() < 0.45) {
-            const fx = Math.random() * w;
-            const fy = standTopY + Math.random() * (standBotY - standTopY);
-            const fr = 2.0 + Math.random() * 3.2;
-            ctx.fillStyle = "rgba(255, 255, 255, 0.95)";
-            ctx.beginPath();
-            ctx.arc(fx, fy, fr, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      }
-
-      // 3. Focos de Estadio Profesionales (4 Torres de Iluminación Volumétrica)
-      const floodlights = [
-        { x: w * 0.06, y: h * 0.035, angle: 0.3 },
-        { x: w * 0.94, y: h * 0.035, angle: -0.3 }
-      ];
-
-      floodlights.forEach(fl => {
-        // Haz volumétrico cónico suave hacia el centro del campo
-        const beam = ctx.createRadialGradient(fl.x, fl.y, 6, fl.x + fl.angle * w * 0.3, h * 0.6, w * 0.5);
-        beam.addColorStop(0, "rgba(255, 255, 255, 0.45)");
-        beam.addColorStop(0.25, "rgba(224, 242, 254, 0.18)");
-        beam.addColorStop(1, "rgba(224, 242, 254, 0)");
-        ctx.fillStyle = beam;
-        ctx.beginPath();
-        ctx.moveTo(fl.x - 14, fl.y);
-        ctx.lineTo(fl.x - w * 0.38, h * 0.9);
-        ctx.lineTo(fl.x + w * 0.38, h * 0.9);
-        ctx.lineTo(fl.x + 14, fl.y);
-        ctx.closePath();
-        ctx.fill();
-
-        // Estructura y lámparas LED de la torre
-        ctx.fillStyle = "#ffffff";
-        for (let bx = -8; bx <= 8; bx += 4) {
-          for (let by = -4; by <= 4; by += 4) {
-            ctx.beginPath();
-            ctx.arc(fl.x + bx, fl.y + by, 1.4, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-      });
-
-      // 4. Vallas publicitarias LED dinámicas en la banda superior (Estilo FM26 con marquesina animada)
-      const adL = toScreen3D(0, -2.2, 0, w, h);
-      const adR = toScreen3D(100, -2.2, 0, w, h);
-      const adPitchL = toScreen3D(0, 0, 0, w, h);
-      const adPitchR = toScreen3D(100, 0, 0, w, h);
-
-      ctx.beginPath();
-      ctx.moveTo(adL.groundX, adL.groundY - 11);
-      ctx.lineTo(adR.groundX, adR.groundY - 11);
-      ctx.lineTo(adPitchR.groundX, adPitchR.groundY);
-      ctx.lineTo(adPitchL.groundX, adPitchL.groundY);
-      ctx.closePath();
-      ctx.fillStyle = "#050914";
-      ctx.fill();
-
-      // Borde LED luminoso superior
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.9)";
-      ctx.lineWidth = 1.8;
-      ctx.stroke();
-
-      // Marquesina LED animada con marcas oficiales
-      const ledCycle = (nowMs * 0.05) % (w * 1.6);
-      const adMid = toScreen3D(50, -1, 0, w, h);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, adL.groundY - 12, w, 14);
-      ctx.clip();
-
-      ctx.fillStyle = "#38bdf8";
-      ctx.font = `900 ${Math.max(8, Math.round(w * 0.023))}px monospace`;
-      ctx.textAlign = "left";
-      ctx.textBaseline = "middle";
-      const bannerText = "⚽ FOOTBALL MANAGER 26 · LALIGA EA SPORTS · ENTRENATE-TE-TE · EA SPORTS FC · ADIDAS · NIKE · FLY EMIRATES ⚽   ";
-      const repX = (adMid.groundX - w * 0.8) + ledCycle;
-      ctx.fillText(bannerText, repX - w * 1.5, adL.groundY - 4);
-      ctx.fillText(bannerText, repX, adL.groundY - 4);
-      ctx.fillText(bannerText, repX + w * 1.5, adL.groundY - 4);
-      ctx.restore();
-
-      // 5. Perímetro exterior de césped de desahogo / moqueta técnica
-      const pTL = toScreen3D(-6, -4, 0, w, h);
-      const pTR = toScreen3D(106, -4, 0, w, h);
-      const pBR = toScreen3D(106, 105, 0, w, h);
-      const pBL = toScreen3D(-6, 105, 0, w, h);
-
-      ctx.beginPath();
-      ctx.moveTo(pTL.groundX, pTL.groundY);
-      ctx.lineTo(pTR.groundX, pTR.groundY);
-      ctx.lineTo(pBR.groundX, pBR.groundY);
-      ctx.lineTo(pBL.groundX, pBL.groundY);
-      ctx.closePath();
-      ctx.fillStyle = "#114a27";
-      ctx.fill();
-
-      // Banquillos en la banda con siluetas de técnicos y suplentes
-      const benchL = toScreen3D(35, 103, 0, w, h);
-      const benchR = toScreen3D(65, 103, 0, w, h);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.fillRect(benchL.groundX, benchL.groundY - 6, (benchR.groundX - benchL.groundX), 9);
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-      ctx.strokeRect(benchL.groundX, benchL.groundY - 6, (benchR.groundX - benchL.groundX), 9);
-
-      // 6. Franjas segadas de césped cortado profesional FM (Alternancia verde esmeralda y textura idéntica a la foto)
-      const numStripes = 18;
-      for (let i = 0; i < numStripes; i++) {
-        const x1 = (i / numStripes) * 100;
-        const x2 = ((i + 1) / numStripes) * 100;
-        const sTL = toScreen3D(x1, 0, 0, w, h);
-        const sTR = toScreen3D(x2, 0, 0, w, h);
-        const sBR = toScreen3D(x2, 100, 0, w, h);
-        const sBL = toScreen3D(x1, 100, 0, w, h);
-
-        ctx.beginPath();
-        ctx.moveTo(sTL.groundX, sTL.groundY);
-        ctx.lineTo(sTR.groundX, sTR.groundY);
-        ctx.lineTo(sBR.groundX, sBR.groundY);
-        ctx.lineTo(sBL.groundX, sBL.groundY);
-        ctx.closePath();
-
-        // Tonalidad de césped rica y realista de alta fidelidad FM
-        ctx.fillStyle = i % 2 === 0 ? "#216d2f" : "#2a7f39";
-        ctx.fill();
-      }
-
-      // Textura de corte perpendicular fino del césped
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.035)";
-      ctx.lineWidth = 1.0;
-      for (let ly = 10; ly < 100; ly += 12) {
-        const pL = toScreen3D(0, ly, 0, w, h);
-        const pR = toScreen3D(100, ly, 0, w, h);
-        ctx.beginPath();
-        ctx.moveTo(pL.groundX, pL.groundY);
-        ctx.lineTo(pR.groundX, pR.groundY);
-        ctx.stroke();
-      }
-
-      // Sombra proyectada por la visera / cubierta de la grada del estadio (Exacta al pantallazo de Football Manager)
-      ctx.save();
-      const sh1 = toScreen3D(-4, -2, 0, w, h);
-      const sh2 = toScreen3D(42, -2, 0, w, h);
-      const sh3 = toScreen3D(18, 102, 0, w, h);
-      const sh4 = toScreen3D(-4, 102, 0, w, h);
-      ctx.beginPath();
-      ctx.moveTo(sh1.groundX, sh1.groundY);
-      ctx.lineTo(sh2.groundX, sh2.groundY);
-      ctx.lineTo(sh3.groundX, sh3.groundY);
-      ctx.lineTo(sh4.groundX, sh4.groundY);
-      ctx.closePath();
-      ctx.fillStyle = "rgba(0, 22, 6, 0.28)";
-      ctx.fill();
-      ctx.restore();
-
-      // Brillo e iluminación cenital en el centro del terreno
-      const pitchCenter = toScreen3D(50, 50, 0, w, h);
-      const pitchSheen = ctx.createRadialGradient(
-        pitchCenter.groundX, pitchCenter.groundY, 8,
-        pitchCenter.groundX, pitchCenter.groundY, w * 0.48
-      );
-      pitchSheen.addColorStop(0, "rgba(255, 255, 255, 0.08)");
-      pitchSheen.addColorStop(0.6, "rgba(255, 255, 255, 0.02)");
-      pitchSheen.addColorStop(1, "rgba(0, 0, 0, 0.10)");
-      ctx.fillStyle = pitchSheen;
-      ctx.beginPath();
-      const pC1 = toScreen3D(0, 0, 0, w, h);
-      const pC2 = toScreen3D(100, 0, 0, w, h);
-      const pC3 = toScreen3D(100, 100, 0, w, h);
-      const pC4 = toScreen3D(0, 100, 0, w, h);
-      ctx.moveTo(pC1.groundX, pC1.groundY);
-      ctx.lineTo(pC2.groundX, pC2.groundY);
-      ctx.lineTo(pC3.groundX, pC3.groundY);
-      ctx.lineTo(pC4.groundX, pC4.groundY);
-      ctx.closePath();
-      ctx.fill();
-
-      // 7. Líneas blancas del terreno de juego nítidas con antialiasing
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.92)";
-      ctx.lineWidth = 2.1;
-
-      // Líneas de banda y fondo
-      ctx.beginPath();
-      ctx.moveTo(pC1.groundX, pC1.groundY);
-      ctx.lineTo(pC2.groundX, pC2.groundY);
-      ctx.lineTo(pC3.groundX, pC3.groundY);
-      ctx.lineTo(pC4.groundX, pC4.groundY);
-      ctx.closePath();
-      ctx.stroke();
-
-      // Línea de medio campo
-      const midT = toScreen3D(50, 0, 0, w, h);
-      const midB = toScreen3D(50, 100, 0, w, h);
-      ctx.beginPath();
-      ctx.moveTo(midT.groundX, midT.groundY);
-      ctx.lineTo(midB.groundX, midB.groundY);
-      ctx.stroke();
-
-      // Círculo central 3D elíptico (radio oficial)
-      ctx.beginPath();
-      for (let a = 0; a <= Math.PI * 2 + 0.1; a += 0.12) {
-        const cx = 50 + Math.cos(a) * 8.8;
-        const cy = 50 + Math.sin(a) * 13.5;
-        const pt = toScreen3D(cx, cy, 0, w, h);
-        if (a === 0) ctx.moveTo(pt.groundX, pt.groundY);
-        else ctx.lineTo(pt.groundX, pt.groundY);
-      }
-      ctx.stroke();
-
-      // Punto central
-      const centerDot = toScreen3D(50, 50, 0, w, h);
-      ctx.beginPath();
-      ctx.arc(centerDot.groundX, centerDot.groundY, 3.0, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-
-      // Áreas de Penalti y de Meta (Locales)
-      draw3DBox(ctx, 0, 20.5, 15.8, 79.5, w, h); // Área grande
-      draw3DBox(ctx, 0, 36.5, 5.3, 63.5, w, h);  // Área pequeña
-
-      // Punto de penalti local (11m)
-      const penDotH = toScreen3D(10.5, 50, 0, w, h);
-      ctx.beginPath();
-      ctx.arc(penDotH.groundX, penDotH.groundY, 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-
-      // Arco del área local (D-box)
-      ctx.beginPath();
-      for (let a = -0.68; a <= 0.68; a += 0.12) {
-        const ax = 10.5 + Math.cos(a) * 8.8;
-        const ay = 50 + Math.sin(a) * 13.5;
-        const pt = toScreen3D(ax, ay, 0, w, h);
-        if (a === -0.68) ctx.moveTo(pt.groundX, pt.groundY);
-        else ctx.lineTo(pt.groundX, pt.groundY);
-      }
-      ctx.stroke();
-
-      // Áreas de Penalti y de Meta (Visitantes)
-      draw3DBox(ctx, 84.2, 20.5, 100, 79.5, w, h); // Área grande
-      draw3DBox(ctx, 94.7, 36.5, 100, 63.5, w, h); // Área pequeña
-
-      // Punto de penalti visitante (11m)
-      const penDotA = toScreen3D(89.5, 50, 0, w, h);
-      ctx.beginPath();
-      ctx.arc(penDotA.groundX, penDotA.groundY, 2.4, 0, Math.PI * 2);
-      ctx.fillStyle = "#ffffff";
-      ctx.fill();
-
-      // Arco del área visitante (D-box)
-      ctx.beginPath();
-      for (let a = Math.PI - 0.68; a <= Math.PI + 0.68; a += 0.12) {
-        const ax = 89.5 + Math.cos(a) * 8.8;
-        const ay = 50 + Math.sin(a) * 13.5;
-        const pt = toScreen3D(ax, ay, 0, w, h);
-        if (a === Math.PI - 0.68) ctx.moveTo(pt.groundX, pt.groundY);
-        else ctx.lineTo(pt.groundX, pt.groundY);
-      }
-      ctx.stroke();
-
-      // Arcos de córner en las 4 esquinas
-      const corners = [
-        { x: 0, y: 0, a1: 0, a2: Math.PI / 2 },
-        { x: 100, y: 0, a1: Math.PI / 2, a2: Math.PI },
-        { x: 100, y: 100, a1: Math.PI, a2: (3 * Math.PI) / 2 },
-        { x: 0, y: 100, a1: (3 * Math.PI) / 2, a2: Math.PI * 2 }
-      ];
-
-      corners.forEach(cn => {
-        ctx.beginPath();
-        for (let a = cn.a1; a <= cn.a2 + 0.05; a += 0.2) {
-          const pt = toScreen3D(cn.x + Math.cos(a) * 1.5, cn.y + Math.sin(a) * 2.2, 0, w, h);
-          if (a === cn.a1) ctx.moveTo(pt.groundX, pt.groundY);
-          else ctx.lineTo(pt.groundX, pt.groundY);
-        }
-        ctx.stroke();
-
-        // Banderín de córner 3D (Mástil flexible y tela flameando)
-        const bBase = toScreen3D(cn.x, cn.y, 0, w, h);
-        const bTop = toScreen3D(cn.x, cn.y, 4.6, w, h);
-        ctx.strokeStyle = "#fef08a";
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.moveTo(bBase.groundX, bBase.groundY);
-        ctx.lineTo(bTop.screenX, bTop.screenY);
-        ctx.stroke();
-
-        // Bandera con ondulación de viento
-        const flagWave = Math.sin(nowMs * 0.008 + cn.x) * 1.2;
-        ctx.fillStyle = "#ef4444";
-        ctx.beginPath();
-        ctx.moveTo(bTop.screenX, bTop.screenY);
-        ctx.lineTo(bTop.screenX + (cn.x === 0 ? 5.5 : -5.5), bTop.screenY + 2 + flagWave);
-        ctx.lineTo(bTop.screenX, bTop.screenY + 4.5);
-        ctx.closePath();
-        ctx.fill();
-      });
-
-      // Porterías 3D oficiales con deformación física de red
-      draw3DGoal(ctx, 0, 44.5, 55.5, -1, w, h);
-      draw3DGoal(ctx, 100, 44.5, 55.5, 1, w, h);
-    }
-
-    // Dibujo de fichas circulares 2D estilo clásico Football Manager (🔴 con los colores de la equipación del equipo)
-    // Se usa durante la simulación normal del partido (fuera de las jugadas clave)
-    function drawRealisticPlayer3D(ctx, item) {
-      const { groundX, groundY, scale, side, isKeeper, number, isCarrier, playerId } = item;
-      const kit = side === "home" ? kits.home : kits.away;
-      const primaryColor = isKeeper ? (kit.keeper || "#10b981") : (kit.jersey || "#ef4444");
-      const secondaryColor = isKeeper ? "#ffffff" : (kit.collar || kit.shorts || "#ffffff");
-      const numberColor = isKeeper ? "#0f172a" : (kit.number || "#ffffff");
-
-      const sc = scale;
-      const nowMs = performance.now();
-      const radius = 7.4 * sc;
-      const centerY = groundY - 2.5 * sc;
-
-      ctx.save();
-
-      // 1. Sombra suave bajo la ficha 2D en el césped
-      ctx.fillStyle = "rgba(0, 20, 6, 0.42)";
-      ctx.beginPath();
-      ctx.ellipse(groundX, groundY + 1.2 * sc, radius * 0.95, radius * 0.48, 0, 0, Math.PI * 2);
-      ctx.fill();
-
-      // 2. Halo luminoso si el jugador lleva el balón
-      if (isCarrier) {
-        const pulse = Math.sin(nowMs * 0.01) * 1.5 * sc;
-        ctx.strokeStyle = "#fbbf24";
-        ctx.lineWidth = 2.0 * sc;
-        ctx.beginPath();
-        ctx.arc(groundX, centerY, radius + 3.0 * sc + pulse, 0, Math.PI * 2);
-        ctx.stroke();
-        ctx.fillStyle = "rgba(251, 191, 36, 0.22)";
-        ctx.fill();
-      }
-
-      // 3. Si es protagonista en repetición, aro indicador
-      const isShooter = currentHighlightData && currentHighlightData.shooter?.id === playerId;
-      const isPasser = currentHighlightData && currentHighlightData.passer?.id === playerId;
-      if (isShooter || isPasser) {
-        ctx.strokeStyle = isShooter ? "#10b981" : "#38bdf8";
-        ctx.lineWidth = 1.8 * sc;
-        ctx.beginPath();
-        ctx.arc(groundX, centerY, radius + 2.4 * sc, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      // 4. Contorno exterior oscuro de contraste sobre el césped
-      ctx.beginPath();
-      ctx.arc(groundX, centerY, radius + 1.0 * sc, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(15, 23, 42, 0.85)";
-      ctx.fill();
-
-      // 5. Círculo principal con el color de la equipación del equipo
-      ctx.beginPath();
-      ctx.arc(groundX, centerY, radius, 0, Math.PI * 2);
-      ctx.fillStyle = primaryColor;
-      ctx.fill();
-
-      // Brillo esférico sutil tipo ficha 🔴
-      const shineGrad = ctx.createRadialGradient(
-        groundX - radius * 0.3,
-        centerY - radius * 0.3,
-        radius * 0.08,
-        groundX,
-        centerY,
-        radius
-      );
-      shineGrad.addColorStop(0, "rgba(255, 255, 255, 0.35)");
-      shineGrad.addColorStop(0.55, "rgba(255, 255, 255, 0.0)");
-      shineGrad.addColorStop(1, "rgba(0, 0, 0, 0.28)");
-      ctx.fillStyle = shineGrad;
-      ctx.fill();
-
-      // 6. Anillo interior con el color secundario de la equipación
-      ctx.strokeStyle = secondaryColor;
-      ctx.lineWidth = Math.max(1.2, 1.8 * sc);
-      ctx.stroke();
-
-      // 7. Dorsal del jugador centrado en la ficha
-      ctx.font = `900 ${Math.max(7, Math.round(7.2 * sc))}px sans-serif`;
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.75)";
-      ctx.lineWidth = Math.max(1.5, 2.0 * sc);
-      ctx.strokeText(`${number}`, groundX, centerY + 0.4 * sc);
-      ctx.fillStyle = numberColor;
-      ctx.fillText(`${number}`, groundX, centerY + 0.4 * sc);
-
-      ctx.restore();
-    }
-
-    function drawMonigote3D(ctx, item) {
-      drawRealisticPlayer3D(ctx, item);
-    }
-
-    // Dibujo del balón 3D con luz solar directional, paneles oficiales y estela de velocidad
-    function drawBall3D(ctx, item) {
-      const { groundX, groundY, screenX, screenY, scale, z } = item;
-
-      // 1. Sombra direccional en el césped por la luz solar (Consistente con los futbolistas y el estadio)
-      const shadowDist = (2.2 + (z || 0) * 0.45) * scale;
-      const shadowR = (4.0 + (z || 0) * 0.15) * scale;
-      const shadowAlpha = Math.max(0.12, 0.44 - (z || 0) * 0.035);
-
-      ctx.save();
-      ctx.fillStyle = `rgba(0, 25, 8, ${shadowAlpha})`;
-      ctx.beginPath();
-      ctx.ellipse(groundX - shadowDist * 0.85, groundY + shadowDist * 0.45, shadowR, shadowR * 0.52, -0.38, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      // 2. Estela cinemática de velocidad en disparos
-      if (ballTrail.length > 1) {
-        for (let t = 0; t < ballTrail.length - 1; t++) {
-          const tPt = toScreen3D(ballTrail[t].x, ballTrail[t].y, ballTrail[t].z || 0, canvas.width, canvas.height);
-          const tAlpha = (t / ballTrail.length) * 0.38;
-          ctx.beginPath();
-          ctx.arc(tPt.screenX, tPt.screenY, (3.0 * scale) * (0.35 + (t / ballTrail.length) * 0.65), 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(255, 255, 255, ${tAlpha})`;
-          ctx.fill();
-        }
-      }
-
-      // 3. Esfera del balón 3D con luz radial de focos y sol
-      const ballR = 4.4 * scale;
-      ctx.beginPath();
-      ctx.arc(screenX, screenY, ballR, 0, Math.PI * 2);
-
-      const grad = ctx.createRadialGradient(
-        screenX - ballR * 0.35, screenY - ballR * 0.35, ballR * 0.08,
-        screenX, screenY, ballR
-      );
-      grad.addColorStop(0, "#ffffff");
-      grad.addColorStop(0.7, "#f1f5f9");
-      grad.addColorStop(1, "#334155");
-      ctx.fillStyle = grad;
-      ctx.fill();
-
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.6)";
-      ctx.lineWidth = 1.0;
-      ctx.stroke();
-
-      // 4. Paneles pentagonales del balón oficial rotando
-      ctx.save();
-      ctx.translate(screenX, screenY);
-      ctx.rotate(ballRotation);
-
-      ctx.fillStyle = "#0f172a";
-      ctx.beginPath();
-      for (let p = 0; p < 5; p++) {
-        const pa = (p * Math.PI * 2) / 5;
-        const px = Math.cos(pa) * (ballR * 0.44);
-        const py = Math.sin(pa) * (ballR * 0.44);
-        if (p === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      }
-      ctx.closePath();
-      ctx.fill();
-
-      // Detalles aerodinámicos de color LaLiga
-      ctx.strokeStyle = "#f97316";
-      ctx.lineWidth = 1.2 * scale;
-      ctx.beginPath();
-      ctx.arc(0, 0, ballR * 0.74, 0.2, 1.4);
-      ctx.stroke();
-
-      ctx.restore();
-    }
-
     // ==========================================
     // ESTADO DE JUGADAS CLAVE Y REPETICIONES
     // ==========================================
@@ -3538,7 +2792,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       }
 
       if (phaseData.tacticalNote) {
-        updateFMCommentary(phaseData.tacticalNote, phaseData.phase === "BUILDUP" ? "CONSTRUCCIÓN" : phaseData.phase === "PASS" ? "ASISTENCIA" : "REMATE", true);
+        const badgeLabel = phaseData.phaseLabel || (phaseData.phase === "BUILDUP" ? "CONSTRUCCIÓN" : phaseData.phase === "PASS" ? "ASISTENCIA" : "EN VIVO");
+        updateFMCommentary(phaseData.tacticalNote, badgeLabel, true);
       }
     }
 
@@ -3873,2132 +3128,6 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       subChyronTimeout = setTimeout(closeChyron, 3200);
     }
 
-    // Bucle principal de renderizado 3D a 60 FPS estilo Football Manager 26
-    let lastBallX = 50;
-    let lastBallY = 50;
-
-    // ==========================================
-    // CÁMARA CINEMÁTICA 3D BROADCAST (ESTILO EA SPORTS FC / PREMIER LEAGUE TV)
-    // Con seguimiento dinámico de cámara y Modelado 3D Volumétrico de Futbolistas
-    // ==========================================
-    function shadeHexColor(hex, percent) {
-      if (!hex || typeof hex !== "string" || !hex.startsWith("#")) return hex || "#334155";
-      let c = hex.substring(1);
-      if (c.length === 3) c = c[0] + c[0] + c[1] + c[1] + c[2] + c[2];
-      const num = parseInt(c, 16);
-      if (isNaN(num)) return hex;
-      const r = Math.min(255, Math.max(0, ((num >> 16) & 0xff) + Math.round(2.55 * percent)));
-      const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + Math.round(2.55 * percent)));
-      const b = Math.min(255, Math.max(0, (num & 0xff) + Math.round(2.55 * percent)));
-      return `rgb(${r},${g},${b})`;
-    }
-
-    function draw3DCapsuleLimb(ctx, x1, y1, r1, x2, y2, r2, baseCol, darkCol, lightCol) {
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      const len = Math.hypot(dx, dy);
-      if (len < 0.05) {
-        ctx.fillStyle = baseCol;
-        ctx.beginPath();
-        ctx.arc(x1, y1, r1, 0, Math.PI * 2);
-        ctx.fill();
-        return;
-      }
-      const nx = -dy / len;
-      const ny = dx / len;
-      const maxR = Math.max(r1, r2, 0.8);
-      const midX = (x1 + x2) * 0.5;
-      const midY = (y1 + y2) * 0.5;
-
-      const grad = ctx.createLinearGradient(
-        midX - nx * maxR,
-        midY - ny * maxR,
-        midX + nx * maxR,
-        midY + ny * maxR
-      );
-      grad.addColorStop(0, lightCol || baseCol);
-      grad.addColorStop(0.42, baseCol);
-      grad.addColorStop(1, darkCol || baseCol);
-
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.moveTo(x1 + nx * r1, y1 + ny * r1);
-      ctx.lineTo(x2 + nx * r2, y2 + ny * r2);
-      ctx.arc(x2, y2, r2, Math.atan2(ny, nx), Math.atan2(-ny, -nx), false);
-      ctx.lineTo(x1 - nx * r1, y1 - ny * r1);
-      ctx.arc(x1, y1, r1, Math.atan2(-ny, -nx), Math.atan2(ny, nx), false);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    function projectEA3D(u, v, z, w, h, camU = 0, camV = 34) {
-      // u: metros desde la línea de fondo hacia el centro del campo (0 = línea de gol, 16.5 = borde área grande, 36 = medular)
-      // v: metros a través del ancho del campo (0 = banda lejana sup-dcha, 34 = centro portería, 68 = banda cercana inf-izq)
-      // z: altura en metros sobre el césped (2.44 = larguero)
-      const relU = u - camU * 0.62;
-      const relV = v - (camV - 34) * 0.35;
-      const uNorm = relU / 32;
-      const vNorm = relV / 55;
-      // Factor de expansión por cercanía a cámara
-      const persp = 1 + uNorm * 0.22 + vNorm * 0.18;
-
-      const baseX = 0.675 * w;
-      const baseY = 0.082 * h;
-
-      // Vector a lo largo de la línea de gol (+v: baja hacia la izquierda)
-      const vx = -0.0162 * w * (1 + uNorm * 0.14);
-      const vy = 0.00565 * h * (1 + uNorm * 0.12);
-
-      // Vector hacia el interior del campo (+u: baja hacia la derecha)
-      const ux = 0.0172 * w * (1 + vNorm * 0.06);
-      const uy = 0.0156 * h * (1 + vNorm * 0.15);
-
-      const groundX = baseX + relV * vx + relU * ux;
-      const groundY = baseY + relV * vy + relU * uy;
-
-      const scale = Math.max(0.50, Math.min(1.68, 0.72 * persp));
-      const screenY = groundY - z * (0.044 * h) * scale;
-
-      return {
-        x: groundX,
-        y: screenY,
-        groundY: groundY,
-        sc: scale * Math.min(w / 480, h / 290)
-      };
-    }
-
-    function drawFrontalBall(ctx, x, y, zPx, r, sc, spinPhase = 0) {
-      // Sombra proyectada sobre el césped con oclusión realista
-      ctx.save();
-      const shadowAlpha = Math.max(0.12, 0.52 - (zPx / (42 * sc)) * 0.34);
-      const shSpread = 1 + Math.min(0.6, zPx / (55 * sc));
-      ctx.fillStyle = `rgba(5, 18, 6, ${shadowAlpha})`;
-      ctx.beginPath();
-      ctx.ellipse(x + 1.4 * sc, y + 0.9 * sc, r * 1.32 * shSpread, r * 0.58 * shSpread, -0.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-
-      const bY = y - zPx;
-      const bR = Math.max(3.0, r * 0.96);
-
-      // Esfera 3D volumétrica con iluminación especular estilo balón oficial Premier/LaLiga
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(x, bY, bR, 0, Math.PI * 2);
-      const bGrad = ctx.createRadialGradient(x - bR * 0.35, bY - bR * 0.38, bR * 0.06, x + bR * 0.1, bY + bR * 0.1, bR);
-      bGrad.addColorStop(0, "#ffffff");
-      bGrad.addColorStop(0.58, "#f8fafc");
-      bGrad.addColorStop(0.84, "#cbd5e1");
-      bGrad.addColorStop(1, "#334155");
-      ctx.fillStyle = bGrad;
-      ctx.fill();
-      ctx.strokeStyle = "rgba(15, 23, 42, 0.55)";
-      ctx.lineWidth = Math.max(0.65, 0.78 * sc);
-      ctx.stroke();
-
-      // Gráficos rotatorios 3D del balón oficial (anillos magenta/púrpura/azul)
-      ctx.clip();
-      const offX = Math.cos(spinPhase) * bR * 0.28;
-      const offY = Math.sin(spinPhase) * bR * 0.22;
-      ctx.strokeStyle = "#be185d";
-      ctx.lineWidth = Math.max(0.85, 1.05 * sc);
-      ctx.beginPath();
-      ctx.arc(x + offX, bY + offY, bR * 0.56, 0.15, Math.PI * 1.4);
-      ctx.stroke();
-
-      ctx.strokeStyle = "#3b0764";
-      ctx.lineWidth = Math.max(0.75, 0.9 * sc);
-      ctx.beginPath();
-      ctx.arc(x - offX * 0.8, bY - offY * 0.8, bR * 0.48, Math.PI * 0.8, Math.PI * 2.05);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // ==========================================
-    // MOTOR DE MODELADO 3D VOLUMÉTRICO DE FUTBOLISTAS (ESTILO IMAGEN DE REFERENCIA)
-    // Anatomía articulada 3D en 360°, sombreado cilíndrico de extremidades, pliegues de equipación y biomecánica real
-    // ==========================================
-    function drawFrontalAthlete(ctx, ent) {
-      const { x, y, sc, kit, number, isKeeper, isReferee, isLinesman, pose, facing, yaw: rawYaw, name, elapsed, stridePhase } = ent;
-      const jerseyColor = isReferee ? "#1e293b" : (isLinesman ? "#0f172a" : (isKeeper ? (kit.keeper || "#84cc16") : (kit.jersey || "#2563eb")));
-      const jerseyLight = shadeHexColor(jerseyColor, 16);
-      const jerseyDark = shadeHexColor(jerseyColor, -24);
-
-      const shortsColor = isReferee || isLinesman ? "#090d16" : (isKeeper ? (kit.keeper || "#84cc16") : (kit.shorts || "#ffffff"));
-      const shortsLight = shadeHexColor(shortsColor, 12);
-      const shortsDark = shadeHexColor(shortsColor, -22);
-
-      const socksColor = isReferee || isLinesman ? "#090d16" : (isKeeper ? "#bef264" : (kit.socks || "#ffffff"));
-      const socksLight = shadeHexColor(socksColor, 10);
-      const socksDark = shadeHexColor(socksColor, -20);
-
-      const bootPalettes = [
-        { main: "#f97316", sole: "#7c2d12", highlight: "#fdba74" },
-        { main: "#f8fafc", sole: "#334155", highlight: "#ffffff" },
-        { main: "#111827", sole: "#030712", highlight: "#374151" },
-        { main: "#ef4444", sole: "#7f1d1d", highlight: "#fca5a5" },
-        { main: "#eab308", sole: "#713f12", highlight: "#fef08a" }
-      ];
-      const bootInfo = (isReferee || isLinesman)
-        ? bootPalettes[2]
-        : bootPalettes[(number || 1) % bootPalettes.length];
-
-      const skinPalettes = [
-        { base: "#f3c6a0", dark: "#c9936b", light: "#fde2c8" },
-        { base: "#e29d6c", dark: "#b36f42", light: "#f5be96" },
-        { base: "#8d5524", dark: "#5c3310", light: "#b0723c" },
-        { base: "#f0b484", dark: "#c28254", light: "#fbd3b3" },
-        { base: "#c68642", dark: "#8f5922", light: "#e0a360" },
-        { base: "#5c3818", dark: "#381f09", light: "#7d5027" }
-      ];
-      const hairColors = ["#1c1917", "#3f2305", "#78350f", "#090d16", "#a16207", "#d97706", "#27272a"];
-      const pHash = ((number || 1) * 37 + (name ? name.charCodeAt(0) * 13 : 7)) % 100;
-      const skin = skinPalettes[pHash % skinPalettes.length];
-      const hairColor = hairColors[pHash % hairColors.length];
-      const hairHighlight = shadeHexColor(hairColor, 18);
-      const hairStyle = pHash % 5; // 0: fade crop, 1: curly, 2: wavy, 3: side part, 4: undercut
-
-      ctx.save();
-      ctx.translate(x, y);
-
-      // Sombra de oclusión ambiental + sombras de contacto de los tacos sobre el césped
-      const zPx = ent.zPx || 0;
-      const shScale = Math.max(0.50, 1 - zPx / (48 * sc));
-      const aoGrad = ctx.createRadialGradient(-0.8 * sc, 0.4 * sc, 0.5 * sc, -0.8 * sc, 0.4 * sc, 8.2 * sc * shScale);
-      aoGrad.addColorStop(0, `rgba(4, 16, 4, ${0.48 * shScale})`);
-      aoGrad.addColorStop(0.55, `rgba(6, 22, 6, ${0.26 * shScale})`);
-      aoGrad.addColorStop(1, "rgba(6, 22, 6, 0)");
-      ctx.fillStyle = aoGrad;
-      ctx.beginPath();
-      ctx.ellipse(-0.8 * sc, 0.4 * sc, 8.2 * sc * shScale, 3.4 * sc * shScale, -0.18, 0, Math.PI * 2);
-      ctx.fill();
-
-      if (zPx > 0) {
-        ctx.translate(0, -zPx);
-      }
-
-      // 1. PORTERO EN ESTIRADA AÉREA 3D (DIVE)
-      if (pose === "DIVE_RIGHT" || pose === "DIVE_LEFT") {
-        const dir = pose === "DIVE_RIGHT" ? 1 : -1;
-        ctx.save();
-        ctx.translate(0, -10.5 * sc);
-        ctx.rotate(dir * 0.64);
-
-        // Pierna atrasada y adelantada con volumen 3D
-        draw3DCapsuleLimb(ctx, -dir * 5.5 * sc, 0.5 * sc, 2.0 * sc, -dir * 13.5 * sc, 3.2 * sc, 1.45 * sc, skin.base, skin.dark, skin.light);
-        draw3DCapsuleLimb(ctx, -dir * 13.5 * sc, 3.2 * sc, 1.5 * sc, -dir * 21.5 * sc, 5.2 * sc, 1.1 * sc, socksColor, socksDark, socksLight);
-        draw3DCapsuleLimb(ctx, -dir * 4.5 * sc, -1.8 * sc, 1.9 * sc, -dir * 12.0 * sc, -0.4 * sc, 1.4 * sc, skin.base, skin.dark, skin.light);
-        draw3DCapsuleLimb(ctx, -dir * 12.0 * sc, -0.4 * sc, 1.45 * sc, -dir * 19.5 * sc, 1.0 * sc, 1.05 * sc, socksColor, socksDark, socksLight);
-
-        // Botas
-        ctx.fillStyle = bootInfo.main;
-        ctx.beginPath();
-        ctx.ellipse(-dir * 22.2 * sc, 5.6 * sc, 2.4 * sc, 1.15 * sc, 0.2 * dir, 0, Math.PI * 2);
-        ctx.ellipse(-dir * 20.2 * sc, 1.4 * sc, 2.4 * sc, 1.15 * sc, 0.2 * dir, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Pantalón 3D y Torso
-        draw3DCapsuleLimb(ctx, -dir * 6.5 * sc, -0.5 * sc, 3.2 * sc, -dir * 1.0 * sc, -0.5 * sc, 3.4 * sc, shortsColor, shortsDark, shortsLight);
-        draw3DCapsuleLimb(ctx, -dir * 1.5 * sc, -0.5 * sc, 3.6 * sc, dir * 8.2 * sc, -0.8 * sc, 4.2 * sc, jerseyColor, jerseyDark, jerseyLight);
-
-        // Brazos estirados hacia la escuadra/palo
-        draw3DCapsuleLimb(ctx, dir * 7.2 * sc, -2.5 * sc, 1.65 * sc, dir * 19.5 * sc, -4.2 * sc, 1.25 * sc, jerseyColor, jerseyDark, jerseyLight);
-        draw3DCapsuleLimb(ctx, dir * 7.2 * sc, 1.5 * sc, 1.65 * sc, dir * 18.0 * sc, -0.2 * sc, 1.25 * sc, jerseyColor, jerseyDark, jerseyLight);
-
-        // Guantes profesionales de portero
-        ctx.fillStyle = "#d9f99d";
-        ctx.beginPath();
-        ctx.ellipse(dir * 20.8 * sc, -4.3 * sc, 2.6 * sc, 1.8 * sc, -0.15 * dir, 0, Math.PI * 2);
-        ctx.ellipse(dir * 19.2 * sc, -0.2 * sc, 2.5 * sc, 1.7 * sc, -0.1 * dir, 0, Math.PI * 2);
-        ctx.fill();
-
-        // Cabeza 3D
-        ctx.fillStyle = skin.base;
-        ctx.beginPath();
-        ctx.ellipse(dir * 10.6 * sc, -3.2 * sc, 3.2 * sc, 2.8 * sc, -0.1 * dir, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = hairColor;
-        ctx.beginPath();
-        ctx.arc(dir * 10.6 * sc, -4.0 * sc, 3.0 * sc, Math.PI, 0);
-        ctx.fill();
-
-        ctx.restore();
-        ctx.restore();
-        return;
-      }
-
-      // 2. PORTERO EN EL SUELO TRAS ESTIRADA
-      if (pose === "GROUND_RIGHT" || pose === "GROUND_LEFT" || pose === "CONCEDED") {
-        const dir = pose === "GROUND_LEFT" ? -1 : 1;
-        draw3DCapsuleLimb(ctx, -dir * 12 * sc, -2.0 * sc, 1.4 * sc, -dir * 5 * sc, -2.5 * sc, 2.4 * sc, socksColor, socksDark, socksLight);
-        draw3DCapsuleLimb(ctx, -dir * 6 * sc, -2.6 * sc, 3.0 * sc, -dir * 1 * sc, -2.8 * sc, 3.2 * sc, shortsColor, shortsDark, shortsLight);
-        draw3DCapsuleLimb(ctx, -dir * 1 * sc, -2.8 * sc, 3.3 * sc, dir * 7.5 * sc, -3.2 * sc, 3.6 * sc, jerseyColor, jerseyDark, jerseyLight);
-        ctx.fillStyle = skin.base;
-        ctx.beginPath();
-        ctx.arc(dir * 9.8 * sc, -4.8 * sc, 3.0 * sc, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = hairColor;
-        ctx.beginPath();
-        ctx.arc(dir * 9.8 * sc, -5.5 * sc, 2.9 * sc, Math.PI, 0);
-        ctx.fill();
-        ctx.restore();
-        return;
-      }
-
-      // 3. CENTRAL EN SEGADA DEFENSIVA 3D (SLIDE_BLOCK)
-      if (pose === "SLIDE_BLOCK") {
-        draw3DCapsuleLimb(ctx, -3 * sc, -3.5 * sc, 2.0 * sc, 6 * sc, -2.2 * sc, 1.55 * sc, skin.base, skin.dark, skin.light);
-        draw3DCapsuleLimb(ctx, 5.5 * sc, -2.2 * sc, 1.55 * sc, 14.5 * sc, -1.4 * sc, 1.15 * sc, socksColor, socksDark, socksLight);
-        ctx.fillStyle = bootInfo.main;
-        ctx.beginPath();
-        ctx.ellipse(15.2 * sc, -2.0 * sc, 2.6 * sc, 1.25 * sc, -0.3, 0, Math.PI * 2);
-        ctx.fill();
-
-        draw3DCapsuleLimb(ctx, -6.5 * sc, -4.5 * sc, 3.2 * sc, -1.5 * sc, -3.5 * sc, 2.8 * sc, shortsColor, shortsDark, shortsLight);
-        draw3DCapsuleLimb(ctx, -10.5 * sc, -11.5 * sc, 3.6 * sc, -5.5 * sc, -5.2 * sc, 3.3 * sc, jerseyColor, jerseyDark, jerseyLight);
-
-        ctx.fillStyle = skin.base;
-        ctx.beginPath();
-        ctx.arc(-11.2 * sc, -15.0 * sc, 3.0 * sc, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = hairColor;
-        ctx.beginPath();
-        ctx.arc(-11.2 * sc, -15.8 * sc, 2.9 * sc, Math.PI, 0);
-        ctx.fill();
-        ctx.restore();
-        return;
-      }
-
-      // 4. ANATOMÍA 3D ARTICULADA EN 360° (ESTILO IMAGEN DE REFERENCIA)
-      // Orientación continua en 360 grados (yaw en radianes en pantalla)
-      let yaw = rawYaw;
-      if (typeof yaw !== "number" || isNaN(yaw)) {
-        if (facing === "BACK_LEFT") yaw = -2.38; // Mirando arriba-izquierda hacia portería (vemos dorsal y perfil izq)
-        else if (facing === "FRONT_LEFT") yaw = 2.38;
-        else if (facing === "BACK_RIGHT") yaw = -0.76;
-        else yaw = 0.72; // Mirando abajo-derecha hacia el campo (vemos pecho y rostro 3/4)
-      }
-
-      const dirX = Math.cos(yaw); // Componente horizontal hacia donde mira el jugador
-      const dirY = Math.sin(yaw); // < 0: de espaldas mirando arriba; > 0: de frente mirando abajo
-      const isBackView = dirY < 0.18;
-
-      // Vector lateral de hombro izquierdo a hombro derecho en proyección 3D isométrica
-      // Cuando el jugador está de espaldas o de frente, el ancho de hombros es máximo; de perfil se acorta con perspectiva 3D
-      const sideX = -dirY;
-      const sideY = dirX * 0.26;
-      const profileFactor = Math.abs(dirX); // 1 = perfil puro lateral, 0 = frente/espalda puro
-      const frontalFactor = Math.abs(dirY);
-
-      const phase = (stridePhase !== undefined ? stridePhase : ((elapsed || 0) * 9.8 + (number || 1) * 1.9));
-      const isMoving = pose === "DRIBBLE" || pose === "RUNNING_UP" || pose === "SPRINT";
-      const isSprint = pose === "SPRINT";
-      const strideAmp = isMoving ? (isSprint ? 5.6 : 4.5) * sc : 0;
-      const sSin = isMoving ? Math.sin(phase) : 0;
-      const sCos = isMoving ? Math.cos(phase) : 0;
-      const bodyBob = isMoving ? Math.abs(sCos) * 1.15 * sc : 0;
-
-      // Alturas anatómicas esbeltas (~7.5 cabezas de proporción realista como en la imagen)
-      const crouchOffset = (pose === "JOCKEY" || pose === "GK_READY" || pose === "CONTROL") ? 1.8 * sc : 0;
-      const hipY = -12.6 * sc - bodyBob + crouchOffset;
-      const waistY = -15.4 * sc - bodyBob + crouchOffset * 0.8;
-      const shoulderY = -23.6 * sc - bodyBob + crouchOffset * 0.6;
-      const neckTopY = -25.4 * sc - bodyBob + crouchOffset * 0.5;
-      const headY = -27.8 * sc - bodyBob + crouchOffset * 0.5;
-      const headR = 2.85 * sc;
-
-      // Inclinación dinámica del torso según la acción (lean hacia la dirección de carrera o equilibrio de golpeo)
-      let leanX = isMoving ? dirX * (isSprint ? 2.1 : 1.35) * sc : 0;
-      let leanY = isMoving ? dirY * 0.55 * sc : 0;
-
-      // Separación de caderas en 3D
-      const hipHalfSpan = 2.15 * sc;
-      const lHipX = -sideX * hipHalfSpan + (sideX === 0 ? -1.1 * sc : 0);
-      const lHipY = hipY - sideY * hipHalfSpan;
-      const rHipX = sideX * hipHalfSpan + (sideX === 0 ? 1.1 * sc : 0);
-      const rHipY = hipY + sideY * hipHalfSpan;
-
-      // Cinemática 3D de rodillas y tobillos
-      let lKneeX, lKneeY, rKneeX, rKneeY;
-      let lAnkleX, lAnkleY, rAnkleX, rAnkleY;
-      let lToeX, lToeY, rToeX, rToeY;
-
-      if (pose === "WINDUP_SHOT") {
-        // Pose exacta al jugador #20 azul de la imagen adjunta:
-        // Pierna izquierda de apoyo plantada firme junto al balón, pierna derecha armada atrás con rodilla flexionada
-        lKneeX = lHipX + dirX * 1.4 * sc - 1.2 * sc;
-        lKneeY = -6.4 * sc;
-        lAnkleX = lKneeX - 0.8 * sc;
-        lAnkleY = -0.6 * sc;
-
-        rKneeX = rHipX - dirX * 2.2 * sc + 1.8 * sc;
-        rKneeY = -7.2 * sc;
-        rAnkleX = rKneeX - dirX * 4.2 * sc + 2.8 * sc;
-        rAnkleY = -5.4 * sc;
-        leanX = dirX * 1.6 * sc - 1.2 * sc;
-      } else if (pose === "SHOT_FOLLOW_THROUGH" || pose === "PASS_DELIVERY") {
-        // Pierna izquierda plantada y pierna derecha lanzada adelante tras impactar el balón
-        lKneeX = lHipX - dirX * 0.8 * sc + 1.0 * sc;
-        lKneeY = -6.2 * sc;
-        lAnkleX = lKneeX + 0.8 * sc;
-        lAnkleY = -0.4 * sc;
-
-        rKneeX = rHipX + dirX * 3.4 * sc - 1.5 * sc;
-        rKneeY = -7.6 * sc;
-        rAnkleX = rKneeX + dirX * 3.6 * sc - 2.2 * sc;
-        rAnkleY = -4.6 * sc;
-        leanX = -dirX * 1.1 * sc;
-      } else if (pose === "HEADER_JUMP") {
-        // Salto de cabeza / remate aéreo con rodillas flexionadas hacia atrás en el aire
-        lKneeX = lHipX + dirX * 1.0 * sc;
-        lKneeY = -6.8 * sc;
-        lAnkleX = lKneeX - dirX * 3.2 * sc;
-        lAnkleY = -3.8 * sc;
-
-        rKneeX = rHipX + dirX * 1.8 * sc;
-        rKneeY = -7.4 * sc;
-        rAnkleX = rKneeX - dirX * 3.6 * sc;
-        rAnkleY = -4.5 * sc;
-        leanX = dirX * 2.2 * sc;
-      } else if (pose === "GK_READY" || pose === "JOCKEY") {
-        // Postura atlética defensiva o de portero: piernas abiertas y rodillas flexionadas
-        const spread = (pose === "GK_READY" ? 4.4 : 3.4) * sc;
-        lKneeX = -spread * 0.82;
-        lKneeY = -6.2 * sc;
-        lAnkleX = -spread;
-        lAnkleY = -0.6 * sc;
-
-        rKneeX = spread * 0.82;
-        rKneeY = -6.2 * sc;
-        rAnkleX = spread;
-        rAnkleY = -0.6 * sc;
-      } else if (isMoving) {
-        // Ciclo biomecánico de carrera en 3D:
-        // Cuando la pierna avanza (swing > 0), la rodilla sube adelante; cuando queda atrás (swing < 0), el talón se recoge hacia el glúteo
-        const lSwing = sSin;
-        const rSwing = -sSin;
-        const lLift = Math.max(0, sCos) * 2.8 * sc;
-        const rLift = Math.max(0, -sCos) * 2.8 * sc;
-        const lHeelKick = Math.max(0, -lSwing) * 2.4 * sc;
-        const rHeelKick = Math.max(0, -rSwing) * 2.4 * sc;
-
-        lKneeX = lHipX + dirX * lSwing * strideAmp * 0.58;
-        lKneeY = -6.6 * sc - lLift * 0.65 + dirY * lSwing * 1.1 * sc;
-        lAnkleX = lKneeX + dirX * (lSwing * strideAmp * 0.52 - lHeelKick * 0.65);
-        lAnkleY = -0.7 * sc - lLift * 0.85 - lHeelKick * 1.15 + dirY * lSwing * 1.5 * sc;
-
-        rKneeX = rHipX + dirX * rSwing * strideAmp * 0.58;
-        rKneeY = -6.6 * sc - rLift * 0.65 + dirY * rSwing * 1.1 * sc;
-        rAnkleX = rKneeX + dirX * (rSwing * strideAmp * 0.52 - rHeelKick * 0.65);
-        rAnkleY = -0.7 * sc - rLift * 0.85 - rHeelKick * 1.15 + dirY * rSwing * 1.5 * sc;
-      } else {
-        // Postura natural de pie / control
-        const standSpread = Math.max(1.6 * sc, Math.abs(sideX) * 2.3 * sc);
-        lKneeX = -standSpread * 0.88 + dirX * 0.4 * sc;
-        lKneeY = -6.5 * sc;
-        lAnkleX = -standSpread;
-        lAnkleY = -0.6 * sc;
-
-        rKneeX = standSpread * 0.88 - dirX * 0.4 * sc;
-        rKneeY = -6.5 * sc;
-        rAnkleX = standSpread;
-        rAnkleY = -0.6 * sc;
-      }
-
-      lToeX = lAnkleX + dirX * 2.3 * sc;
-      lToeY = lAnkleY + dirY * 0.65 * sc + 0.25 * sc;
-      rToeX = rAnkleX + dirX * 2.3 * sc;
-      rToeY = rAnkleY + dirY * 0.65 * sc + 0.25 * sc;
-
-      // Sombras de contacto individuales bajo cada bota cuando están cerca del césped
-      if (zPx < 4 * sc) {
-        ctx.fillStyle = "rgba(3, 14, 4, 0.36)";
-        if (lAnkleY > -2.2 * sc) {
-          ctx.beginPath();
-          ctx.ellipse((lAnkleX + lToeX) * 0.5, 0.2 * sc, 2.3 * sc, 0.85 * sc, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-        if (rAnkleY > -2.2 * sc) {
-          ctx.beginPath();
-          ctx.ellipse((rAnkleX + rToeX) * 0.5, 0.2 * sc, 2.3 * sc, 0.85 * sc, 0, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Función que dibuja una pierna completa 3D (pernera del pantalón + muslo + rodilla + gemelo/media + bota 3D)
-      const drawSingleLeg3D = (hipX, hipYPos, kneeX, kneeYPos, ankleX, ankleYPos, toeX, toeYPos) => {
-        // Punto donde termina el pantalón corto (~58% del camino de cadera a rodilla)
-        const shortEndX = hipX + (kneeX - hipX) * 0.58;
-        const shortEndY = hipYPos + (kneeYPos - hipYPos) * 0.58;
-
-        // 1. Muslo desnudo y articulación de la rodilla con volumen 3D
-        draw3DCapsuleLimb(ctx, shortEndX, shortEndY, 1.72 * sc, kneeX, kneeYPos, 1.38 * sc, skin.base, skin.dark, skin.light);
-
-        // 2. Pantorrilla / Gemelo anatómico (más ancho en la parte alta del gemelo y afinándose hacia el tobillo)
-        const calfBulgeX = kneeX + (ankleX - kneeX) * 0.34 - dirX * 0.32 * sc;
-        const calfBulgeY = kneeYPos + (ankleYPos - kneeYPos) * 0.34;
-        draw3DCapsuleLimb(ctx, kneeX, kneeYPos + 0.35 * sc, 1.42 * sc, calfBulgeX, calfBulgeY, 1.56 * sc, socksColor, socksDark, socksLight);
-        draw3DCapsuleLimb(ctx, calfBulgeX, calfBulgeY, 1.54 * sc, ankleX, ankleYPos, 1.02 * sc, socksColor, socksDark, socksLight);
-
-        // Vuelta superior de la media (borde de color de la camiseta debajo de la rodilla)
-        ctx.strokeStyle = jerseyColor;
-        ctx.lineWidth = 0.95 * sc;
-        ctx.beginPath();
-        ctx.moveTo(kneeX - 1.2 * sc, kneeYPos + 0.85 * sc);
-        ctx.lineTo(kneeX + 1.2 * sc, kneeYPos + 0.85 * sc);
-        ctx.stroke();
-
-        // 3. Bota 3D esculpida (talón, empeine, puntera y suela)
-        draw3DCapsuleLimb(ctx, ankleX - dirX * 0.45 * sc, ankleYPos + 0.2 * sc, 1.12 * sc, toeX, toeYPos, 0.92 * sc, bootInfo.main, bootInfo.sole, bootInfo.highlight);
-        ctx.strokeStyle = bootInfo.sole;
-        ctx.lineWidth = 0.65 * sc;
-        ctx.beginPath();
-        ctx.moveTo(ankleX - dirX * 0.9 * sc, ankleYPos + 0.95 * sc);
-        ctx.lineTo(toeX + dirX * 0.4 * sc, toeYPos + 0.75 * sc);
-        ctx.stroke();
-
-        // 4. Cilindro 3D de la pernera del pantalón corto (gira solidario con el muslo)
-        draw3DCapsuleLimb(ctx, hipX, hipYPos, 2.35 * sc, shortEndX, shortEndY, 2.05 * sc, shortsColor, shortsDark, shortsLight);
-      };
-
-      // Ordenar las dos piernas por profundidad Y para que la pierna adelantada en pantalla tape a la atrasada
-      const leftDepth = lHipY + lAnkleY * 0.35;
-      const rightDepth = rHipY + rAnkleY * 0.35;
-      if (leftDepth < rightDepth) {
-        drawSingleLeg3D(lHipX, lHipY, lKneeX, lKneeY, lAnkleX, lAnkleY, lToeX, lToeY);
-        drawSingleLeg3D(rHipX, rHipY, rKneeX, rKneeY, rAnkleX, rAnkleY, rToeX, rToeY);
-      } else {
-        drawSingleLeg3D(rHipX, rHipY, rKneeX, rKneeY, rAnkleX, rAnkleY, rToeX, rToeY);
-        drawSingleLeg3D(lHipX, lHipY, lKneeX, lKneeY, lAnkleX, lAnkleY, lToeX, lToeY);
-      }
-
-      // Pelvis / Cintura del pantalón corto uniendo ambas caderas
-      draw3DCapsuleLimb(ctx, lHipX * 0.85, hipY - 0.8 * sc, 2.45 * sc, rHipX * 0.85, hipY - 0.8 * sc, 2.45 * sc, shortsColor, shortsDark, shortsLight);
-
-      // Posición 3D de los hombros (con la inclinación leanX, leanY del torso)
-      const shSpan = (3.4 + frontalFactor * 1.45) * sc;
-      const waistSpan = (2.5 + frontalFactor * 1.05) * sc;
-      const shCenterX = leanX;
-      const shCenterY = shoulderY + leanY;
-      const wCenterX = leanX * 0.38;
-      const wCenterY = waistY + leanY * 0.38;
-
-      const lShX = shCenterX - sideX * shSpan + (Math.abs(sideX) < 0.25 ? -1.4 * sc : 0);
-      const lShY = shCenterY - sideY * shSpan;
-      const rShX = shCenterX + sideX * shSpan + (Math.abs(sideX) < 0.25 ? 1.4 * sc : 0);
-      const rShY = shCenterY + sideY * shSpan;
-
-      // Cinemática 3D de los brazos (hombro -> codo -> muñeca/mano)
-      let lElbX, lElbY, lHandX, lHandY;
-      let rElbX, rElbY, rHandX, rHandY;
-
-      if (pose === "WINDUP_SHOT" || pose === "SHOT_FOLLOW_THROUGH" || pose === "PASS_DELIVERY") {
-        // Pose icónica del #20 de la foto: brazo derecho extendido arriba-derecha para equilibrar el disparo, brazo izquierdo flexionado
-        lElbX = lShX - 3.6 * sc + dirX * 1.2 * sc;
-        lElbY = lShY + 3.8 * sc;
-        lHandX = lElbX - 2.6 * sc + dirX * 2.2 * sc;
-        lHandY = lElbY + 1.4 * sc;
-
-        rElbX = rShX + 5.2 * sc;
-        rElbY = rShY - 1.2 * sc;
-        rHandX = rElbX + 5.4 * sc;
-        rHandY = rElbY - 1.6 * sc;
-      } else if (pose === "HEADER_JUMP") {
-        // Brazos abiertos arqueados en el salto de cabeza
-        lElbX = lShX - 4.5 * sc;
-        lElbY = lShY - 0.8 * sc;
-        lHandX = lElbX - 3.5 * sc;
-        lHandY = lElbY + 1.5 * sc;
-
-        rElbX = rShX + 4.5 * sc;
-        rElbY = rShY - 0.8 * sc;
-        rHandX = rElbX + 3.5 * sc;
-        rHandY = rElbY + 1.5 * sc;
-      } else if (pose === "CELEBRATE_JUMP") {
-        lElbX = lShX - 4.2 * sc;
-        lElbY = lShY - 3.8 * sc;
-        lHandX = lElbX - 3.2 * sc;
-        lHandY = lElbY - 4.2 * sc;
-
-        rElbX = rShX + 4.2 * sc;
-        rElbY = rShY - 3.8 * sc;
-        rHandX = rElbX + 3.2 * sc;
-        rHandY = rElbY - 4.2 * sc;
-      } else if (pose === "HANDS_ON_HEAD") {
-        lElbX = lShX - 3.8 * sc;
-        lElbY = lShY - 2.2 * sc;
-        lHandX = shCenterX - 1.8 * sc;
-        lHandY = headY - 0.5 * sc;
-
-        rElbX = rShX + 3.8 * sc;
-        rElbY = rShY - 2.2 * sc;
-        rHandX = shCenterX + 1.8 * sc;
-        rHandY = headY - 0.5 * sc;
-      } else if (isMoving) {
-        // Braceo natural contrapuesto al compás de las piernas (cuando pierna izq va adelante, brazo dcho va adelante)
-        const lArmSwing = -sSin;
-        const rArmSwing = sSin;
-
-        lElbX = lShX + dirX * lArmSwing * 2.8 * sc - sideX * 0.9 * sc;
-        lElbY = lShY + 4.4 * sc + dirY * lArmSwing * 1.1 * sc;
-        lHandX = lElbX + dirX * (lArmSwing * 2.6 + 1.6) * sc;
-        lHandY = lElbY + 1.2 * sc - Math.max(0, lArmSwing) * 2.4 * sc;
-
-        rElbX = rShX + dirX * rArmSwing * 2.8 * sc + sideX * 0.9 * sc;
-        rElbY = rShY + 4.4 * sc + dirY * rArmSwing * 1.1 * sc;
-        rHandX = rElbX + dirX * (rArmSwing * 2.6 + 1.6) * sc;
-        rHandY = rElbY + 1.2 * sc - Math.max(0, rArmSwing) * 2.4 * sc;
-      } else {
-        // Postura atlética natural en alerta
-        lElbX = lShX - sideX * 1.3 * sc - 0.8 * sc;
-        lElbY = lShY + 4.6 * sc;
-        lHandX = lElbX + dirX * 1.2 * sc - 0.4 * sc;
-        lHandY = lElbY + 3.6 * sc;
-
-        rElbX = rShX + sideX * 1.3 * sc + 0.8 * sc;
-        rElbY = rShY + 4.6 * sc;
-        rHandX = rElbX + dirX * 1.2 * sc + 0.4 * sc;
-        rHandY = rElbY + 3.6 * sc;
-      }
-
-      const drawSingleArm3D = (shX, shYPos, elbX, elbYPos, handX, handYPos, isRightArm) => {
-        // Manga corta 3D con deltoides redondeado
-        const sleeveEndX = shX + (elbX - shX) * 0.78;
-        const sleeveEndY = shYPos + (elbYPos - shYPos) * 0.78;
-        draw3DCapsuleLimb(ctx, shX, shYPos + 0.6 * sc, 1.68 * sc, sleeveEndX, sleeveEndY, 1.38 * sc, jerseyColor, jerseyDark, jerseyLight);
-
-        // Antebrazo muscular (piel o manga larga de portero)
-        const forearmBase = (isKeeper || isReferee) ? jerseyColor : skin.base;
-        const forearmDark = (isKeeper || isReferee) ? jerseyDark : skin.dark;
-        const forearmLight = (isKeeper || isReferee) ? jerseyLight : skin.light;
-        draw3DCapsuleLimb(ctx, elbX, elbYPos, 1.28 * sc, handX, handYPos, 0.95 * sc, forearmBase, forearmDark, forearmLight);
-
-        // Vendaje de muñeca blanco en algunos jugadores de campo
-        if (!isKeeper && !isReferee && !isLinesman && isRightArm && (number % 2 === 0)) {
-          const wristX = elbX + (handX - elbX) * 0.84;
-          const wristY = elbYPos + (handYPos - elbYPos) * 0.84;
-          ctx.strokeStyle = "#f8fafc";
-          ctx.lineWidth = 1.15 * sc;
-          ctx.beginPath();
-          ctx.arc(wristX, wristY, 0.95 * sc, 0, Math.PI * 2);
-          ctx.stroke();
-        }
-
-        // Mano o guante 3D
-        ctx.fillStyle = isKeeper ? "#bef264" : skin.base;
-        ctx.beginPath();
-        ctx.arc(handX, handYPos, (isKeeper ? 1.95 : 1.18) * sc, 0, Math.PI * 2);
-        ctx.fill();
-
-        if (isLinesman && isRightArm) {
-          ctx.strokeStyle = "#e2e8f0";
-          ctx.lineWidth = 1.0 * sc;
-          ctx.beginPath();
-          ctx.moveTo(handX, handYPos);
-          ctx.lineTo(handX + 2.5 * sc, handYPos + 5.5 * sc);
-          ctx.stroke();
-          ctx.fillStyle = "#ef4444";
-          ctx.fillRect(handX + 1.0 * sc, handYPos + 3.0 * sc, 3.2 * sc, 2.5 * sc);
-          ctx.fillStyle = "#facc15";
-          ctx.fillRect(handX + 2.6 * sc, handYPos + 3.0 * sc, 1.6 * sc, 2.5 * sc);
-        }
-      };
-
-      // Determinar qué brazo queda detrás del torso según el ángulo 3D
-      const leftArmBehind = lShY < rShY - 0.15 * sc;
-      const rightArmBehind = rShY < lShY - 0.15 * sc;
-      if (leftArmBehind) drawSingleArm3D(lShX, lShY, lElbX, lElbY, lHandX, lHandY, false);
-      if (rightArmBehind) drawSingleArm3D(rShX, rShY, rElbX, rElbY, rHandX, rHandY, true);
-
-      // 5. TORSO 3D VOLUMÉTRICO CON FORMA EN V, PLIEGUES DE TELA Y CAÍDA SOBRE EL PANTALÓN
-      const torsoTopW = (3.6 + frontalFactor * 1.45) * sc;
-      const torsoBotW = (2.75 + frontalFactor * 0.95) * sc;
-      const chestBulgeX = dirX * profileFactor * 1.15 * sc;
-
-      const tGrad = ctx.createLinearGradient(shCenterX - torsoTopW, shCenterY, shCenterX + torsoTopW, wCenterY);
-      tGrad.addColorStop(0, jerseyLight);
-      tGrad.addColorStop(0.52, jerseyColor);
-      tGrad.addColorStop(1, jerseyDark);
-      ctx.fillStyle = tGrad;
-
-      ctx.beginPath();
-      ctx.moveTo(shCenterX - torsoTopW, shCenterY + 0.5 * sc);
-      ctx.quadraticCurveTo(shCenterX, shCenterY - 0.9 * sc, shCenterX + torsoTopW, shCenterY + 0.5 * sc);
-      ctx.quadraticCurveTo(
-        (shCenterX + wCenterX) * 0.5 + torsoTopW * 0.85 + Math.max(0, chestBulgeX),
-        (shCenterY + wCenterY) * 0.5,
-        wCenterX + torsoBotW,
-        wCenterY + 2.4 * sc
-      );
-      // Faldón inferior curvado de la camiseta cayendo sobre el pantalón corto
-      ctx.quadraticCurveTo(wCenterX, wCenterY + 3.3 * sc, wCenterX - torsoBotW, wCenterY + 2.4 * sc);
-      ctx.quadraticCurveTo(
-        (shCenterX + wCenterX) * 0.5 - torsoTopW * 0.85 + Math.min(0, chestBulgeX),
-        (shCenterY + wCenterY) * 0.5,
-        shCenterX - torsoTopW,
-        shCenterY + 0.5 * sc
-      );
-      ctx.closePath();
-      ctx.fill();
-
-      // Pliegues dinámicos de tela y sombreado lateral en la camiseta
-      ctx.strokeStyle = "rgba(0, 0, 0, 0.16)";
-      ctx.lineWidth = 0.75 * sc;
-      ctx.beginPath();
-      ctx.moveTo(shCenterX + torsoTopW * 0.35, shCenterY + 2.8 * sc);
-      ctx.quadraticCurveTo(wCenterX + torsoBotW * 0.15, wCenterY - 0.5 * sc, wCenterX + torsoBotW * 0.45, wCenterY + 2.0 * sc);
-      ctx.stroke();
-
-      // Cuello 3D de la equipación
-      ctx.strokeStyle = kit.collar || "#ffffff";
-      ctx.lineWidth = 1.05 * sc;
-      ctx.beginPath();
-      ctx.ellipse(shCenterX + dirX * 0.35 * sc, shCenterY + 0.45 * sc, 1.85 * sc, 0.95 * sc, 0, 0, Math.PI);
-      ctx.stroke();
-
-      // Dorsal y apellido en la espalda con escorzo 3D según el giro del cuerpo (como el #20 azul de la imagen)
-      if (isBackView && !isReferee && !isLinesman && frontalFactor > 0.34) {
-        const backScaleX = Math.max(0.42, frontalFactor * 0.88 + 0.12);
-        const backOffsetX = -dirX * 0.55 * sc;
-        ctx.save();
-        ctx.translate(shCenterX * 0.65 + wCenterX * 0.35 + backOffsetX, shCenterY + 5.2 * sc);
-        ctx.scale(backScaleX, 1);
-
-        // Nombre corto sobre el dorsal contenido dentro del ancho de los hombros
-        if (name && sc > 0.78 && frontalFactor > 0.48) {
-          const surname = name.split(" ").slice(-1)[0].toUpperCase().slice(0, 8);
-          ctx.font = `800 ${Math.max(2.6, Math.round(2.1 * sc))}px sans-serif`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillStyle = kit.number || "#ffffff";
-          ctx.fillText(surname, 0, -3.2 * sc, 4.4 * sc);
-        }
-
-        // Dorsal numérico nítido
-        ctx.font = `900 ${Math.max(4.6, Math.round(5.4 * sc))}px "Impact", "Arial Black", sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.strokeStyle = "rgba(15, 23, 42, 0.68)";
-        ctx.lineWidth = Math.max(0.8, 1.1 * sc);
-        ctx.strokeText(`${number}`, 0, 0.7 * sc, 4.2 * sc);
-        ctx.fillStyle = kit.number || "#ffffff";
-        ctx.fillText(`${number}`, 0, 0.7 * sc, 4.2 * sc);
-        ctx.restore();
-      } else if (!isBackView && !isReferee && !isLinesman && !isKeeper && frontalFactor > 0.32) {
-        // Detalle de sponsor frontal en el pecho
-        ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
-        ctx.fillRect(shCenterX - 2.1 * sc + dirX * 0.6 * sc, shCenterY + 3.8 * sc, 4.2 * sc * frontalFactor, 1.1 * sc);
-      }
-
-      // Dibujar los brazos que quedan por delante del torso
-      if (!leftArmBehind) drawSingleArm3D(lShX, lShY, lElbX, lElbY, lHandX, lHandY, false);
-      if (!rightArmBehind) drawSingleArm3D(rShX, rShY, rElbX, rElbY, rHandX, rHandY, true);
-
-      // 6. CUELLO, CABEZA 3D ESCULPIDA Y CORTE DE PELO VOLUMÉTRICO
-      const neckX = shCenterX + dirX * 0.35 * sc;
-      const headCenterX = shCenterX + dirX * 0.68 * sc;
-
-      // Cilindro del cuello con sombra bajo la barbilla
-      draw3DCapsuleLimb(ctx, neckX, shCenterY + 0.3 * sc, 1.25 * sc, headCenterX, neckTopY, 1.15 * sc, skin.base, skin.dark, skin.light);
-
-      // Cráneo y mandíbula 3D
-      const headGrad = ctx.createRadialGradient(
-        headCenterX - 0.9 * sc,
-        headY - 0.9 * sc,
-        0.4 * sc,
-        headCenterX,
-        headY,
-        headR * 1.15
-      );
-      headGrad.addColorStop(0, skin.light);
-      headGrad.addColorStop(0.65, skin.base);
-      headGrad.addColorStop(1, skin.dark);
-      ctx.fillStyle = headGrad;
-      ctx.beginPath();
-      ctx.ellipse(headCenterX, headY, headR * 0.94, headR * 1.08, dirX * 0.12, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Silueta de nariz/perfil facial cuando se ve de perfil o de frente
-      if (!isBackView || profileFactor > 0.55) {
-        ctx.fillStyle = skin.base;
-        ctx.beginPath();
-        ctx.arc(headCenterX + dirX * headR * 0.88, headY + 0.25 * sc, 0.75 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Orejas visibles según orientación
-      ctx.fillStyle = skin.dark;
-      if (isBackView && frontalFactor > 0.45) {
-        ctx.beginPath();
-        ctx.ellipse(headCenterX - headR * 0.92, headY + 0.2 * sc, 0.48 * sc, 0.85 * sc, 0, 0, Math.PI * 2);
-        ctx.ellipse(headCenterX + headR * 0.92, headY + 0.2 * sc, 0.48 * sc, 0.85 * sc, 0, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.ellipse(headCenterX - dirX * headR * 0.28, headY + 0.25 * sc, 0.52 * sc, 0.88 * sc, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Cabello 3D multicapa (coronilla, nuca degradada/fade y flequillo)
-      ctx.fillStyle = hairColor;
-      ctx.beginPath();
-      if (isBackView) {
-        // Parte superior y nuca vista desde atrás/3-cuartos
-        ctx.arc(headCenterX - dirX * 0.2 * sc, headY - 0.45 * sc, headR * 0.98, 0.78 * Math.PI, 2.22 * Math.PI);
-        ctx.fill();
-        // Nuca con corte degradado (fade) o rizado
-        ctx.fillStyle = hairStyle % 2 === 0 ? shadeHexColor(hairColor, -12) : hairColor;
-        ctx.beginPath();
-        ctx.ellipse(headCenterX - dirX * 0.28 * sc, headY + 0.35 * sc, headR * 0.82, headR * 0.65, 0, 0, Math.PI);
-        ctx.fill();
-      } else {
-        // Vista frontal / perfil con volumen superior
-        ctx.arc(headCenterX - dirX * 0.22 * sc, headY - 0.65 * sc, headR * 0.98, Math.PI * 0.88, Math.PI * 2.12);
-        ctx.fill();
-      }
-
-      // Brillo volumétrico en la coronilla del pelo
-      if (hairStyle === 1 || hairStyle === 2) {
-        ctx.fillStyle = hairHighlight;
-        ctx.beginPath();
-        ctx.arc(headCenterX - 0.5 * sc, headY - headR * 0.72, headR * 0.42, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Indicador sutil sobre el portador activo del balón (cursor triangular limpio)
-      if (ent.isActiveCarrier) {
-        ctx.fillStyle = "rgba(56, 189, 248, 0.92)";
-        ctx.beginPath();
-        ctx.moveTo(headCenterX, headY - 5.2 * sc);
-        ctx.lineTo(headCenterX - 2.2 * sc, headY - 8.4 * sc);
-        ctx.lineTo(headCenterX + 2.2 * sc, headY - 8.4 * sc);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      ctx.restore();
-    }
-
-    function drawFrontalHighlightScene(ctx, w, h, hlData, onlyUpdateState = false) {
-      const now = performance.now();
-      if (!hlData.animStartTime) hlData.animStartTime = now;
-      const elapsed = (now - hlData.animStartTime) / 1000;
-
-      // Córneres, faltas y penaltis en 3D: interpolar posiciones físicas reales del balón parado
-      if (hlData.isSetPiece) {
-        simulator.ball.x += (simulator.ball.targetX - simulator.ball.x) * 0.14;
-        simulator.ball.y += (simulator.ball.targetY - simulator.ball.y) * 0.14;
-        simulator.ball.z = (simulator.ball.z || 0) + ((simulator.ball.targetZ || 0) - (simulator.ball.z || 0)) * 0.14;
-        simulator.home2D.forEach(p => {
-          p.curX += (p.targetX - p.curX) * 0.14;
-          p.curY += (p.targetY - p.curY) * 0.14;
-          p.curZ = (p.curZ || 0) * 0.85;
-          p.hlPose = null;
-        });
-        simulator.away2D.forEach(p => {
-          p.curX += (p.targetX - p.curX) * 0.14;
-          p.curY += (p.targetY - p.curY) * 0.14;
-          p.curZ = (p.curZ || 0) * 0.85;
-          p.hlPose = null;
-        });
-        if (onlyUpdateState) return;
-        if (ctx) {
-          const pDim = drawPitch2D(ctx, w, h);
-          const { padX, padY, pitchW, pitchH, dpr } = pDim;
-          simulator.home2D.forEach(p => {
-            drawPlayerToken2D(ctx, p, "home", false, padX, padY, pitchW, pitchH, dpr);
-          });
-          simulator.away2D.forEach(p => {
-            drawPlayerToken2D(ctx, p, "away", false, padX, padY, pitchW, pitchH, dpr);
-          });
-          drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
-        }
-        return;
-      }
-
-      const outcome = hlData.outcome || "GOAL";
-      const targetCorner = hlData.targetCorner || "TOP_RIGHT";
-      const wideDirection = hlData.wideDirection || (targetCorner.includes("LEFT") ? "LEFT" : "RIGHT");
-      const isHome = hlData.attackingSide === "home";
-      const atkTeam = isHome ? homeTeam : awayTeam;
-      const defTeam = isHome ? awayTeam : homeTeam;
-      const atkKit = isHome ? kits.home : kits.away;
-      const defKit = isHome ? kits.away : kits.home;
-
-      const sc = Math.min(w / 460, h / 290);
-      const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
-      const lerp = (a, b, t) => a + (b - a) * Math.max(0, Math.min(1, t));
-      const smooth01 = (t) => {
-        const c = Math.max(0, Math.min(1, t));
-        return c * c * (3 - 2 * c);
-      };
-      const smoothstep = smooth01;
-      const vPostRight = 30.34;
-      const vPostLeft = 37.66;
-
-      // Seguimiento suave de cámara broadcast conectado a la posición real del balón (manteniendo siempre la portería encuadrada)
-      if (hlData.camU === undefined) {
-        const initX = hlData.liveOrigin?.x ?? 50;
-        const initY = hlData.liveOrigin?.y ?? 50;
-        const initProg = isHome ? (100 - initX) : initX;
-        const initU = Math.max(2, Math.min(34, initProg * 0.62));
-        const initV = Math.max(6, Math.min(58, 3 + (initY / 100) * 58));
-        hlData.camU = clamp((initU - 14) * 0.25, 0, 4.2);
-        hlData.camV = 34 + clamp((initV - 34) * 0.16, -3.5, 3.5);
-      }
-      const p3d = (u, v, z = 0) => projectEA3D(u, v, z, w, h, hlData.camU || 0, hlData.camV || 34);
-
-      let pFrontL_bot = { x: 0, y: 0 };
-      let drawGoalFrontFrame = () => {};
-      if (!onlyUpdateState && ctx) {
-      // 1. FONDO DE GRADAS EN PERSPECTIVA DIAGONAL (FIEL A LA IMAGEN DE REFERENCIA)
-      ctx.fillStyle = "#18181b";
-      ctx.fillRect(0, 0, w, h);
-
-      // Polígono de la grada tras la línea de fondo (izquierda a centro-arriba) y banda lejana (centro-arriba a derecha)
-      const cornerAdBase = p3d(-1.5, -1.2, 0);
-      const leftAdBase = p3d(-1.5, 48, 0);
-      const rightAdBase = p3d(38, -1.2, 0);
-
-      // Grada de fondo (detrás de la portería, desde x=0 hasta el córner en x≈0.67w)
-      ctx.save();
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(w, 0);
-      ctx.lineTo(rightAdBase.x, rightAdBase.y);
-      ctx.lineTo(cornerAdBase.x, cornerAdBase.y);
-      ctx.lineTo(leftAdBase.x, leftAdBase.y);
-      ctx.lineTo(0, leftAdBase.y + 20 * sc);
-      ctx.closePath();
-      ctx.clip();
-
-      // Base de hormigón y asientos rojos/grises del estadio
-      const standGrad = ctx.createLinearGradient(0, 0, 0, h * 0.36);
-      standGrad.addColorStop(0, "#1e1b24");
-      standGrad.addColorStop(0.5, "#27272a");
-      standGrad.addColorStop(1, "#3f3f46");
-      ctx.fillStyle = standGrad;
-      ctx.fillRect(0, 0, w, h * 0.42);
-
-      // Bloques de asientos rojos visibles entre aficionados (como en la foto)
-      for (let r = 0; r < 9; r++) {
-        const rowT = r / 9;
-        const yLeft = lerp(4 * sc, leftAdBase.y - 14 * sc, rowT);
-        const yCorner = lerp(-18 * sc, cornerAdBase.y - 11 * sc, rowT);
-        const yRight = lerp(-10 * sc, rightAdBase.y - 11 * sc, rowT);
-
-        // Filas de grada tras portería
-        ctx.strokeStyle = r % 2 === 0 ? "#dc2626" : "#991b1b";
-        ctx.lineWidth = 4.2 * sc;
-        ctx.beginPath();
-        ctx.moveTo(0, yLeft);
-        ctx.lineTo(cornerAdBase.x, yCorner);
-        ctx.lineTo(w, yRight);
-        ctx.stroke();
-      }
-
-      // Escaleras de hormigón con bordes amarillos de seguridad y vomitorios (como en la parte superior central de la foto)
-      const drawStairway = (topX, topY, botX, botY, stairW) => {
-        ctx.fillStyle = "#52525b";
-        ctx.beginPath();
-        ctx.moveTo(topX - stairW * 0.45, topY);
-        ctx.lineTo(topX + stairW * 0.45, topY);
-        ctx.lineTo(botX + stairW * 0.55, botY);
-        ctx.lineTo(botX - stairW * 0.55, botY);
-        ctx.closePath();
-        ctx.fill();
-
-        const steps = 8;
-        for (let s = 0; s <= steps; s++) {
-          const st = s / steps;
-          const sx = lerp(topX, botX, st);
-          const sy = lerp(topY, botY, st);
-          const sw = lerp(stairW * 0.45, stairW * 0.55, st);
-          ctx.strokeStyle = "#eab308";
-          ctx.lineWidth = 1.3 * sc;
-          ctx.beginPath();
-          ctx.moveTo(sx - sw, sy);
-          ctx.lineTo(sx + sw, sy);
-          ctx.stroke();
-        }
-      };
-
-      drawStairway(w * 0.15, -5 * sc, w * 0.21, lerp(leftAdBase.y, cornerAdBase.y, 0.34) - 8 * sc, 15 * sc);
-      drawStairway(w * 0.36, -5 * sc, w * 0.41, lerp(leftAdBase.y, cornerAdBase.y, 0.63) - 8 * sc, 14 * sc);
-      drawStairway(w * 0.91, -5 * sc, w * 0.93, lerp(cornerAdBase.y, rightAdBase.y, 0.78) - 8 * sc, 16 * sc);
-
-      // Vomitorio / túnel de esquina (arriba al centro-derecha, igual que en la foto)
-      ctx.fillStyle = "#d4d4d8";
-      ctx.fillRect(w * 0.56, 0, w * 0.14, cornerAdBase.y - 4 * sc);
-      ctx.fillStyle = "#18181b";
-      ctx.fillRect(w * 0.585, 0, w * 0.055, cornerAdBase.y - 12 * sc);
-      drawStairway(w * 0.565, 0, w * 0.58, cornerAdBase.y - 8 * sc, 11 * sc);
-      drawStairway(w * 0.685, 0, w * 0.70, cornerAdBase.y - 8 * sc, 12 * sc);
-
-      // Multitud detallada (cabezas y torsos con camisetas granates, rosas, blancas, azules y chaquetas oscuras)
-      const fanPalette = ["#881337", "#be123c", "#f472b6", "#fbcfe8", "#e2e8f0", "#1e293b", "#334155", "#7f1d1d", "#2563eb", "#d97706"];
-      const crowdCelebrate = (elapsed > 12.4 && outcome === "GOAL") ? Math.abs(Math.sin(now * 0.015)) * 2.5 * sc : 0;
-
-      for (let row = 0; row < 10; row++) {
-        const rowT = (row + 0.4) / 10;
-        // Grada izquierda (tras portería)
-        const numLeftFans = 58;
-        for (let i = 0; i < numLeftFans; i++) {
-          const uFan = i / numLeftFans;
-          const fx = lerp(0, cornerAdBase.x - 22 * sc, uFan);
-          // Saltar huecos de escaleras y vomitorio
-          if ((fx > w * 0.16 && fx < w * 0.21) || (fx > w * 0.37 && fx < w * 0.41) || (fx > w * 0.55 && fx < w * 0.71)) continue;
-          const fyBase = lerp(lerp(4 * sc, leftAdBase.y - 12 * sc, rowT), lerp(-16 * sc, cornerAdBase.y - 10 * sc, rowT), uFan);
-          const seed = (row * 73 + i * 31) % 100;
-          if (seed < 12) continue; // Asiento libre ocasional mostrando butaca roja
-          const jump = (seed % 3 === 0) ? crowdCelebrate : 0;
-          const fy = fyBase - jump;
-          const shirtCol = fanPalette[seed % fanPalette.length];
-
-          // Torso del aficionado
-          ctx.fillStyle = shirtCol;
-          ctx.beginPath();
-          ctx.roundRect(fx - 2.3 * sc, fy - 4.5 * sc, 4.6 * sc, 5.2 * sc, 1.2 * sc);
-          ctx.fill();
-          // Cabeza del aficionado
-          ctx.fillStyle = seed % 4 === 0 ? "#8d5524" : "#f5cba7";
-          ctx.beginPath();
-          ctx.arc(fx, fy - 5.8 * sc, 1.55 * sc, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.fillStyle = seed % 2 === 0 ? "#1c1917" : "#451a03";
-          ctx.beginPath();
-          ctx.arc(fx, fy - 6.2 * sc, 1.5 * sc, Math.PI, 0);
-          ctx.fill();
-        }
-
-        // Grada derecha (banda lateral superior)
-        const numRightFans = 28;
-        for (let i = 0; i < numRightFans; i++) {
-          const uFan = i / numRightFans;
-          const fx = lerp(cornerAdBase.x + 26 * sc, w, uFan);
-          if (fx > w * 0.90 && fx < w * 0.95) continue;
-          const fyBase = lerp(lerp(-12 * sc, cornerAdBase.y - 10 * sc, rowT), lerp(-6 * sc, rightAdBase.y - 10 * sc, rowT), uFan);
-          const seed = (row * 53 + i * 29) % 100;
-          if (seed < 14) continue;
-          const fy = fyBase - ((seed % 2 === 0) ? crowdCelebrate : 0);
-          ctx.fillStyle = fanPalette[(seed + 3) % fanPalette.length];
-          ctx.beginPath();
-          ctx.roundRect(fx - 2.3 * sc, fy - 4.5 * sc, 4.6 * sc, 5.2 * sc, 1.2 * sc);
-          ctx.fill();
-          ctx.fillStyle = "#f5cba7";
-          ctx.beginPath();
-          ctx.arc(fx, fy - 5.8 * sc, 1.5 * sc, 0, Math.PI * 2);
-          ctx.fill();
-        }
-      }
-
-      // Stewards / Miembros de seguridad con chaleco reflectante naranja y amarillo frente a la valla (igual que en la foto)
-      const stewards = [0.22, 0.42, 0.59, 0.62, 0.68, 0.72, 0.75];
-      stewards.forEach((stPos, idx) => {
-        const sx = w * stPos;
-        const sy = stPos < 0.67
-          ? lerp(leftAdBase.y, cornerAdBase.y, stPos / 0.67) - 3 * sc
-          : lerp(cornerAdBase.y, rightAdBase.y, (stPos - 0.67) / 0.33) - 3 * sc;
-        ctx.fillStyle = idx === 5 ? "#bef264" : "#f97316";
-        ctx.beginPath();
-        ctx.roundRect(sx - 2.2 * sc, sy - 6 * sc, 4.4 * sc, 5.5 * sc, 1 * sc);
-        ctx.fill();
-        ctx.fillStyle = "#f5cba7";
-        ctx.beginPath();
-        ctx.arc(sx, sy - 7.5 * sc, 1.5 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      });
-      ctx.restore();
-
-      // 2. CÉSPED 3D CON FRANJAS DE CORTE TRANSVERSALES Y LONGITUDINALES (EXACTO A LA REFERENCIA)
-      const pitchPolyTL = p3d(-3, -3, 0);
-      const pitchPolyBL = p3d(-3, 66, 0);
-      const pitchPolyBR = p3d(58, 66, 0);
-      const pitchPolyTR = p3d(58, -3, 0);
-
-      ctx.fillStyle = "#2d6a22";
-      ctx.beginPath();
-      ctx.moveTo(pitchPolyTL.x, pitchPolyTL.y);
-      ctx.lineTo(pitchPolyTR.x, pitchPolyTR.y);
-      ctx.lineTo(pitchPolyBR.x, pitchPolyBR.y);
-      ctx.lineTo(pitchPolyBL.x, pitchPolyBL.y);
-      ctx.closePath();
-      ctx.fill();
-
-      // Bandas de siega paralelas a la línea de gol (cada 5.5m desde u = -3 hasta u = 55)
-      const stripeWidthU = 5.5;
-      for (let s = -1; s < 11; s++) {
-        const u0 = s * stripeWidthU;
-        const u1 = (s + 1) * stripeWidthU;
-        const q1 = p3d(u0, -3.5, 0);
-        const q2 = p3d(u1, -3.5, 0);
-        const q3 = p3d(u1, 66, 0);
-        const q4 = p3d(u0, 66, 0);
-
-        ctx.fillStyle = (s % 2 === 0) ? "#2d6b22" : "#357a28";
-        ctx.beginPath();
-        ctx.moveTo(q1.x, q1.y);
-        ctx.lineTo(q2.x, q2.y);
-        ctx.lineTo(q3.x, q3.y);
-        ctx.lineTo(q4.x, q4.y);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // Pasadas longitudinales sutiles de cortacésped (paralelas a la banda)
-      for (let lv = 0; lv < 14; lv++) {
-        if (lv % 2 === 0) continue;
-        const v0 = lv * 5.0;
-        const v1 = (lv + 1) * 5.0;
-        const l1 = p3d(-3, v0, 0);
-        const l2 = p3d(58, v0, 0);
-        const l3 = p3d(58, v1, 0);
-        const l4 = p3d(-3, v1, 0);
-        ctx.fillStyle = "rgba(255, 255, 255, 0.025)";
-        ctx.beginPath();
-        ctx.moveTo(l1.x, l1.y);
-        ctx.lineTo(l2.x, l2.y);
-        ctx.lineTo(l3.x, l3.y);
-        ctx.lineTo(l4.x, l4.y);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // Iluminación ambiental de estadio sobre el terreno de juego
-      const grassLight = ctx.createRadialGradient(w * 0.45, h * 0.48, w * 0.05, w * 0.45, h * 0.48, w * 0.65);
-      grassLight.addColorStop(0, "rgba(255, 255, 255, 0.06)");
-      grassLight.addColorStop(0.6, "rgba(255, 255, 255, 0.0)");
-      grassLight.addColorStop(1, "rgba(0, 15, 5, 0.22)");
-      ctx.fillStyle = grassLight;
-      ctx.fillRect(0, 0, w, h);
-
-      // 3. VALLAS PUBLICITARIAS LED 3D EN ÁNGULO (ESTILO PREMIER LEAGUE / EA SPORTS)
-      const draw3DBannerSegment = (pA_bot, pB_bot, pB_top, pA_top, index) => {
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(pA_bot.x, pA_bot.y);
-        ctx.lineTo(pB_bot.x, pB_bot.y);
-        ctx.lineTo(pB_top.x, pB_top.y);
-        ctx.lineTo(pA_top.x, pA_top.y);
-        ctx.closePath();
-        ctx.clip();
-
-        // Fondo blanco luminoso con bloques diagonales púrpura, magenta, cian y verde lima (idéntico a la foto)
-        ctx.fillStyle = "#f8fafc";
-        ctx.fill();
-
-        const segGrad = ctx.createLinearGradient(pA_bot.x, pA_bot.y, pB_bot.x, pB_bot.y);
-        if (index % 2 === 0) {
-          segGrad.addColorStop(0, "#3b0764");
-          segGrad.addColorStop(0.24, "#3b0764");
-          segGrad.addColorStop(0.26, "#ffffff");
-          segGrad.addColorStop(0.72, "#ffffff");
-          segGrad.addColorStop(0.75, "#ec4899");
-          segGrad.addColorStop(0.88, "#f97316");
-          segGrad.addColorStop(1, "#84cc16");
-        } else {
-          segGrad.addColorStop(0, "#38bdf8");
-          segGrad.addColorStop(0.18, "#3b0764");
-          segGrad.addColorStop(0.22, "#ffffff");
-          segGrad.addColorStop(0.74, "#ffffff");
-          segGrad.addColorStop(0.78, "#a855f7");
-          segGrad.addColorStop(1, "#22c55e");
-        }
-        ctx.fillStyle = segGrad;
-        ctx.fill();
-
-        // Texto rotado siguiendo el ángulo exacto de la valla LED
-        const midX = (pA_bot.x + pB_bot.x + pA_top.x + pB_top.x) * 0.25;
-        const midY = (pA_bot.y + pB_bot.y + pA_top.y + pB_top.y) * 0.25;
-        const angle = Math.atan2(pB_bot.y - pA_bot.y, pB_bot.x - pA_bot.x);
-        const segLen = Math.hypot(pB_bot.x - pA_bot.x, pB_bot.y - pA_bot.y);
-
-        ctx.translate(midX, midY);
-        if (Math.abs(angle) > Math.PI / 2) {
-          ctx.rotate(angle + Math.PI);
-        } else {
-          ctx.rotate(angle);
-        }
-
-        ctx.fillStyle = "#2e1065";
-        ctx.font = `900 ${Math.max(6, Math.round(segLen * 0.11))}px "Trebuchet MS", sans-serif`;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        const label = (elapsed > 12.4 && outcome === "GOAL")
-          ? `¡GOOOL! ${atkTeam.shortName}`
-          : "Premier  •  League";
-        ctx.fillText(label, 0, 0);
-        ctx.restore();
-
-        // Borde superior oscuro de la pantalla LED
-        ctx.strokeStyle = "#0f172a";
-        ctx.lineWidth = 1.0 * sc;
-        ctx.beginPath();
-        ctx.moveTo(pA_top.x, pA_top.y);
-        ctx.lineTo(pB_top.x, pB_top.y);
-        ctx.stroke();
-      };
-
-      // Vallas LED a lo largo de la línea de fondo (desde v = 46 hasta el córner en v = -1.2)
-      const goalLineSegs = 5;
-      for (let i = 0; i < goalLineSegs; i++) {
-        const vStart = 46 - i * (47.2 / goalLineSegs);
-        const vEnd = 46 - (i + 1) * (47.2 / goalLineSegs);
-        draw3DBannerSegment(
-          p3d(-1.4, vStart, 0),
-          p3d(-1.4, vEnd, 0),
-          p3d(-1.4, vEnd, 1.05),
-          p3d(-1.4, vStart, 1.05),
-          i
-        );
-      }
-
-      // Vallas LED a lo largo de la banda lejana (desde u = -1.4 hasta u = 48)
-      const touchLineSegs = 4;
-      for (let i = 0; i < touchLineSegs; i++) {
-        const uStart = -1.4 + i * (49.4 / touchLineSegs);
-        const uEnd = -1.4 + (i + 1) * (49.4 / touchLineSegs);
-        draw3DBannerSegment(
-          p3d(uStart, -1.2, 0),
-          p3d(uEnd, -1.2, 0),
-          p3d(uEnd, -1.2, 1.05),
-          p3d(uStart, -1.2, 1.05),
-          i + 1
-        );
-      }
-
-      // 4. LÍNEAS DE CAL EN PERSPECTIVA 3D EXACTA
-      ctx.strokeStyle = "rgba(255, 255, 255, 0.88)";
-      ctx.lineWidth = 1.8 * sc;
-      ctx.lineJoin = "round";
-
-      const drawPitchLine3D = (u1, v1, u2, v2) => {
-        const p1 = p3d(u1, v1, 0);
-        const p2 = p3d(u2, v2, 0);
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-      };
-
-      // Línea de gol (u = 0), línea de banda lejana (v = 0) y línea de medio campo (u = 48)
-      drawPitchLine3D(0, 0, 0, 62);
-      drawPitchLine3D(0, 0, 56, 0);
-      drawPitchLine3D(48.0, 0, 48.0, 64);
-
-      // Círculo central en la medular (u = 48.0, v = 34.0, radio 9.15m)
-      ctx.beginPath();
-      for (let s = 0; s <= 32; s++) {
-        const ang = (s / 32) * Math.PI * 2;
-        const cp = p3d(48.0 + Math.cos(ang) * 9.15, 34.0 + Math.sin(ang) * 9.15, 0);
-        if (s === 0) ctx.moveTo(cp.x, cp.y);
-        else ctx.lineTo(cp.x, cp.y);
-      }
-      ctx.stroke();
-
-      // Área Grande (18 yardas: u = 0..16.5, v = 13.84..54.16)
-      drawPitchLine3D(0, 13.84, 16.5, 13.84);
-      drawPitchLine3D(16.5, 13.84, 16.5, 54.16);
-      drawPitchLine3D(16.5, 54.16, 0, 54.16);
-
-      // Área Pequeña (6 yardas: u = 0..5.5, v = 24.84..43.16)
-      drawPitchLine3D(0, 24.84, 5.5, 24.84);
-      drawPitchLine3D(5.5, 24.84, 5.5, 43.16);
-      drawPitchLine3D(5.5, 43.16, 0, 43.16);
-
-      // Punto de penalti (u = 11.0, v = 34.0)
-      const penSpot = p3d(11.0, 34.0, 0);
-      ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
-      ctx.beginPath();
-      ctx.ellipse(penSpot.x, penSpot.y, 2.2 * sc, 1.3 * sc, -0.2, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Semicírculo del área grande (D-Arc: radio 9.15m desde (11, 34), para u >= 16.5)
-      ctx.beginPath();
-      const maxAngle = Math.acos((16.5 - 11.0) / 9.15); // ~0.926 rad
-      const arcSteps = 28;
-      for (let s = 0; s <= arcSteps; s++) {
-        const ang = -maxAngle + (s / arcSteps) * (2 * maxAngle);
-        const au = 11.0 + Math.cos(ang) * 9.15;
-        const av = 34.0 + Math.sin(ang) * 9.15;
-        const ap = p3d(au, av, 0);
-        if (s === 0) ctx.moveTo(ap.x, ap.y);
-        else ctx.lineTo(ap.x, ap.y);
-      }
-      ctx.stroke();
-
-      // Arco de córner en (0, 0) y banderín de córner
-      ctx.beginPath();
-      for (let s = 0; s <= 10; s++) {
-        const ang = (s / 10) * (Math.PI / 2);
-        const cp = p3d(Math.cos(ang) * 1.2, Math.sin(ang) * 1.2, 0);
-        if (s === 0) ctx.moveTo(cp.x, cp.y);
-        else ctx.lineTo(cp.x, cp.y);
-      }
-      ctx.stroke();
-
-      const cFlagBot = p3d(0, 0, 0);
-      const cFlagTop = p3d(0, 0, 1.5);
-      ctx.strokeStyle = "#f8fafc";
-      ctx.lineWidth = 1.2 * sc;
-      ctx.beginPath();
-      ctx.moveTo(cFlagBot.x, cFlagBot.y);
-      ctx.lineTo(cFlagTop.x, cFlagTop.y);
-      ctx.stroke();
-      ctx.fillStyle = "#ef4444";
-      ctx.beginPath();
-      ctx.moveTo(cFlagTop.x, cFlagTop.y);
-      ctx.lineTo(cFlagTop.x + 4.5 * sc, cFlagTop.y + 1.8 * sc);
-      ctx.lineTo(cFlagTop.x, cFlagTop.y + 3.6 * sc);
-      ctx.closePath();
-      ctx.fill();
-
-      // 5. PORTERÍA 3D CON CAJA DE RED PROFUNDA (u = 0, v = 30.34..37.66, z = 0..2.44)
-      const goalDepthU = -2.15; // Profundidad hacia atrás de la red
-
-      const pFrontR_bot = p3d(0, vPostRight, 0);
-      const pFrontR_top = p3d(0, vPostRight, 2.44);
-      pFrontL_bot = p3d(0, vPostLeft, 0);
-      const pFrontL_top = p3d(0, vPostLeft, 2.44);
-
-      const isGoalScored = outcome === "GOAL" && elapsed >= 12.5;
-      const netRipple = isGoalScored ? Math.max(0, 1 - (elapsed - 12.5) * 0.45) * Math.sin((elapsed - 12.5) * 18) * 0.35 : 0;
-
-      const pBackR_bot = p3d(goalDepthU - netRipple, vPostRight, 0);
-      const pBackR_top = p3d(goalDepthU - netRipple, vPostRight, 2.38);
-      const pBackL_bot = p3d(goalDepthU - netRipple, vPostLeft, 0);
-      const pBackL_top = p3d(goalDepthU - netRipple, vPostLeft, 2.38);
-
-      // Sombra de los postes y red en el césped
-      ctx.strokeStyle = "rgba(0, 20, 5, 0.28)";
-      ctx.lineWidth = 2.5 * sc;
-      ctx.beginPath();
-      ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
-      ctx.lineTo(pBackL_bot.x, pBackL_bot.y);
-      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
-      ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
-      ctx.stroke();
-
-      // Soportes traseros oscuros/metálicos de la red
-      ctx.strokeStyle = "rgba(148, 163, 184, 0.75)";
-      ctx.lineWidth = 1.6 * sc;
-      ctx.beginPath();
-      ctx.moveTo(pFrontR_top.x, pFrontR_top.y);
-      ctx.lineTo(pBackR_top.x, pBackR_top.y);
-      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
-      ctx.moveTo(pFrontL_top.x, pFrontL_top.y);
-      ctx.lineTo(pBackL_top.x, pBackL_top.y);
-      ctx.lineTo(pBackL_bot.x, pBackL_bot.y);
-      ctx.moveTo(pBackL_bot.x, pBackL_bot.y);
-      ctx.lineTo(pBackR_bot.x, pBackR_bot.y);
-      ctx.moveTo(pBackL_top.x, pBackL_top.y);
-      ctx.lineTo(pBackR_top.x, pBackR_top.y);
-      ctx.stroke();
-
-      // Función auxiliar para tejer malla 3D en un cuadrilátero de la red
-      const drawNetQuadMesh = (qTL, qTR, qBR, qBL, cols, rows, alpha) => {
-        ctx.fillStyle = `rgba(241, 245, 249, ${alpha * 0.45})`;
-        ctx.beginPath();
-        ctx.moveTo(qTL.x, qTL.y);
-        ctx.lineTo(qTR.x, qTR.y);
-        ctx.lineTo(qBR.x, qBR.y);
-        ctx.lineTo(qBL.x, qBL.y);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
-        ctx.lineWidth = 0.75 * sc;
-        ctx.beginPath();
-        for (let c = 0; c <= cols; c++) {
-          const tc = c / cols;
-          const sx = lerp(qTL.x, qTR.x, tc);
-          const sy = lerp(qTL.y, qTR.y, tc);
-          const ex = lerp(qBL.x, qBR.x, tc);
-          const ey = lerp(qBL.y, qBR.y, tc);
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(ex, ey);
-        }
-        for (let r = 0; r <= rows; r++) {
-          const tr = r / rows;
-          const sx = lerp(qTL.x, qBL.x, tr);
-          const sy = lerp(qTL.y, qBL.y, tr);
-          const ex = lerp(qTR.x, qBR.x, tr);
-          const ey = lerp(qTR.y, qBR.y, tr);
-          ctx.moveTo(sx, sy);
-          ctx.lineTo(ex, ey);
-        }
-        ctx.stroke();
-      };
-
-      // Red lateral derecha (fondo), red trasera, red superior (techo) y red lateral izquierda (primer plano)
-      drawNetQuadMesh(pBackR_top, pFrontR_top, pFrontR_bot, pBackR_bot, 7, 10, 0.36);
-      drawNetQuadMesh(pBackL_top, pBackR_top, pBackR_bot, pBackL_bot, 22, 10, 0.44);
-      drawNetQuadMesh(pBackL_top, pBackR_top, pFrontR_top, pFrontL_top, 20, 6, 0.38);
-
-      // Función que dibuja el marco frontal blanco brillante (postes y larguero) y el lateral izquierdo de la red
-      drawGoalFrontFrame = () => {
-        drawNetQuadMesh(pBackL_top, pFrontL_top, pFrontL_bot, pBackL_bot, 7, 10, 0.42);
-
-        // Postes y larguero cilíndricos blancos con volumen
-        ctx.strokeStyle = "rgba(15, 23, 42, 0.25)";
-        ctx.lineWidth = 4.6 * sc;
-        ctx.lineCap = "round";
-        ctx.lineJoin = "round";
-        ctx.beginPath();
-        ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
-        ctx.lineTo(pFrontL_top.x, pFrontL_top.y);
-        ctx.lineTo(pFrontR_top.x, pFrontR_top.y);
-        ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
-        ctx.stroke();
-
-        ctx.strokeStyle = "#ffffff";
-        ctx.lineWidth = 3.4 * sc;
-        ctx.beginPath();
-        ctx.moveTo(pFrontL_bot.x, pFrontL_bot.y);
-        ctx.lineTo(pFrontL_top.x, pFrontL_top.y);
-        ctx.lineTo(pFrontR_top.x, pFrontR_top.y);
-        ctx.lineTo(pFrontR_bot.x, pFrontR_bot.y);
-        ctx.stroke();
-      };
-      } // Fin de if (!onlyUpdateState && ctx)
-
-      // 6. SIMULACIÓN DINÁMICA CONECTADA EN TIEMPO REAL CON LOS 22 JUGADORES DEL CAMPO
-      // - u = distancia a línea de gol (0 = portería atacada, 11 = penalti, 16.5 = frontal área, 34..36 = medular)
-      // - v = posición lateral en metros del campo (0 = banda der, 34 = centro de la portería, 68 = banda izq)
-      const isHomeAtk = isHome;
-      // Conversión métrica exacta para campo de 105x68m:
-      // Local ataca hacia x=105 (u=0 es x=105, u=105 es x=0): x2d = 100 - (u/105)*100 -> u = (100 - x2d)*1.05
-      // Visitante ataca hacia x=0 (u=0 es x=0, u=105 es x=105): x2d = (u/105)*100 -> u = x2d * 1.05
-      const to3DU = (x2d) => clamp((isHomeAtk ? (100 - x2d) : x2d) * 1.05, 1.0, 52.0);
-      const to3DV = (y2d) => clamp((y2d / 100) * 68.0, 2.0, 66.0);
-      const to2DX = (u3d) => {
-        const progPct = clamp((u3d / 105.0) * 100.0, -4.0, 104.0);
-        return isHomeAtk ? (100.0 - progPct) : progPct;
-      };
-      const to2DY = (v3d) => clamp((v3d / 68.0) * 100.0, -2.0, 102.0);
-
-      const playPattern = hlData.playPattern || "TIKI_TAKA_CENTRAL";
-      const seed = hlData.patternSeed !== undefined ? hlData.patternSeed : 0.5;
-      const vJit = (seed - 0.5) * 2.4;
-
-      // Inicializar el estado vivo de los 22 jugadores a partir de sus posiciones reales en el campo 2D
-      if (!hlData._liveSimInit) {
-        hlData._liveSimInit = true;
-        const rawAtk = hlData.liveSnapshot?.atk || (isHomeAtk ? simulator?.home2D : simulator?.away2D) || [];
-        const rawDef = hlData.liveSnapshot?.def || (isHomeAtk ? simulator?.away2D : simulator?.home2D) || [];
-        const origBallX = hlData.liveOrigin?.x ?? simulator?.ball?.x ?? 55;
-        const origBallY = hlData.liveOrigin?.y ?? simulator?.ball?.y ?? 50;
-
-        hlData._origBallU = clamp(to3DU(origBallX), 15.0, 29.5);
-        hlData._origBallV = clamp(to3DV(origBallY), 8.0, 52.0);
-
-        const pivId = hlData.pivot?.id;
-        const pasId = hlData.passer?.id;
-        const shoId = hlData.shooter?.id;
-        const supId = hlData.supportAttacker?.id;
-        const blkId = hlData.defender?.id;
-
-        hlData._atkNodes = rawAtk.filter(p => !p.isGK).map((p, idx) => {
-          let u0 = to3DU(p.x ?? p.curX ?? 50);
-          let v0 = to3DV(p.y ?? p.curY ?? 50);
-          // Comprimir sutilmente jugadores muy atrasados para que entren en el plano de la jugada
-          if (u0 > 29.0) u0 = 24.5 + (u0 - 29.0) * 0.45;
-          let role = "COMPANION";
-          if (p.id === shoId) role = "STRIKER";
-          else if (p.id === pasId) role = "PASSER";
-          else if (p.id === pivId) role = "PIVOT";
-          else if (p.id === supId) role = "SUPPORT";
-          return {
-            id: p.id || `atk_${idx}`,
-            name: p.name,
-            number: p.number || (idx + 2),
-            pos: p.pos || "MC",
-            role,
-            u0,
-            v0,
-            u: u0,
-            v: v0,
-            z: 0,
-            yaw: Math.PI * 1.15,
-            speed: 0.4,
-            pose: "RUNNING_UP"
-          };
-        });
-
-        // Garantizar que existan los 4 roles clave aunque haya coincidencias
-        const ensureRole = (roleName, fallbackIdx, defU, defV, fallbackPlayer) => {
-          let found = hlData._atkNodes.find(n => n.role === roleName);
-          if (!found) {
-            found = hlData._atkNodes.find(n => n.role === "COMPANION");
-            if (found) {
-              found.role = roleName;
-              if (fallbackPlayer?.name) found.name = fallbackPlayer.name;
-              if (fallbackPlayer?.number) found.number = fallbackPlayer.number;
-            } else {
-              found = {
-                id: `role_${roleName}`,
-                name: fallbackPlayer?.name || roleName,
-                number: fallbackPlayer?.number || (fallbackIdx + 6),
-                pos: "MC",
-                role: roleName,
-                u0: defU,
-                v0: defV,
-                u: defU,
-                v: defV,
-                z: 0,
-                yaw: Math.PI * 1.15,
-                speed: 0.5,
-                pose: "RUNNING_UP"
-              };
-              hlData._atkNodes.push(found);
-            }
-          }
-          return found;
-        };
-
-        const pivNode = ensureRole("PIVOT", 0, hlData._origBallU, hlData._origBallV, hlData.pivot);
-        // El iniciador real de la jugada parte exactamente junto al balón real del partido
-        pivNode.u0 = hlData._origBallU + 0.5;
-        pivNode.v0 = hlData._origBallV;
-        const pasNode = ensureRole("PASSER", 1, clamp(hlData._origBallU - 6.5, 11.0, 25.0), clamp(hlData._origBallV + (hlData._origBallV > 34 ? -8 : 8), 8.0, 54.0), hlData.passer);
-        const supNode = ensureRole("SUPPORT", 2, clamp(hlData._origBallU - 4.0, 13.0, 27.0), clamp(34.0 + (hlData._origBallV > 34 ? -12 : 12), 10.0, 52.0), hlData.supportAttacker);
-        const strNode = ensureRole("STRIKER", 3, clamp(pasNode.u0 - 4.5, 9.5, 21.0), clamp(34.0 + vJit * 2.0, 18.0, 48.0), hlData.shooter);
-
-        // Calcular anclas tácticas orgánicas conectadas a las posiciones reales de los jugadores
-        const isAerialCross = playPattern === "WING_CROSS_HEADER" || playPattern === "CHIPPED_PASS_OVER_DEFENSE";
-        const isCutback = playPattern === "BYLINE_CUTBACK" || playPattern === "OVERLAPPING_FULLBACK_CROSS";
-        const isLongShot = playPattern === "LONG_RANGE_BOMB" || playPattern === "INDIVIDUAL_SLALOM" || playPattern === "INSIDE_FORWARD_CURLED_SHOT";
-
-        // Punto donde el PIVOT conecta con PASSER/SUPPORT
-        hlData._pivEndU = clamp(pivNode.u0 - 4.2, 14.5, 29.0);
-        hlData._pivEndV = clamp(lerp(pivNode.v0, pasNode.v0, 0.28), 7.0, 55.0);
-
-        // Recepción y conducción del asistente (PASSER)
-        hlData._pasRecvU = clamp(lerp(pasNode.u0, hlData._pivEndU - 3.5, 0.45), 11.5, 24.5);
-        hlData._pasRecvV = clamp(pasNode.v0, 6.5, 55.5);
-
-        if (isCutback || playPattern === "WING_CROSS_HEADER") {
-          const wingSideV = pasNode.v0 < 33.5 ? clamp(pasNode.v0 * 0.65, 5.2, 14.5) : clamp(pasNode.v0 + (58 - pasNode.v0) * 0.45, 47.5, 56.5);
-          hlData._pasDelivU = isCutback ? clamp(5.2 + seed * 2.5, 4.5, 8.5) : clamp(8.5 + seed * 3.5, 7.5, 13.0);
-          hlData._pasDelivV = wingSideV;
-        } else {
-          hlData._pasDelivU = clamp(Math.min(hlData._pasRecvU - 4.2, 15.8 + seed * 2.5), 11.8, 19.2);
-          hlData._pasDelivV = clamp(lerp(hlData._pasRecvV, 33.5, 0.38) + vJit, 14.0, 50.0);
-        }
-
-        // Punto exacto de remate (conectado a la trayectoria de desmarque de STRIKER)
-        if (isLongShot) {
-          hlData._shotU = clamp(lerp(strNode.u0, 15.8, 0.72), 14.2, 18.4);
-          hlData._shotV = clamp(lerp(strNode.v0, 34.0, 0.55) + vJit, 24.0, 44.0);
-          hlData._shotZ = 0;
-        } else if (isAerialCross) {
-          hlData._shotU = clamp(7.6 + seed * 2.2, 6.8, 10.2);
-          hlData._shotV = clamp(lerp(strNode.v0, 34.0, 0.68) + vJit, 28.5, 39.5);
-          hlData._shotZ = playPattern === "WING_CROSS_HEADER" ? 1.32 : 0.82;
-        } else {
-          hlData._shotU = clamp(lerp(strNode.u0, 9.8, 0.72), 7.2, 13.4);
-          hlData._shotV = clamp(lerp(strNode.v0, 34.0, 0.62) + vJit, 26.5, 41.5);
-          hlData._shotZ = isCutback ? 0.12 : 0;
-        }
-
-        // Inicializar los 10 defensores de campo desde sus posiciones reales en el 2D
-        hlData._defNodes = rawDef.filter(p => !p.isGK).map((p, idx) => {
-          let u0 = to3DU(p.x ?? p.curX ?? 20);
-          let v0 = to3DV(p.y ?? p.curY ?? 50);
-          if (u0 > 35.0) u0 = 28.5 + (u0 - 35.0) * 0.3;
-          return {
-            id: p.id || `def_${idx}`,
-            name: p.name,
-            number: p.number || (idx + 2),
-            pos: p.pos || "DFC",
-            isBlocker: p.id === blkId || idx === 1,
-            markTargetId: p.markTargetId || null,
-            u0,
-            v0,
-            u: u0,
-            v: v0,
-            z: 0,
-            yaw: Math.PI * 0.15,
-            speed: 0.4,
-            pose: "JOCKEY"
-          };
-        });
-
-        // Asegurar que al menos un defensor cercano al rematador actúe como marcador directo / bloqueador
-        if (!hlData._defNodes.some(d => d.isBlocker) && hlData._defNodes.length > 0) {
-          hlData._defNodes[0].isBlocker = true;
-        }
-      }
-
-      const pivNode = hlData._atkNodes.find(n => n.role === "PIVOT") || hlData._atkNodes[0];
-      const pasNode = hlData._atkNodes.find(n => n.role === "PASSER") || hlData._atkNodes[1] || pivNode;
-      const supNode = hlData._atkNodes.find(n => n.role === "SUPPORT") || hlData._atkNodes[2] || pasNode;
-      const strNode = hlData._atkNodes.find(n => n.role === "STRIKER") || hlData._atkNodes[3] || pasNode;
-
-      const shotOriginU = hlData._shotU;
-      const shotOriginV = hlData._shotV;
-      const shotOriginZ = hlData._shotZ;
-      const isAerialFinish = shotOriginZ >= 0.7;
-      const useSupportWallPass = (playPattern === "TIKI_TAKA_CENTRAL" || playPattern === "THIRD_MAN_TRIANGLE" || playPattern === "CHIPPED_PASS_OVER_DEFENSE") && supNode !== pasNode;
-
-      let ballU = hlData._origBallU;
-      let ballV = hlData._origBallV;
-      let ballZ = 0;
-      let activeCarrierId = pivNode.id;
-
-      // Función auxiliar para actualizar posición de un jugador y calcular su orientación 360° real (yaw) y velocidad
-      const updateNodeMotion = (node, prevU, prevV, nextU, nextV, lookAtU, lookAtV, basePose, zVal = 0) => {
-        const du = nextU - prevU;
-        const dv = nextV - prevV;
-        const dist = Math.hypot(du, dv);
-        node.u = nextU;
-        node.v = nextV;
-        node.z = zVal;
-        node.pose = basePose;
-        node.speed = clamp(dist * 14.0, 0.25, 1.35);
-
-        // Si se desplaza con velocidad apreciable, mira en la dirección de su carrera; si está plantado, mira hacia el balón/objetivo
-        const dirU = dist > 0.012 ? (prevU + du * 4.0) : lookAtU;
-        const dirV = dist > 0.012 ? (prevV + dv * 4.0) : lookAtV;
-        const pNow = p3d(nextU, nextV, 0);
-        const pAim = p3d(dirU, dirV, 0);
-        const sdx = pAim.x - pNow.x;
-        const sdy = pAim.groundY - pNow.groundY;
-        if (Math.hypot(sdx, sdy) > 0.1) {
-          const targetYaw = Math.atan2(sdx, sdy);
-          // Suavizado angular continuo en 360°
-          const diff = Math.atan2(Math.sin(targetYaw - (node.yaw ?? targetYaw)), Math.cos(targetYaw - (node.yaw ?? targetYaw)));
-          node.yaw = (node.yaw ?? targetYaw) + diff * 0.32;
-        }
-      };
-
-      // --- FASES TEMPORALES DE LA JUGADA EN TIEMPO REAL (0.0s -> 15.0s) ---
-      // 1. Movimiento de PIVOT (Iniciador real)
-      {
-        const prevU = pivNode.u, prevV = pivNode.v;
-        let u, v, pose = "RUNNING_UP";
-        if (elapsed < 2.5) {
-          const t = smooth01(elapsed / 2.5);
-          u = lerp(pivNode.u0, hlData._pivEndU, t);
-          v = lerp(pivNode.v0, hlData._pivEndV, t);
-          pose = elapsed < 2.15 ? "DRIBBLE" : "PASS_DELIVERY";
-        } else {
-          const t = smooth01((elapsed - 2.5) / 8.0);
-          u = lerp(hlData._pivEndU, Math.max(15.5, hlData._pivEndU - 5.5), t);
-          v = lerp(hlData._pivEndV, clamp(hlData._pivEndV + (34 - hlData._pivEndV) * 0.25, 12, 50), t);
-          pose = elapsed < 3.0 ? "PASS_DELIVERY" : (elapsed > 12.5 && outcome === "GOAL" ? "CELEBRATE_JUMP" : "RUNNING_UP");
-        }
-        updateNodeMotion(pivNode, prevU, prevV, u, v, ballU, ballV, pose, 0);
-      }
-
-      // 2. Movimiento de SUPPORT (Interior / Apoyo de ruptura o pared)
-      const supTouchU = lerp(hlData._pivEndU, hlData._pasRecvU, 0.55);
-      const supTouchV = clamp(lerp(supNode.v0, 34.0, 0.35), 12.0, 50.0);
-      {
-        const prevU = supNode.u, prevV = supNode.v;
-        let u, v, pose = "RUNNING_UP";
-        if (useSupportWallPass) {
-          if (elapsed < 3.4) {
-            const t = smooth01(elapsed / 3.4);
-            u = lerp(supNode.u0, supTouchU, t);
-            v = lerp(supNode.v0, supTouchV, t);
-            pose = elapsed >= 2.5 ? "DRIBBLE" : "RUNNING_UP";
-          } else if (elapsed < 4.8) {
-            const t = smooth01((elapsed - 3.4) / 1.4);
-            u = lerp(supTouchU, supTouchU - 1.2, t);
-            v = supTouchV;
-            pose = elapsed < 4.3 ? "PASS_DELIVERY" : "RUNNING_UP";
-          } else {
-            const t = smooth01((elapsed - 4.8) / 6.2);
-            u = lerp(supTouchU - 1.2, clamp(shotOriginU + 2.5, 9.5, 16.5), t);
-            v = lerp(supTouchV, clamp(supTouchV + (supTouchV > 34 ? 5 : -5), 12, 50), t);
-            pose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "SPRINT";
-          }
-        } else {
-          const t = smooth01(elapsed / 10.5);
-          const targetBoxU = clamp(shotOriginU + 1.8, 8.5, 15.5);
-          const targetBoxV = clamp(34.0 + (shotOriginV > 34.0 ? -7.5 : 7.5), 14.0, 48.0);
-          u = lerp(supNode.u0, targetBoxU, t);
-          v = lerp(supNode.v0, targetBoxV, t);
-          pose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : (elapsed < 9.5 ? "SPRINT" : "READY");
-        }
-        updateNodeMotion(supNode, prevU, prevV, u, v, ballU, ballV, pose, 0);
-      }
-
-      // 3. Movimiento de PASSER (Asistente / Extremo / Mediapunta real)
-      const pasStartCarryT = useSupportWallPass ? 4.8 : 3.7;
-      {
-        const prevU = pasNode.u, prevV = pasNode.v;
-        let u, v, pose = "RUNNING_UP";
-        if (elapsed < pasStartCarryT) {
-          const t = smooth01(elapsed / pasStartCarryT);
-          u = lerp(pasNode.u0, hlData._pasRecvU, t);
-          v = lerp(pasNode.v0, hlData._pasRecvV, t);
-          pose = "RUNNING_UP";
-        } else if (elapsed < 8.4) {
-          const t = smooth01((elapsed - pasStartCarryT) / (8.4 - pasStartCarryT));
-          const weave = Math.sin(t * Math.PI * 2.0) * 0.85;
-          u = lerp(hlData._pasRecvU, hlData._pasDelivU, t);
-          v = lerp(hlData._pasRecvV, hlData._pasDelivV, t) + weave;
-          pose = "DRIBBLE";
-        } else if (elapsed < 9.3) {
-          u = hlData._pasDelivU;
-          v = hlData._pasDelivV;
-          pose = "PASS_DELIVERY";
-        } else {
-          const t = smooth01((elapsed - 9.3) / 3.5);
-          u = lerp(hlData._pasDelivU, Math.max(5.5, hlData._pasDelivU - 1.4), t);
-          v = lerp(hlData._pasDelivV, hlData._pasDelivV + (34 - hlData._pasDelivV) * 0.12, t);
-          pose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : "READY";
-        }
-        updateNodeMotion(pasNode, prevU, prevV, u, v, elapsed >= 8.2 ? shotOriginU : hlData._pasDelivU - 3, elapsed >= 8.2 ? shotOriginV : hlData._pasDelivV, pose, 0);
-      }
-
-      // 4. Movimiento de STRIKER (Rematador real)
-      {
-        const prevU = strNode.u, prevV = strNode.v;
-        let u, v, z = 0, pose = "RUNNING_UP";
-        const midRunU = lerp(strNode.u0, shotOriginU, 0.42) + 1.2;
-        const midRunV = clamp(lerp(strNode.v0, shotOriginV, 0.35) + (strNode.v0 > 34 ? 3.2 : -3.2), 12.0, 52.0);
-
-        if (elapsed < 5.2) {
-          const t = smooth01(elapsed / 5.2);
-          u = lerp(strNode.u0, midRunU, t);
-          v = lerp(strNode.v0, midRunV, t);
-          pose = "RUNNING_UP";
-        } else if (elapsed < 10.6) {
-          const t = smooth01((elapsed - 5.2) / 5.4);
-          u = lerp(midRunU, shotOriginU + 0.35, t);
-          v = lerp(midRunV, shotOriginV, t);
-          pose = "SPRINT";
-        } else if (elapsed < 11.5) {
-          const t = (elapsed - 10.6) / 0.9;
-          u = lerp(shotOriginU + 0.35, shotOriginU, t);
-          v = shotOriginV;
-          if (isAerialFinish) {
-            const jumpPhase = clamp((elapsed - 10.8) / 1.2, 0, 1);
-            z = Math.sin(jumpPhase * Math.PI) * (shotOriginZ * 0.88);
-            pose = elapsed < 11.15 ? "HEADER_JUMP" : "WINDUP_SHOT";
-          } else {
-            pose = elapsed < 11.05 ? "CONTROL" : "WINDUP_SHOT";
-          }
-        } else {
-          u = shotOriginU - 0.25;
-          v = shotOriginV;
-          if (isAerialFinish && elapsed < 12.0) {
-            const jumpPhase = clamp((elapsed - 10.8) / 1.2, 0, 1);
-            z = Math.max(0, Math.sin(jumpPhase * Math.PI) * (shotOriginZ * 0.88));
-          }
-          pose = elapsed < 12.55 ? "SHOT_FOLLOW_THROUGH" : (outcome === "GOAL" ? "CELEBRATE_JUMP" : "HANDS_ON_HEAD");
-        }
-        const lookU = elapsed >= 10.4 ? 0.0 : shotOriginU;
-        const lookV = elapsed >= 10.4 ? 34.0 : shotOriginV;
-        updateNodeMotion(strNode, prevU, prevV, u, v, lookU, lookV, pose, z);
-      }
-
-      // 5. Movimiento del BALÓN 3D (0.0s - 11.5s) perfectamente sincronizado con los pies de los jugadores reales
-      if (elapsed < 2.2) {
-        activeCarrierId = pivNode.id;
-        ballU = pivNode.u - 0.52;
-        ballV = pivNode.v + (pivNode.v > 34 ? -0.35 : 0.35);
-        ballZ = 0;
-      } else if (useSupportWallPass && elapsed < 4.8) {
-        if (elapsed < 3.4) {
-          const t = smooth01((elapsed - 2.2) / 1.2);
-          activeCarrierId = t < 0.7 ? pivNode.id : supNode.id;
-          ballU = lerp(hlData._pivEndU - 0.4, supTouchU - 0.4, t);
-          ballV = lerp(hlData._pivEndV, supTouchV, t);
-          ballZ = Math.sin(t * Math.PI) * 0.12;
-        } else if (elapsed < 3.9) {
-          activeCarrierId = supNode.id;
-          ballU = supNode.u - 0.45;
-          ballV = supNode.v + 0.3;
-          ballZ = 0;
-        } else {
-          const t = smooth01((elapsed - 3.9) / 0.9);
-          activeCarrierId = t < 0.7 ? supNode.id : pasNode.id;
-          ballU = lerp(supTouchU - 1.0, hlData._pasRecvU - 0.4, t);
-          ballV = lerp(supTouchV, hlData._pasRecvV, t);
-          ballZ = Math.sin(t * Math.PI) * 0.14;
-        }
-      } else if (elapsed < pasStartCarryT) {
-        const t = smooth01((elapsed - 2.2) / Math.max(0.5, pasStartCarryT - 2.2));
-        activeCarrierId = t < 0.75 ? pivNode.id : pasNode.id;
-        ballU = lerp(hlData._pivEndU - 0.4, hlData._pasRecvU - 0.4, t);
-        ballV = lerp(hlData._pivEndV, hlData._pasRecvV, t);
-        ballZ = Math.sin(t * Math.PI) * 0.18;
-      } else if (elapsed < 8.4) {
-        activeCarrierId = pasNode.id;
-        ballU = pasNode.u - 0.52;
-        ballV = pasNode.v + (pasNode.v < 34 ? 0.42 : -0.42);
-        ballZ = 0;
-      } else if (elapsed < 10.6) {
-        const t = smooth01((elapsed - 8.4) / 2.2);
-        activeCarrierId = t < 0.65 ? pasNode.id : strNode.id;
-        ballU = lerp(hlData._pasDelivU - 0.35, shotOriginU + 0.15, t);
-        ballV = lerp(hlData._pasDelivV, shotOriginV + 0.25, t);
-        if (isAerialFinish) {
-          ballZ = lerp(0.1, shotOriginZ, t) + Math.sin(t * Math.PI) * 2.65;
-        } else if (playPattern === "BYLINE_CUTBACK" || playPattern === "OVERLAPPING_FULLBACK_CROSS") {
-          ballZ = Math.sin(t * Math.PI) * 0.28;
-        } else {
-          ballZ = Math.sin(t * Math.PI) * 0.14;
-        }
-      } else if (elapsed < 11.5) {
-        activeCarrierId = strNode.id;
-        ballU = strNode.u - 0.38;
-        ballV = strNode.v + 0.32;
-        ballZ = isAerialFinish ? shotOriginZ : 0;
-      }
-
-      // 6. Movimiento del resto de compañeros atacantes (COMPANION) acompañando la jugada desde su posición 2D real
-      hlData._atkNodes.forEach((node, idx) => {
-        if (node.role !== "COMPANION") return;
-        const prevU = node.u, prevV = node.v;
-        const progT = smooth01(elapsed / 10.5);
-        const advanceU = node.u0 > 24.0 ? 8.5 : 6.0;
-        const targetU = clamp(node.u0 - advanceU, 8.2 + (idx % 3) * 3.2, 30.0);
-        const targetV = clamp(lerp(node.v0, 34.0 + ((idx % 2 === 0 ? 1 : -1) * (10 + idx * 2)), 0.25), 7.0, 55.0);
-        const u = lerp(node.u0, targetU, progT);
-        const v = lerp(node.v0, targetV, progT);
-        const pose = (elapsed > 12.5 && outcome === "GOAL") ? "CELEBRATE_JUMP" : (u < 18 ? "SPRINT" : "RUNNING_UP");
-        updateNodeMotion(node, prevU, prevV, u, v, ballU, ballV, pose, 0);
-      });
-
-      // 7. Movimiento reactivo de los 10 defensores de campo reales (basculación, presión al portador y marcaje al rematador)
-      let blockDefNode = hlData._defNodes.find(d => d.isBlocker) || hlData._defNodes[0];
-      hlData._defNodes.forEach((d, idx) => {
-        const prevU = d.u, prevV = d.v;
-        let u = d.u0, v = d.v0, pose = "JOCKEY";
-        const progT = smooth01(elapsed / 10.8);
-
-        if (d.isBlocker) {
-          const blkTargetU = clamp(shotOriginU - 1.35, 5.5, 16.5);
-          const blkTargetV = clamp(shotOriginV + (d.v0 >= shotOriginV ? 0.85 : -0.85), 8.0, 54.0);
-          u = lerp(d.u0, blkTargetU, progT);
-          v = lerp(d.v0, blkTargetV, progT);
-          if (outcome === "BLOCK" && elapsed >= 11.25 && elapsed <= 12.7) {
-            pose = "SLIDE_BLOCK";
-          } else {
-            pose = elapsed > 6.0 ? "SPRINT" : "JOCKEY";
-          }
-        } else if (d.markTargetId) {
-          const markedAtk = hlData._atkNodes.find(a => a.id === d.markTargetId);
-          if (markedAtk) {
-            u = lerp(d.u0, Math.max(5.5, markedAtk.u - 1.1), progT * 0.92);
-            v = lerp(d.v0, markedAtk.v + 0.7, progT * 0.92);
-            pose = "SPRINT";
-          }
-        } else if (idx === 0 || (Math.hypot(d.u0 - hlData._pasDelivU, d.v0 - hlData._pasDelivV) < 8.5 && elapsed < 9.2)) {
-          const pressT = smooth01(Math.min(1, elapsed / 8.2));
-          u = lerp(d.u0, clamp(pasNode.u - 1.4, 5.5, 22.0), pressT * 0.78);
-          v = lerp(d.v0, clamp(pasNode.v + (d.v0 > pasNode.v ? 1.1 : -1.1), 6.0, 56.0), pressT * 0.78);
-          pose = (playPattern === "INDIVIDUAL_SLALOM" && elapsed >= 8.2 && elapsed <= 10.6) ? "SLIDE_BLOCK" : "JOCKEY";
-        } else {
-          const retreatU = d.u0 < 16.0 ? clamp(d.u0 - 2.8, 6.2, 13.5) : clamp(d.u0 - 5.2, 11.5, 24.5);
-          const shiftV = clamp(lerp(d.v0, ballV, 0.22), 7.5, 54.5);
-          u = lerp(d.u0, retreatU, progT);
-          v = lerp(d.v0, shiftV, progT);
-          pose = d.u - u > 0.04 ? "SPRINT" : "JOCKEY";
-        }
-
-        updateNodeMotion(d, prevU, prevV, u, v, ballU, ballV, pose, 0);
-      });
-
-      // Árbitro principal siguiendo la jugada a distancia prudencial y Juez de línea en banda
-      const refU = clamp(lerp(22.0, Math.max(15.5, shotOriginU + 5.5), Math.min(1, elapsed / 10)), 15.0, 26.0);
-      const refV = clamp(lerp(24.0, shotOriginV > 33 ? 21.5 : 44.5, Math.min(1, elapsed / 10)), 16.0, 48.0);
-      const linesmanU = clamp(Math.min(strNode.u, blockDefNode ? blockDefNode.u : 10.0), 4.5, 24.0);
-      const linesmanV = -0.5;
-
-      // 6.6 Guardameta bajo palos (u = 0.85, v = 34.0)
-      let gkU = 0.85, gkV = 34.0, gkZ = 0, gkPose = "GK_READY", gkYaw = Math.PI * 0.12;
-      const targetShotV = targetCorner.includes("LEFT") ? (vPostLeft - 0.85) : (vPostRight + 0.85);
-      const targetShotZ = targetCorner.includes("TOP") ? 2.05 : 0.45;
-      const isDiveLeft = targetShotV > 34.0;
-
-      if (elapsed < 11.5) {
-        gkU = playPattern === "COUNTER_THROUGH_BALL" ? lerp(0.85, 2.3, Math.min(1, elapsed / 11)) : 0.9;
-        gkV = clamp(34.0 + (ballV - 34.0) * 0.09 + Math.sin(now * 0.004) * 0.35, 31.2, 36.8);
-        gkPose = "GK_READY";
-      } else {
-        const shotProgress = Math.min(1.0, (elapsed - 11.5) / 0.95);
-        if (outcome === "SAVE") {
-          if (shotProgress < 0.82) {
-            const dp = shotProgress / 0.82;
-            gkU = 0.95;
-            gkV = lerp(34.0, targetShotV, dp);
-            gkZ = Math.sin(dp * Math.PI) * (targetCorner.includes("TOP") ? 1.15 : 0.45);
-            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
-          } else {
-            gkU = 0.95;
-            gkV = targetShotV;
-            gkZ = 0;
-            gkPose = isDiveLeft ? "GROUND_LEFT" : "GROUND_RIGHT";
-          }
-        } else if (outcome === "GOAL") {
-          if (shotProgress < 0.88) {
-            const dp = shotProgress / 0.88;
-            gkU = 0.85;
-            gkV = lerp(34.0, lerp(34.0, targetShotV, 0.65), dp);
-            gkZ = Math.sin(dp * Math.PI) * 0.65;
-            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
-          } else {
-            gkU = 0.85;
-            gkV = lerp(34.0, targetShotV, 0.65);
-            gkPose = "CONCEDED";
-          }
-        } else if (outcome === "POST") {
-          if (shotProgress < 0.85) {
-            gkV = lerp(34.0, targetShotV, (shotProgress / 0.85) * 0.7);
-            gkPose = isDiveLeft ? "DIVE_LEFT" : "DIVE_RIGHT";
-          } else {
-            gkPose = "GK_READY";
-          }
-        } else if (outcome === "WIDE") {
-          gkV = 34.0 + (wideDirection === "LEFT" ? 1.4 : -1.4);
-          gkPose = "GK_READY";
-        } else {
-          gkPose = "GK_READY";
-        }
-      }
-      {
-        const pGk = p3d(gkU, gkV, 0);
-        const pBall = p3d(ballU, ballV, 0);
-        gkYaw = Math.atan2(pBall.x - pGk.x, pBall.groundY - pGk.groundY);
-      }
-
-      // 6.7 DESENLACE FÍSICO DEL DISPARO (11.5s - 15.0s, DESDE LA POSICIÓN EXACTA DEL REMATADOR)
-      if (elapsed >= 11.5) {
-        const shotProg = Math.min(1.0, (elapsed - 11.5) / 0.95);
-        const startU = shotOriginU - 0.35;
-        const startV = shotOriginV + 0.3;
-        const startZ = shotOriginZ;
-        const blkDef = blockDefNode || { u: 9.5, v: 34.0 };
-
-        if (outcome === "GOAL") {
-          if (shotProg < 1.0) {
-            ballU = lerp(startU, -0.35, shotProg);
-            ballV = lerp(startV, targetShotV, shotProg);
-            ballZ = lerp(startZ, targetShotZ, shotProg) + Math.sin(shotProg * Math.PI) * 0.65;
-          } else {
-            const dropP = Math.min(1.0, (elapsed - 12.45) / 1.1);
-            ballU = lerp(-0.35, -1.65, dropP * 0.7);
-            ballV = targetShotV + Math.sin(dropP * 5) * 0.35;
-            ballZ = Math.max(0, lerp(targetShotZ, 0, dropP));
-          }
-        } else if (outcome === "SAVE") {
-          if (shotProg < 0.82) {
-            const sp = shotProg / 0.82;
-            ballU = lerp(startU, 0.85, sp);
-            ballV = lerp(startV, targetShotV, sp);
-            ballZ = lerp(startZ, targetShotZ, sp) + Math.sin(sp * Math.PI) * 0.55;
-          } else {
-            const defP = Math.min(1.5, (elapsed - 12.28) / 1.2);
-            const cornerDir = isDiveLeft ? 1 : -1;
-            ballU = lerp(0.85, -2.5, defP);
-            ballV = targetShotV + cornerDir * defP * 6.5;
-            ballZ = Math.max(0, lerp(targetShotZ, 0.2, defP));
-          }
-        } else if (outcome === "POST") {
-          const postV = targetCorner.includes("LEFT") ? vPostLeft : vPostRight;
-          const postZ = targetCorner.includes("TOP") ? 2.42 : 1.35;
-          if (shotProg < 0.88) {
-            const sp = shotProg / 0.88;
-            ballU = lerp(startU, 0, sp);
-            ballV = lerp(startV, postV, sp);
-            ballZ = lerp(startZ, postZ, sp) + Math.sin(sp * Math.PI) * 0.45;
-          } else {
-            const rebP = Math.min(1.4, (elapsed - 12.34) / 1.2);
-            ballU = lerp(0, 7.5, rebP);
-            ballV = postV + (postV > 34 ? 1 : -1) * rebP * 4.2;
-            ballZ = Math.max(0, lerp(postZ, 0, rebP));
-          }
-        } else if (outcome === "WIDE") {
-          const wideV = wideDirection === "LEFT" ? (vPostLeft + 4.8) : (wideDirection === "RIGHT" ? (vPostRight - 4.8) : 34.0);
-          const wideZ = wideDirection === "HIGH" ? 4.2 : 1.6;
-          const totalP = Math.min(1.5, (elapsed - 11.5) / 1.0);
-          ballU = lerp(startU, -2.8, totalP);
-          ballV = lerp(startV, wideV, totalP);
-          ballZ = Math.max(0, lerp(startZ, wideZ, Math.min(1, totalP)) + Math.sin(Math.min(1, totalP) * Math.PI) * 0.55);
-        } else if (outcome === "BLOCK") {
-          if (shotProg < 0.42) {
-            const bp = shotProg / 0.42;
-            ballU = lerp(startU, blkDef.u, bp);
-            ballV = lerp(startV, blkDef.v, bp);
-            ballZ = lerp(startZ, 0.35, bp);
-          } else {
-            const rebP = Math.min(1.2, (shotProg - 0.42) / 0.58);
-            ballU = lerp(blkDef.u, blkDef.u + 4.5, rebP);
-            ballV = lerp(blkDef.v, blkDef.v + 5.0, rebP);
-            ballZ = Math.max(0, (1 - rebP) * 0.4);
-          }
-        }
-      }
-
-      // 6.8 SEGUIMIENTO DE CÁMARA 3D Y SINCRONIZACIÓN EN VIVO CON EL MOTOR 2D DEL PARTIDO
-      {
-        const targetCamU = elapsed < 9.8
-          ? clamp((ballU - 14.0) * 0.25, 0.0, 4.2)
-          : 0.0;
-        const targetCamV = elapsed < 9.8
-          ? 34.0 + clamp((ballV - 34.0) * 0.16, -3.5, 3.5)
-          : 34.0 + clamp((ballV - 34.0) * 0.08, -1.8, 1.8);
-        hlData.camU = lerp(hlData.camU ?? targetCamU, targetCamU, 0.09);
-        hlData.camV = lerp(hlData.camV ?? targetCamV, targetCamV, 0.09);
-
-        // Sincronizar las coordenadas actuales de vuelta a simulator.home2D, simulator.away2D y simulator.ball
-        if (simulator) {
-          const liveAtkArr = isHomeAtk ? simulator.home2D : simulator.away2D;
-          const liveDefArr = isHomeAtk ? simulator.away2D : simulator.home2D;
-          if (Array.isArray(liveAtkArr)) {
-            hlData._atkNodes.forEach(n => {
-              const matchP = liveAtkArr.find(p => p.id === n.id || p.number === n.number);
-              if (matchP) {
-                matchP.curX = to2DX(n.u);
-                matchP.curY = to2DY(n.v);
-                matchP.curZ = n.z || 0;
-                matchP.hlPose = n.pose;
-                matchP.hlSpeed = n.speed;
-              }
-            });
-          }
-          if (Array.isArray(liveDefArr)) {
-            hlData._defNodes.forEach(n => {
-              const matchP = liveDefArr.find(p => p.id === n.id || p.number === n.number);
-              if (matchP) {
-                matchP.curX = to2DX(n.u);
-                matchP.curY = to2DY(n.v);
-                matchP.curZ = n.z || 0;
-                matchP.hlPose = n.pose;
-                matchP.hlSpeed = n.speed;
-              }
-            });
-            const gkP = liveDefArr.find(p => p.isKeeper);
-            if (gkP) {
-              gkP.curX = to2DX(gkU);
-              gkP.curY = to2DY(gkV);
-              gkP.curZ = gkZ || 0;
-              gkP.hlPose = gkPose;
-            }
-          }
-          if (simulator.ball) {
-            simulator.ball.x = to2DX(ballU);
-            simulator.ball.y = to2DY(ballV);
-            simulator.ball.z = ballZ * 2.4;
-            simulator.ball.targetX = simulator.ball.x;
-            simulator.ball.targetY = simulator.ball.y;
-            simulator.ball.targetZ = simulator.ball.z;
-          }
-          if (outcome === "GOAL" && elapsed >= 12.45 && elapsed <= 12.95) {
-            if (isHomeAtk) netRippleA = 1.0;
-            else netRippleH = 1.0;
-          }
-        }
-      }
-
-      if (onlyUpdateState || !ctx) return;
-
-      // 7. CONSTRUCCIÓN Y ORDENACIÓN POR PROFUNDIDAD (PAINTER'S ALGORITHM) DE LOS 22 JUGADORES 3D
-      const createEnt = (id, u, v, z, kit, num, pose, facing, opts = {}) => {
-        const pt = p3d(u, v, z);
-        return {
-          id,
-          x: pt.x,
-          y: pt.groundY,
-          zPx: pt.groundY - pt.y,
-          sc: pt.sc,
-          kit,
-          number: num,
-          pose,
-          facing,
-          elapsed,
-          ...opts
-        };
-      };
-
-      const gkRealNum = hlData.goalkeeper?.number || 1;
-      const sceneEntities = [
-        // Guardameta bajo palos
-        createEnt("GK", gkU, gkV, gkZ, defKit, gkRealNum, gkPose, "FRONT_RIGHT", {
-          isKeeper: true,
-          name: hlData.goalkeeper?.name,
-          yaw: gkYaw,
-          speed: 0.35
-        }),
-        // Los 10 defensores de campo reales en sus posiciones conectadas
-        ...hlData._defNodes.map((d, idx) =>
-          createEnt(`DEF_${idx}`, d.u, d.v, d.z || 0, defKit, d.number, d.pose, "FRONT_RIGHT", {
-            isActiveCarrier: activeCarrierId === d.id,
-            name: d.name,
-            yaw: d.yaw,
-            speed: d.speed
-          })
-        ),
-        // Los 10 atacantes de campo reales en sus posiciones conectadas
-        ...hlData._atkNodes.map((a, idx) =>
-          createEnt(`ATK_${idx}`, a.u, a.v, a.z || 0, atkKit, a.number, a.pose, "BACK_LEFT", {
-            isActiveCarrier: activeCarrierId === a.id,
-            name: a.name,
-            yaw: a.yaw,
-            speed: a.speed
-          })
-        ),
-        // Árbitro principal y Juez de línea
-        createEnt("REFEREE", refU, refV, 0, defKit, 99, "READY", "FRONT_RIGHT", {
-          isReferee: true,
-          yaw: Math.atan2(p3d(ballU, ballV, 0).x - p3d(refU, refV, 0).x, p3d(ballU, ballV, 0).groundY - p3d(refU, refV, 0).groundY),
-          speed: 0.45
-        }),
-        createEnt("LINESMAN", linesmanU, linesmanV, 0, defKit, 98, "READY", "FRONT_RIGHT", {
-          isLinesman: true,
-          yaw: 0.15,
-          speed: 0.4
-        }),
-        // Balón 3D
-        (() => {
-          const bPt = p3d(ballU, ballV, ballZ);
-          return {
-            id: "BALL",
-            isBall: true,
-            x: bPt.x,
-            y: bPt.groundY,
-            zPx: bPt.groundY - bPt.y,
-            r: 4.1 * bPt.sc,
-            sc: bPt.sc
-          };
-        })()
-      ];
-
-      // Ordenar por coordenada Y en pantalla para superposición 3D natural
-      sceneEntities.sort((a, b) => a.y - b.y);
-
-      let goalFrameDrawn = false;
-      sceneEntities.forEach(ent => {
-        if (!goalFrameDrawn && ent.y > pFrontL_bot.y) {
-          drawGoalFrontFrame();
-          goalFrameDrawn = true;
-        }
-        if (ent.isBall) {
-          drawFrontalBall(ctx, ent.x, ent.y, ent.zPx, ent.r, ent.sc);
-        } else {
-          drawFrontalAthlete(ctx, ent);
-        }
-      });
-      if (!goalFrameDrawn) {
-        drawGoalFrontFrame();
-      }
-
-      // Chispazo de impacto en el poste si da a la madera
-      if (outcome === "POST" && elapsed >= 12.3 && elapsed <= 13.1) {
-        const hitPt = p3d(0, targetCorner.includes("LEFT") ? vPostLeft : vPostRight, targetCorner.includes("TOP") ? 2.42 : 1.35);
-        ctx.fillStyle = "rgba(254, 240, 138, 0.92)";
-        ctx.beginPath();
-        ctx.arc(hitPt.x, hitPt.y, 11 * sc, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-
     // ==========================================
     // SIMULACIÓN GENERAL EN 2D (CAMPO CENITAL Y FICHAS CIRCULARES)
     // ==========================================
@@ -6301,50 +3430,61 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      if (THREE.ACESFilmicToneMapping !== undefined) {
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.06;
+      }
       if (THREE.sRGBEncoding !== undefined) {
         renderer.outputEncoding = THREE.sRGBEncoding;
       }
 
       const scene = new THREE.Scene();
-      const skyColorHex = matchWeather.id === "night" ? 0x050b16 : (matchWeather.id === "rain" ? 0x0f172a : 0x0b172a);
+      const skyColorHex = matchWeather.id === "night" ? 0x050b16 : (matchWeather.id === "rain" ? 0x0c1424 : 0x081120);
       scene.background = new THREE.Color(skyColorHex);
-      scene.fog = new THREE.FogExp2(skyColorHex, 0.0024);
+      scene.fog = new THREE.FogExp2(skyColorHex, 0.0020);
 
-      // 1. CÁMARA ESTILO RETRANSMISIÓN TV (PerspectiveCamera en lateral largo Y: 28, Z: 42)
+      // 1. CÁMARA ESTILO RETRANSMISIÓN TV (PerspectiveCamera en lateral largo Y: 21.5, Z: 36.0, FOV: 35)
       const rect0 = targetCanvas.getBoundingClientRect();
       const initAspect = (rect0.width > 0 && rect0.height > 0) ? (rect0.width / rect0.height) : (16 / 9);
-      const camera = new THREE.PerspectiveCamera(38, initAspect, 1.0, 320);
-      camera.position.set(0, 28, 42);
-      const camLookCurrent = new THREE.Vector3(0, 0.6, -1.5);
+      const camera = new THREE.PerspectiveCamera(35, initAspect, 1.0, 340);
+      camera.position.set(0, 21.5, 36.0);
+      const camLookCurrent = new THREE.Vector3(0, 0.55, -1.5);
       camera.lookAt(camLookCurrent);
 
-      // 2. ILUMINACIÓN Y SOMBRAS SUAVES (AmbientLight + DirectionalLight con shadowMap)
-      const ambientIntensity = matchWeather.id === "sunny" ? 0.68 : (matchWeather.id === "rain" ? 0.56 : 0.62);
-      const ambientLight = new THREE.AmbientLight(0xffffff, ambientIntensity);
+      // 2. ILUMINACIÓN AMBIENTAL SUAVE (HemisphereLight) + DIRECCIONAL CON SOMBRAS PROYECTADAS (castShadow)
+      const ambientIntensity = matchWeather.id === "sunny" ? 0.44 : (matchWeather.id === "rain" ? 0.36 : 0.40);
+      const ambientLight = new THREE.AmbientLight(0xeef6ff, ambientIntensity);
       scene.add(ambientLight);
 
-      const hemiLight = new THREE.HemisphereLight(0xdbeafe, 0x14532d, 0.34);
-      hemiLight.position.set(0, 60, 0);
+      // HemisphereLight: luz suave del cielo nocturno/estadio arriba y rebote verdoso del césped abajo
+      const hemiSkyColor = matchWeather.id === "sunny" ? 0xe0f2fe : 0xc7e2ff;
+      const hemiGroundColor = 0x14532d;
+      const hemiLight = new THREE.HemisphereLight(hemiSkyColor, hemiGroundColor, 0.56);
+      hemiLight.position.set(0, 68, 0);
       scene.add(hemiLight);
 
-      const sunColor = matchWeather.id === "sunny" ? 0xfffbeb : (matchWeather.id === "rain" ? 0xe2e8f0 : 0xf8fafc);
-      const dirLight = new THREE.DirectionalLight(sunColor, matchWeather.id === "sunny" ? 1.24 : 1.15);
-      dirLight.position.set(32, 62, 38);
+      // Luz Direccional principal (Focos del estadio / Sol) con sombras proyectadas nítidas sobre jugadores y balón
+      const sunColor = matchWeather.id === "sunny" ? 0xfff9e6 : (matchWeather.id === "rain" ? 0xe2e8f0 : 0xfff8eb);
+      const dirLight = new THREE.DirectionalLight(sunColor, matchWeather.id === "sunny" ? 1.42 : 1.32);
+      dirLight.position.set(34, 60, 36);
       dirLight.castShadow = true;
       dirLight.shadow.mapSize.width = 2048;
       dirLight.shadow.mapSize.height = 2048;
-      dirLight.shadow.camera.near = 10;
-      dirLight.shadow.camera.far = 155;
-      dirLight.shadow.camera.left = -64;
-      dirLight.shadow.camera.right = 64;
-      dirLight.shadow.camera.top = 46;
-      dirLight.shadow.camera.bottom = -46;
-      dirLight.shadow.bias = -0.0005;
+      dirLight.shadow.camera.near = 12;
+      dirLight.shadow.camera.far = 150;
+      dirLight.shadow.camera.left = -60;
+      dirLight.shadow.camera.right = 60;
+      dirLight.shadow.camera.top = 42;
+      dirLight.shadow.camera.bottom = -42;
+      dirLight.shadow.bias = -0.0004;
+      if (dirLight.shadow.normalBias !== undefined) {
+        dirLight.shadow.normalBias = 0.015;
+      }
       scene.add(dirLight);
 
-      // Luz de relleno suave desde el costado opuesto del estadio
-      const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.28);
-      fillLight.position.set(-36, 42, -35);
+      // Contraluz suave desde la tribuna opuesta para perfilar hombros y siluetas de jugadores
+      const fillLight = new THREE.DirectionalLight(0x93c5fd, 0.38);
+      fillLight.position.set(-38, 40, -36);
       scene.add(fillLight);
 
       const disposableTextures = [];
@@ -6360,11 +3500,12 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       const trackGeo = (g) => { if (g) disposableGeometries.push(g); return g; };
       const trackMat = (m) => { if (m) disposableMaterials.push(m); return m; };
 
-      // 3. CAMPO DE FÚTBOL PROFESIONAL (Textura procedural en Canvas con franjas de dos tonos de verde y líneas de cal)
+      // 3. TEXTURA PROCEDURAL DE CÉSPED CON FRANJAS DE CORTE REALISTAS, RUGOSIDAD (roughnessMap/bumpMap) Y LÍNEAS DE CAL NÍTIDAS
       const APRON_X = 8; // Margen por cada fondo (total ancho X = 121)
       const APRON_Z = 6; // Margen por cada banda (total ancho Z = 80)
       const TOTAL_W = PITCH_L + APRON_X * 2;
       const TOTAL_H = PITCH_W + APRON_Z * 2;
+      const maxAniso = renderer.capabilities.getMaxAnisotropy ? Math.min(16, renderer.capabilities.getMaxAnisotropy()) : 4;
 
       function buildPitchCanvasTexture() {
         const cw = 2048;
@@ -6379,8 +3520,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         const scaleX = cw / TOTAL_W;
         const scaleZ = ch / TOTAL_H;
 
-        // Césped perimetral exterior (moqueta/desahogo)
-        g.fillStyle = "#195826";
+        // Moqueta perimetral oscura alrededor del césped
+        g.fillStyle = "#12421c";
         g.fillRect(0, 0, cw, ch);
 
         const x0 = m2pxX(-PITCH_L / 2);
@@ -6388,38 +3529,63 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         const pw = PITCH_L * scaleX;
         const ph = PITCH_W * scaleZ;
 
-        // 18 Franjas verticales alternas de dos tonos de verde profesional
+        // 18 Franjas verticales de siega con degradado longitudinal de reflexión de la hierba
         const numStripes = 18;
         const stripeW = pw / numStripes;
         for (let i = 0; i < numStripes; i++) {
-          g.fillStyle = (i % 2 === 0) ? "#216e30" : "#2b823a";
-          g.fillRect(x0 + i * stripeW, z0, stripeW + 0.8, ph);
+          const sx = x0 + i * stripeW;
+          const stripeGrad = g.createLinearGradient(sx, z0, sx, z0 + ph);
+          if (i % 2 === 0) {
+            stripeGrad.addColorStop(0, "#1d662b");
+            stripeGrad.addColorStop(0.5, "#237632");
+            stripeGrad.addColorStop(1, "#1c6329");
+          } else {
+            stripeGrad.addColorStop(0, "#278037");
+            stripeGrad.addColorStop(0.5, "#2f9040");
+            stripeGrad.addColorStop(1, "#267c35");
+          }
+          g.fillStyle = stripeGrad;
+          g.fillRect(sx, z0, stripeW + 0.9, ph);
+
+          // Sutil línea de transición del rodillo cortacésped entre franjas
+          g.fillStyle = (i % 2 === 0) ? "rgba(255,255,255,0.025)" : "rgba(0,20,5,0.035)";
+          g.fillRect(sx, z0, 2.2, ph);
         }
 
-        // Pasadas horizontales sutiles de cortacésped (efecto damero suave de estadio élite)
+        // Pasadas horizontales cruzadas de cortacésped (damero profesional de estadio)
         const hStripes = 12;
         const hStripeH = ph / hStripes;
         for (let j = 0; j < hStripes; j++) {
-          if (j % 2 === 0) {
-            g.fillStyle = "rgba(255, 255, 255, 0.028)";
-            g.fillRect(x0, z0 + j * hStripeH, pw, hStripeH);
-          }
+          g.fillStyle = (j % 2 === 0) ? "rgba(255, 255, 255, 0.032)" : "rgba(0, 18, 6, 0.024)";
+          g.fillRect(x0, z0 + j * hStripeH, pw, hStripeH);
         }
 
-        // Micro-grano orgánico de hierba
-        for (let n = 0; n < 4500; n++) {
-          const rx = Math.random() * cw;
-          const rz = Math.random() * ch;
-          g.fillStyle = (n % 2 === 0) ? "rgba(255,255,255,0.03)" : "rgba(0,20,5,0.04)";
-          g.fillRect(rx, rz, 2, 2);
+        // Micro-briznas orgánicas de hierba y desgaste sutil en bocas de gol
+        for (let n = 0; n < 14000; n++) {
+          const rx = x0 + Math.random() * pw;
+          const rz = z0 + Math.random() * ph;
+          g.fillStyle = (n % 2 === 0) ? "rgba(255,255,255,0.034)" : "rgba(0,22,6,0.044)";
+          g.fillRect(rx, rz, 1.8, 2.2);
         }
+        [m2pxX(-PITCH_L / 2 + 3.0), m2pxX(PITCH_L / 2 - 3.0)].forEach(wx => {
+          const wear = g.createRadialGradient(wx, m2pxZ(0), 3, wx, m2pxZ(0), 7.2 * scaleX);
+          wear.addColorStop(0, "rgba(124, 104, 64, 0.18)");
+          wear.addColorStop(1, "rgba(124, 104, 64, 0)");
+          g.fillStyle = wear;
+          g.beginPath();
+          g.arc(wx, m2pxZ(0), 7.2 * scaleX, 0, Math.PI * 2);
+          g.fill();
+        });
 
-        // LÍNEAS DE CAL BLANCAS BIEN DEFINIDAS
-        g.strokeStyle = "rgba(255, 255, 255, 0.96)";
+        // LÍNEAS DE CAL BLANCAS ULTRA NÍTIDAS CON REALCE DE PIGMENTO
+        g.save();
+        g.strokeStyle = "rgba(252, 254, 255, 0.98)";
         g.fillStyle = "#ffffff";
-        g.lineWidth = Math.max(4.5, 0.24 * scaleX);
+        g.lineWidth = Math.max(5.0, 0.25 * scaleX);
         g.lineJoin = "round";
         g.lineCap = "round";
+        g.shadowColor = "rgba(255, 255, 255, 0.28)";
+        g.shadowBlur = 1.5;
 
         // Bandas y líneas de fondo
         g.strokeRect(x0, z0, pw, ph);
@@ -6479,22 +3645,59 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         g.beginPath(); g.arc(x0 + pw, z0 + ph, cR, Math.PI, Math.PI * 1.5); g.stroke();
         g.beginPath(); g.arc(x0, z0 + ph, cR, Math.PI * 1.5, Math.PI * 2); g.stroke();
 
-        // Líneas discontinuas del área técnica junto a la banda inferior
-        g.strokeStyle = "rgba(255, 255, 255, 0.55)";
-        g.lineWidth = Math.max(2, 0.14 * scaleX);
+        // Líneas del área técnica junto a la banda
+        g.strokeStyle = "rgba(255, 255, 255, 0.62)";
+        g.lineWidth = Math.max(2.2, 0.14 * scaleX);
         g.strokeRect(m2pxX(-22), m2pxZ(PITCH_W / 2 + 1.0), 14 * scaleX, 3.2 * scaleZ);
         g.strokeRect(m2pxX(8), m2pxZ(PITCH_W / 2 + 1.0), 14 * scaleX, 3.2 * scaleZ);
+        g.restore();
 
         const tex = new THREE.CanvasTexture(c);
-        tex.anisotropy = renderer.capabilities.getMaxAnisotropy ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 4;
+        tex.anisotropy = maxAniso;
         tex.needsUpdate = true;
         return trackTex(tex);
       }
 
+      // Mapa procedural de rugosidad y micro-relieve de hierba (roughnessMap + bumpMap)
+      function buildPitchRoughnessBumpTexture() {
+        const rw = 1024, rh = 677;
+        const rc = document.createElement("canvas");
+        rc.width = rw;
+        rc.height = rh;
+        const rg = rc.getContext("2d");
+
+        rg.fillStyle = "#d4d4d8";
+        rg.fillRect(0, 0, rw, rh);
+
+        const numStripes = 18;
+        const stripeW = rw / numStripes;
+        for (let i = 0; i < numStripes; i++) {
+          // Alternar rugosidad según dirección de peinado de las briznas de césped
+          rg.fillStyle = (i % 2 === 0) ? "#c8c8d0" : "#dedee6";
+          rg.fillRect(i * stripeW, 0, stripeW, rh);
+        }
+
+        for (let n = 0; n < 18000; n++) {
+          const rx = Math.random() * rw;
+          const ry = Math.random() * rh;
+          rg.fillStyle = (n % 2 === 0) ? "rgba(255,255,255,0.14)" : "rgba(40,40,45,0.14)";
+          rg.fillRect(rx, ry, 2, 2);
+        }
+
+        const rTex = new THREE.CanvasTexture(rc);
+        rTex.anisotropy = maxAniso;
+        rTex.needsUpdate = true;
+        return disposableTextures.push(rTex), rTex;
+      }
+
+      const pitchBumpRoughTex = buildPitchRoughnessBumpTexture();
       const pitchGeo = trackGeo(new THREE.PlaneGeometry(TOTAL_W, TOTAL_H));
       const pitchMat = trackMat(new THREE.MeshStandardMaterial({
         map: buildPitchCanvasTexture(),
-        roughness: 0.88,
+        bumpMap: pitchBumpRoughTex,
+        bumpScale: 0.045,
+        roughnessMap: pitchBumpRoughTex,
+        roughness: matchWeather.id === "rain" ? 0.76 : 0.88,
         metalness: 0.02
       }));
       const pitchMesh = new THREE.Mesh(pitchGeo, pitchMat);
@@ -6502,12 +3705,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
       pitchMesh.receiveShadow = true;
       scene.add(pitchMesh);
 
-      // Suelo oscuro exterior bajo las gradas para sellar cualquier hueco
-      const outerGroundGeo = trackGeo(new THREE.PlaneGeometry(240, 180));
-      const outerGroundMat = trackMat(new THREE.MeshLambertMaterial({ color: 0x090d16 }));
+      // Suelo oscuro perimetral amplio bajo las gradas para eliminar por completo cualquier vacío exterior
+      const outerGroundGeo = trackGeo(new THREE.PlaneGeometry(340, 260));
+      const outerGroundMat = trackMat(new THREE.MeshStandardMaterial({ color: 0x050912, roughness: 0.96, metalness: 0.02 }));
       const outerGround = new THREE.Mesh(outerGroundGeo, outerGroundMat);
       outerGround.rotation.x = -Math.PI / 2;
       outerGround.position.y = -0.05;
+      outerGround.receiveShadow = true;
       scene.add(outerGround);
 
       // 4. BANDERINES DE CÓRNER 3D
@@ -6876,11 +4080,25 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         scene.add(stGroup);
       }
 
-      // 4 Gradas perimetrales (Norte/Fondo, Sur/Cámara, Oeste/Gol Local, Este/Gol Visitante)
-      createStadiumStand(PITCH_L + 36, PITCH_W / 2 + 5.8, 0);               // Tribuna Norte (frente a la cámara TV)
-      createStadiumStand(PITCH_L + 36, PITCH_W / 2 + 8.5, Math.PI);         // Tribuna Sur (detrás de cámara)
-      createStadiumStand(PITCH_W + 36, PITCH_L / 2 + 6.5, Math.PI / 2);     // Fondo Oeste (Portería Local)
-      createStadiumStand(PITCH_W + 36, PITCH_L / 2 + 6.5, -Math.PI / 2);    // Fondo Este (Portería Visitante)
+      // 4 Gradas perimetrales (Norte/Fondo, Sur/Cámara, Oeste/Gol Local, Este/Gol Visitante) + Cerramiento de esquinas del anillo
+      createStadiumStand(PITCH_L + 44, PITCH_W / 2 + 5.8, 0);               // Tribuna Norte (frente a la cámara TV)
+      createStadiumStand(PITCH_L + 44, PITCH_W / 2 + 8.5, Math.PI);         // Tribuna Sur (detrás de cámara)
+      createStadiumStand(PITCH_W + 44, PITCH_L / 2 + 6.5, Math.PI / 2);     // Fondo Oeste (Portería Local)
+      createStadiumStand(PITCH_W + 44, PITCH_L / 2 + 6.5, -Math.PI / 2);    // Fondo Este (Portería Visitante)
+
+      // Esquinas diagonales cerradas del estadio y anillo perimetral oscuro para eliminar cualquier hueco gris
+      const cornerWedgeGeo = trackGeo(new THREE.BoxGeometry(28, 22, 6));
+      [
+        [-PITCH_L / 2 - 12, -PITCH_W / 2 - 11, Math.PI * 0.25],
+        [PITCH_L / 2 + 12, -PITCH_W / 2 - 11, -Math.PI * 0.25],
+        [-PITCH_L / 2 - 12, PITCH_W / 2 + 12, Math.PI * 0.75],
+        [PITCH_L / 2 + 12, PITCH_W / 2 + 12, -Math.PI * 0.75]
+      ].forEach(([cx, cz, ry]) => {
+        const cw = new THREE.Mesh(cornerWedgeGeo, concreteMat);
+        cw.position.set(cx, 11, cz);
+        cw.rotation.y = ry;
+        scene.add(cw);
+      });
 
       // 4 Torres de iluminación en las esquinas del estadio
       const towerPoleGeo = trackGeo(new THREE.CylinderGeometry(0.6, 0.9, 34, 8));
@@ -6905,45 +4123,99 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         scene.add(tGroup);
       });
 
-      // 7. MODELADO 3D ARTICULADO DE LOS 22 JUGADORES Y EL BALÓN
+      // 7. MODELADO 3D ANATÓMICO ESTILO FOOTBALL MANAGER 27 (HUMANOIDES MULTI-ARTICULADOS)
       const jerseyTexCache = new Map();
+      const faceTexCache = new Map();
+      const sockTexCache = new Map();
 
-      function getJerseyTexture(jerseyHex, collarHex, numHex, number, isKeeper) {
-        const key = `${jerseyHex}_${collarHex}_${numHex}_${number}_${isKeeper ? 1 : 0}`;
+      function getJerseyTexture(jerseyHex, collarHex, numHex, number, playerName, isKeeper) {
+        const cleanLast = String(playerName || "").trim().split(/\s+/).slice(-1)[0].toUpperCase().slice(0, 11);
+        const key = `${jerseyHex}_${collarHex}_${numHex}_${number}_${cleanLast}_${isKeeper ? 1 : 0}`;
         if (jerseyTexCache.has(key)) return jerseyTexCache.get(key);
 
         const jc = document.createElement("canvas");
-        jc.width = 256;
-        jc.height = 256;
+        jc.width = 512;
+        jc.height = 512;
         const jg = jc.getContext("2d");
 
-        // Fondo de la camiseta
+        // Fondo de tela técnica deportiva
         jg.fillStyle = jerseyHex || "#ef4444";
-        jg.fillRect(0, 0, 256, 256);
+        jg.fillRect(0, 0, 512, 512);
 
-        // Sombreado lateral de pliegues
-        const grad = jg.createLinearGradient(0, 0, 256, 0);
-        grad.addColorStop(0, "rgba(0,0,0,0.18)");
-        grad.addColorStop(0.25, "rgba(255,255,255,0.08)");
-        grad.addColorStop(0.5, "rgba(0,0,0,0.12)");
-        grad.addColorStop(0.75, "rgba(255,255,255,0.08)");
-        grad.addColorStop(1, "rgba(0,0,0,0.18)");
+        // Micro-textura de tejido transpirable y sombreado anatómico de pecho/espalda
+        for (let y = 0; y < 512; y += 6) {
+          jg.fillStyle = (y % 12 === 0) ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.035)";
+          jg.fillRect(0, y, 512, 3);
+        }
+
+        // Sombreado volumétrico (cilindro mapeado: 0.25 = frente pecho, 0.75 = espalda dorsal)
+        const grad = jg.createLinearGradient(0, 0, 512, 0);
+        grad.addColorStop(0.00, "rgba(0,0,0,0.22)");
+        grad.addColorStop(0.18, "rgba(255,255,255,0.08)");
+        grad.addColorStop(0.32, "rgba(0,0,0,0.08)");
+        grad.addColorStop(0.50, "rgba(0,0,0,0.24)");
+        grad.addColorStop(0.75, "rgba(255,255,255,0.06)");
+        grad.addColorStop(1.00, "rgba(0,0,0,0.22)");
         jg.fillStyle = grad;
-        jg.fillRect(0, 0, 256, 256);
+        jg.fillRect(0, 0, 512, 512);
 
-        // Cuello superior y ribete inferior
+        // Cuello y ribete deportivo
         jg.fillStyle = collarHex || "#ffffff";
-        jg.fillRect(0, 0, 256, 18);
+        jg.fillRect(0, 0, 512, 26);
+        jg.fillStyle = "rgba(0,0,0,0.18)";
+        jg.fillRect(0, 26, 512, 6);
 
-        // Dorsal grande nítido para la espalda y pecho
-        jg.font = "900 112px 'Arial Black', Impact, sans-serif";
+        // Costuras laterales y patrocinador sutil en pecho (zona x ~ 128)
+        jg.fillStyle = "rgba(255,255,255,0.16)";
+        jg.fillRect(4, 32, 12, 460);
+        jg.fillRect(244, 32, 12, 460);
+
+        // Escudo del club en pecho izquierdo (x ~ 162, y ~ 115)
+        jg.save();
+        jg.fillStyle = collarHex || "#ffffff";
+        jg.beginPath();
+        jg.moveTo(156, 98);
+        jg.lineTo(180, 98);
+        jg.lineTo(180, 120);
+        jg.lineTo(168, 134);
+        jg.lineTo(156, 120);
+        jg.closePath();
+        jg.fill();
+        jg.strokeStyle = "rgba(15,23,42,0.55)";
+        jg.lineWidth = 2.5;
+        jg.stroke();
+        jg.restore();
+
+        // Pequeño dorsal / sponsor en el pecho (x ~ 128)
+        jg.fillStyle = numHex || "#ffffff";
+        jg.globalAlpha = 0.85;
+        jg.font = "900 32px 'Arial Black', sans-serif";
         jg.textAlign = "center";
         jg.textBaseline = "middle";
-        jg.lineWidth = 8;
-        jg.strokeStyle = "rgba(15, 23, 42, 0.75)";
-        jg.strokeText(`${number || 9}`, 128, 138);
+        jg.fillText(`${number || 9}`, 110, 118);
+        jg.fillRect(88, 185, 80, 10);
+        jg.globalAlpha = 1.0;
+
+        // ESPALDA (x ~ 384): Apellido + Dorsal grande nítido estilo retransmisión TV
+        if (cleanLast) {
+          jg.font = "800 30px 'Arial Narrow', Impact, sans-serif";
+          jg.textAlign = "center";
+          jg.textBaseline = "middle";
+          jg.lineWidth = 5;
+          jg.strokeStyle = "rgba(15, 23, 42, 0.72)";
+          jg.strokeText(cleanLast, 384, 102);
+          jg.fillStyle = numHex || "#ffffff";
+          jg.fillText(cleanLast, 384, 102);
+        }
+
+        jg.font = "900 176px 'Arial Black', Impact, sans-serif";
+        jg.textAlign = "center";
+        jg.textBaseline = "middle";
+        jg.lineWidth = 10;
+        jg.strokeStyle = "rgba(15, 23, 42, 0.78)";
+        jg.strokeText(`${number || 9}`, 384, 268);
         jg.fillStyle = numHex || "#ffffff";
-        jg.fillText(`${number || 9}`, 128, 138);
+        jg.fillText(`${number || 9}`, 384, 268);
 
         const tex = new THREE.CanvasTexture(jc);
         tex.needsUpdate = true;
@@ -6952,36 +4224,208 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         return tex;
       }
 
-      // Geometrías compartidas para los 22 futbolistas 3D (altura realista ~2.15m en escala TV para visibilidad perfecta)
-      const sharedTorsoGeo = trackGeo(new THREE.BoxGeometry(0.68, 0.78, 0.38));
-      const sharedShortsGeo = trackGeo(new THREE.BoxGeometry(0.64, 0.34, 0.36));
-      const sharedHeadGeo = trackGeo(new THREE.SphereGeometry(0.24, 14, 14));
-      const sharedHairGeo = trackGeo(new THREE.SphereGeometry(0.25, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.58));
-      const sharedThighGeo = trackGeo(new THREE.CylinderGeometry(0.125, 0.105, 0.42, 10));
-      const sharedSockGeo = trackGeo(new THREE.CylinderGeometry(0.105, 0.082, 0.44, 10));
-      const sharedBootGeo = trackGeo(new THREE.BoxGeometry(0.18, 0.12, 0.34));
-      const sharedSleeveGeo = trackGeo(new THREE.CylinderGeometry(0.11, 0.095, 0.30, 8));
-      const sharedForearmGeo = trackGeo(new THREE.CylinderGeometry(0.088, 0.072, 0.34, 8));
-      const sharedHandGeo = trackGeo(new THREE.SphereGeometry(0.085, 8, 8));
-      const sharedCarrierRingGeo = trackGeo(new THREE.RingGeometry(0.68, 0.92, 24));
-      const sharedShadowDiscGeo = trackGeo(new THREE.CircleGeometry(0.55, 16));
+      function getFaceTexture(skinHexInt, hairHexInt, hasBeard) {
+        const key = `${skinHexInt}_${hairHexInt}_${hasBeard ? 1 : 0}`;
+        if (faceTexCache.has(key)) return faceTexCache.get(key);
 
-      const skinTones = [0xf5cba7, 0xe0ac69, 0xd2996c, 0x8d5524, 0xf1c27d];
-      const hairColors = [0x1c1917, 0x3f2305, 0x713f12, 0x0f172a, 0x92400e];
-      const bootColors = [0x111827, 0xf97316, 0x38bdf8, 0xfacc15, 0xec4899];
+        const fc = document.createElement("canvas");
+        fc.width = 256;
+        fc.height = 128;
+        const fg = fc.getContext("2d");
+
+        const skinStr = "#" + skinHexInt.toString(16).padStart(6, "0");
+        const hairStr = "#" + hairHexInt.toString(16).padStart(6, "0");
+
+        fg.fillStyle = skinStr;
+        fg.fillRect(0, 0, 256, 128);
+
+        // Sombreado sutil de mejillas y mandíbula
+        const faceGrad = fg.createLinearGradient(0, 0, 0, 128);
+        faceGrad.addColorStop(0, "rgba(255,255,255,0.08)");
+        faceGrad.addColorStop(0.7, "rgba(0,0,0,0.04)");
+        faceGrad.addColorStop(1, "rgba(0,0,0,0.16)");
+        fg.fillStyle = faceGrad;
+        fg.fillRect(0, 0, 256, 128);
+
+        // Rostro centrado en u = 0.25 (x = 64) para esfera estándar Three.js mirando hacia +Z
+        const cx = 64;
+        // Cejas
+        fg.fillStyle = hairStr;
+        fg.fillRect(cx - 20, 50, 13, 3.5);
+        fg.fillRect(cx + 7, 50, 13, 3.5);
+
+        // Ojos realistas
+        fg.fillStyle = "#f8fafc";
+        fg.beginPath();
+        fg.ellipse(cx - 13, 59, 5.2, 3.2, 0, 0, Math.PI * 2);
+        fg.ellipse(cx + 13, 59, 5.2, 3.2, 0, 0, Math.PI * 2);
+        fg.fill();
+
+        fg.fillStyle = "#1e293b";
+        fg.beginPath();
+        fg.arc(cx - 13, 59, 2.3, 0, Math.PI * 2);
+        fg.arc(cx + 13, 59, 2.3, 0, Math.PI * 2);
+        fg.fill();
+
+        // Sombra de nariz
+        fg.fillStyle = "rgba(80, 40, 20, 0.22)";
+        fg.beginPath();
+        fg.moveTo(cx, 58);
+        fg.lineTo(cx - 3.5, 73);
+        fg.lineTo(cx + 3.5, 73);
+        fg.closePath();
+        fg.fill();
+
+        // Barba / sombra facial opcional
+        if (hasBeard) {
+          fg.fillStyle = hairStr;
+          fg.globalAlpha = 0.36;
+          fg.beginPath();
+          fg.ellipse(cx, 88, 22, 16, 0, 0, Math.PI * 2);
+          fg.fill();
+          fg.globalAlpha = 1.0;
+        }
+
+        // Boca
+        fg.strokeStyle = "rgba(110, 52, 42, 0.65)";
+        fg.lineWidth = 2.6;
+        fg.beginPath();
+        fg.moveTo(cx - 8, 83);
+        fg.quadraticCurveTo(cx, 86, cx + 8, 83);
+        fg.stroke();
+
+        const tex = new THREE.CanvasTexture(fc);
+        tex.needsUpdate = true;
+        trackTex(tex);
+        faceTexCache.set(key, tex);
+        return tex;
+      }
+
+      function getSockTexture(socksHex, accentHex) {
+        const key = `${socksHex}_${accentHex}`;
+        if (sockTexCache.has(key)) return sockTexCache.get(key);
+        const sc = document.createElement("canvas");
+        sc.width = 64;
+        sc.height = 128;
+        const sg = sc.getContext("2d");
+        sg.fillStyle = socksHex || "#ffffff";
+        sg.fillRect(0, 0, 64, 128);
+        // Franjas superiores de la media
+        sg.fillStyle = accentHex || "#ffffff";
+        sg.fillRect(0, 8, 64, 10);
+        sg.fillRect(0, 24, 64, 6);
+        // Vendaje blanco en tobillo (detalle clásico de futbolista)
+        sg.fillStyle = "#f8fafc";
+        sg.fillRect(0, 108, 64, 20);
+        const tex = new THREE.CanvasTexture(sc);
+        tex.needsUpdate = true;
+        trackTex(tex);
+        sockTexCache.set(key, tex);
+        return tex;
+      }
+
+      // Geometrías anatómicas compartidas (altura final exacta 1.80m sobre campo 105x68m)
+      // Siluetas esculpidas con THREE.LatheGeometry (perfiles curvos, nada cuadrado)
+      function buildLatheGeo(profile, segments, remapV) {
+        // Perfil siempre de abajo a arriba para que las normales apunten hacia fuera
+        if (profile[0][1] > profile[profile.length - 1][1]) profile = profile.slice().reverse();
+        const pts = profile.map(([r, y]) => new THREE.Vector2(Math.max(0.0005, r), y));
+        const geo = new THREE.LatheGeometry(pts, segments || 20);
+        if (remapV) {
+          // UV vertical proporcional a la altura real para que la textura (dorsal/escudo) no se deforme
+          const pos = geo.attributes.position;
+          const uv = geo.attributes.uv;
+          let yMin = Infinity, yMax = -Infinity;
+          for (let i = 0; i < pos.count; i++) {
+            const y = pos.getY(i);
+            if (y < yMin) yMin = y;
+            if (y > yMax) yMax = y;
+          }
+          const span = Math.max(0.0001, yMax - yMin);
+          for (let i = 0; i < pos.count; i++) {
+            uv.setY(i, (pos.getY(i) - yMin) / span);
+          }
+          uv.needsUpdate = true;
+        }
+        geo.computeVertexNormals();
+        return trackGeo(geo);
+      }
+
+      // Torso atlético en V: cintura fina, dorsales y pecho marcados, hombros anchos y trapecio suave
+      const sharedTorsoLatheGeo = buildLatheGeo([
+        [0.000, -0.040], [0.150, -0.040], [0.172, -0.010], [0.176, 0.050],
+        [0.168, 0.120], [0.166, 0.180], [0.180, 0.250], [0.205, 0.320],
+        [0.226, 0.390], [0.238, 0.450], [0.236, 0.495], [0.215, 0.530],
+        [0.170, 0.556], [0.115, 0.572], [0.070, 0.580], [0.000, 0.582]
+      ], 28, true);
+      const sharedCollarGeo = trackGeo(new THREE.TorusGeometry(0.082, 0.018, 8, 20));
+      const sharedNeckGeo = buildLatheGeo([
+        [0.000, -0.07], [0.090, -0.07], [0.078, -0.02], [0.066, 0.03], [0.064, 0.07], [0.000, 0.07]
+      ], 14);
+      const sharedShoulderCapGeo = trackGeo(new THREE.SphereGeometry(0.094, 16, 12));
+      // Pantalón: cadera redondeada y perneras con caída natural acampanada
+      const sharedPelvisGeo = buildLatheGeo([
+        [0.000, -0.105], [0.150, -0.105], [0.196, -0.075], [0.212, -0.010],
+        [0.206, 0.050], [0.186, 0.095], [0.000, 0.100]
+      ], 24);
+      const sharedShortLegGeo = buildLatheGeo([
+        [0.108, 0.115], [0.116, 0.060], [0.122, -0.010], [0.130, -0.075], [0.136, -0.115], [0.131, -0.122]
+      ], 18);
+      const sharedHipJointGeo = trackGeo(new THREE.SphereGeometry(0.112, 16, 12));
+      const sharedHeadGeo = trackGeo(new THREE.SphereGeometry(0.135, 20, 16));
+      const sharedEarGeo = trackGeo(new THREE.SphereGeometry(0.026, 8, 8));
+      const sharedHairCapGeo = trackGeo(new THREE.SphereGeometry(0.143, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.56));
+      const sharedHairFadeGeo = buildLatheGeo([
+        [0.000, -0.035], [0.135, -0.035], [0.132, 0.015], [0.105, 0.040], [0.000, 0.045]
+      ], 16);
+      const sharedHairBunGeo = trackGeo(new THREE.SphereGeometry(0.055, 10, 10));
+      // Extremidades con perfil muscular (cuádriceps, gemelo, antebrazo)
+      const sharedThighGeo = buildLatheGeo([
+        [0.092, 0.185], [0.101, 0.110], [0.100, 0.030], [0.092, -0.050], [0.080, -0.130], [0.073, -0.185]
+      ], 16);
+      const sharedKneeCapGeo = trackGeo(new THREE.SphereGeometry(0.075, 14, 10));
+      const sharedCalfGeo = buildLatheGeo([
+        [0.072, 0.195], [0.079, 0.120], [0.077, 0.050], [0.064, -0.040], [0.052, -0.130], [0.048, -0.195]
+      ], 16);
+      const sharedAnkleGeo = trackGeo(new THREE.SphereGeometry(0.050, 12, 10));
+      // Botas redondeadas: horma elipsoidal + puntera + talón + suela ovalada
+      const sharedBootUpperGeo = trackGeo(new THREE.SphereGeometry(0.056, 16, 12));
+      const sharedBootToeGeo = trackGeo(new THREE.SphereGeometry(0.052, 14, 10));
+      const sharedBootHeelGeo = trackGeo(new THREE.SphereGeometry(0.048, 12, 10));
+      const sharedBootSoleGeo = trackGeo(new THREE.CylinderGeometry(0.056, 0.056, 0.020, 20));
+      const sharedSleeveGeo = buildLatheGeo([
+        [0.080, 0.125], [0.083, 0.060], [0.078, -0.020], [0.072, -0.090], [0.070, -0.120]
+      ], 16);
+      const sharedUpperArmGeo = buildLatheGeo([
+        [0.064, 0.020], [0.060, -0.060], [0.054, -0.120]
+      ], 14);
+      const sharedElbowCapGeo = trackGeo(new THREE.SphereGeometry(0.056, 12, 10));
+      const sharedForearmGeo = buildLatheGeo([
+        [0.054, 0.130], [0.058, 0.070], [0.052, 0.000], [0.043, -0.080], [0.038, -0.130]
+      ], 14);
+      const sharedWristGeo = trackGeo(new THREE.SphereGeometry(0.039, 10, 8));
+      const sharedHandGeo = trackGeo(new THREE.SphereGeometry(0.048, 12, 10));
+      const sharedGloveGeo = trackGeo(new THREE.SphereGeometry(0.062, 14, 10));
+      const sharedCarrierRingGeo = trackGeo(new THREE.RingGeometry(0.48, 0.66, 28));
+      const sharedShadowDiscGeo = trackGeo(new THREE.CircleGeometry(0.44, 18));
+
+      const skinTones = [0xf5cba7, 0xe5b887, 0xd49b6a, 0x8d5524, 0x6b3e26, 0xf1c27d];
+      const hairColors = [0x171412, 0x3b2314, 0x6b3e19, 0x0f172a, 0x9a6b32, 0x2c1e16];
+      const bootColors = [0x111827, 0xf97316, 0x38bdf8, 0xfacc15, 0xec4899, 0x22c55e, 0xf8fafc];
 
       const shadowDiscMat = trackMat(new THREE.MeshBasicMaterial({
         color: 0x021206,
         transparent: true,
-        opacity: 0.36,
+        opacity: 0.40,
         depthWrite: false
       }));
       const carrierRingMat = trackMat(new THREE.MeshBasicMaterial({
         color: 0xfbbf24,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.92
+        opacity: 0.90
       }));
+      const soleMat = trackMat(new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.7 }));
 
       function createPlayer3DModel(side, pData, index) {
         const root = new THREE.Group();
@@ -7000,21 +4444,32 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         const skinCol = skinTones[seed % skinTones.length];
         const hairCol = hairColors[(seed * 3) % hairColors.length];
         const bootCol = bootColors[(seed * 7) % bootColors.length];
+        const hairStyle = seed % 5; // 0: clásico, 1: fade alto, 2: rapado, 3: rizado/volumen, 4: moño/coleta
+        const hasBeard = (seed % 3) === 0;
 
         const jerseyMat = trackMat(new THREE.MeshStandardMaterial({
-          map: getJerseyTexture(jerseyHex, collarHex, numHex, pData.number || (index + 1), isGK),
-          roughness: 0.62,
-          metalness: 0.05
+          map: getJerseyTexture(jerseyHex, collarHex, numHex, pData.number || (index + 1), pData.player?.name, isGK),
+          roughness: 0.58,
+          metalness: 0.04
         }));
-        const solidJerseyMat = trackMat(new THREE.MeshStandardMaterial({ color: jerseyHex, roughness: 0.65 }));
-        const shortsMat = trackMat(new THREE.MeshStandardMaterial({ color: shortsHex, roughness: 0.7 }));
-        const socksMat = trackMat(new THREE.MeshStandardMaterial({ color: socksHex, roughness: 0.7 }));
-        const skinMat = trackMat(new THREE.MeshStandardMaterial({ color: skinCol, roughness: 0.65 }));
-        const hairMat = trackMat(new THREE.MeshStandardMaterial({ color: hairCol, roughness: 0.85 }));
-        const bootMat = trackMat(new THREE.MeshStandardMaterial({ color: bootCol, roughness: 0.4, metalness: 0.15 }));
-        const gloveMat = trackMat(new THREE.MeshStandardMaterial({ color: isGK ? 0xd9f99d : skinCol, roughness: 0.5 }));
+        const solidJerseyMat = trackMat(new THREE.MeshStandardMaterial({ color: jerseyHex, roughness: 0.60, metalness: 0.04 }));
+        const collarMat = trackMat(new THREE.MeshStandardMaterial({ color: collarHex, roughness: 0.55 }));
+        const shortsMat = trackMat(new THREE.MeshStandardMaterial({ color: shortsHex, roughness: 0.65 }));
+        const socksMat = trackMat(new THREE.MeshStandardMaterial({
+          map: getSockTexture(socksHex, collarHex),
+          roughness: 0.68
+        }));
+        const skinMat = trackMat(new THREE.MeshStandardMaterial({ color: skinCol, roughness: 0.58, metalness: 0.02 }));
+        const faceMat = trackMat(new THREE.MeshStandardMaterial({
+          map: getFaceTexture(skinCol, hairCol, hasBeard),
+          roughness: 0.56,
+          metalness: 0.02
+        }));
+        const hairMat = trackMat(new THREE.MeshStandardMaterial({ color: hairCol, roughness: 0.86 }));
+        const bootMat = trackMat(new THREE.MeshStandardMaterial({ color: bootCol, roughness: 0.34, metalness: 0.18 }));
+        const gloveMat = trackMat(new THREE.MeshStandardMaterial({ color: isGK ? 0xd9f99d : skinCol, roughness: 0.48 }));
 
-        // Sombra de oclusión de contacto en el césped + Aro de jugador activo
+        // Sombra de contacto en césped + Aro de portador
         const contactShadow = new THREE.Mesh(sharedShadowDiscGeo, shadowDiscMat);
         contactShadow.rotation.x = -Math.PI / 2;
         contactShadow.position.y = 0.02;
@@ -7022,93 +4477,223 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
         const carrierRing = new THREE.Mesh(sharedCarrierRingGeo, carrierRingMat);
         carrierRing.rotation.x = -Math.PI / 2;
-        carrierRing.position.y = 0.035;
+        carrierRing.position.y = 0.032;
         carrierRing.visible = false;
         root.add(carrierRing);
 
-        // Torso con dorsal
-        const torso = new THREE.Mesh(sharedTorsoGeo, jerseyMat);
-        torso.position.y = 1.32;
-        torso.castShadow = true;
-        torso.receiveShadow = true;
-        bodyGroup.add(torso);
+        // --- TREN SUPERIOR (Torso atlético en V esculpido con LatheGeometry + Hombros + Cuello + Cabeza) ---
+        const torsoGroup = new THREE.Group();
+        torsoGroup.position.set(0, 0.94, 0);
+        bodyGroup.add(torsoGroup);
 
-        // Pantalón corto (pelvis)
-        const shorts = new THREE.Mesh(sharedShortsGeo, shortsMat);
-        shorts.position.y = 0.84;
-        shorts.castShadow = true;
-        bodyGroup.add(shorts);
+        // Pecho, espalda y cintura en una sola superficie curva continua con textura de camiseta
+        const upperTorso = new THREE.Mesh(sharedTorsoLatheGeo, jerseyMat);
+        upperTorso.scale.set(1.14, 1.0, 0.70);
+        upperTorso.castShadow = true;
+        upperTorso.receiveShadow = true;
+        torsoGroup.add(upperTorso);
 
-        // Cabeza y pelo
+        // Cuello de la camiseta
+        const collarRing = new THREE.Mesh(sharedCollarGeo, collarMat);
+        collarRing.rotation.x = Math.PI / 2;
+        collarRing.scale.set(1.0, 0.82, 1.0);
+        collarRing.position.set(0, 0.575, 0);
+        torsoGroup.add(collarRing);
+
+        // Deltoides redondeados que funden torso y brazo sin cortes
+        [-0.252, 0.252].forEach(sx => {
+          const sh = new THREE.Mesh(sharedShoulderCapGeo, solidJerseyMat);
+          sh.scale.set(1.0, 0.92, 0.88);
+          sh.position.set(sx, 0.485, 0);
+          sh.castShadow = true;
+          torsoGroup.add(sh);
+        });
+
+        // Cuello anatómico y Cabeza con rostro + orejas + peinado variado
+        const neck = new THREE.Mesh(sharedNeckGeo, skinMat);
+        neck.position.set(0, 0.63, 0.005);
+        neck.castShadow = true;
+        torsoGroup.add(neck);
+
         const headGroup = new THREE.Group();
-        headGroup.position.set(0, 1.92, 0);
-        const headMesh = new THREE.Mesh(sharedHeadGeo, skinMat);
+        headGroup.position.set(0, 0.79, 0.012);
+        const headMesh = new THREE.Mesh(sharedHeadGeo, faceMat);
+        headMesh.scale.set(0.88, 1.04, 0.95);
         headMesh.castShadow = true;
         headGroup.add(headMesh);
 
-        const hairMesh = new THREE.Mesh(sharedHairGeo, hairMat);
-        hairMesh.rotation.x = -0.18;
-        hairMesh.position.y = 0.02;
-        hairMesh.castShadow = true;
-        headGroup.add(hairMesh);
-        bodyGroup.add(headGroup);
+        // Orejas
+        [-0.118, 0.118].forEach(ex => {
+          const ear = new THREE.Mesh(sharedEarGeo, skinMat);
+          ear.scale.set(0.65, 1.15, 0.8);
+          ear.position.set(ex, 0.0, -0.01);
+          headGroup.add(ear);
+        });
 
-        // Piernas articuladas (Izquierda y Derecha)
-        function buildLeg(offsetX) {
-          const legPivot = new THREE.Group();
-          legPivot.position.set(offsetX, 0.78, 0);
+        // Peinado según semilla del futbolista
+        if (hairStyle !== 2) {
+          const hairCap = new THREE.Mesh(sharedHairCapGeo, hairMat);
+          hairCap.scale.set(hairStyle === 3 ? 0.98 : 0.91, hairStyle === 3 ? 1.12 : 1.02, 0.98);
+          hairCap.rotation.x = -0.20;
+          hairCap.position.set(0, 0.018, -0.008);
+          hairCap.castShadow = true;
+          headGroup.add(hairCap);
 
-          const thigh = new THREE.Mesh(sharedThighGeo, skinMat);
-          thigh.position.y = -0.20;
-          thigh.castShadow = true;
-          legPivot.add(thigh);
-
-          const sock = new THREE.Mesh(sharedSockGeo, socksMat);
-          sock.position.y = -0.54;
-          sock.castShadow = true;
-          legPivot.add(sock);
-
-          const boot = new THREE.Mesh(sharedBootGeo, bootMat);
-          boot.position.set(0, -0.74, 0.06);
-          boot.castShadow = true;
-          legPivot.add(boot);
-
-          bodyGroup.add(legPivot);
-          return legPivot;
+          if (hairStyle === 1) {
+            const topFade = new THREE.Mesh(sharedHairFadeGeo, hairMat);
+            topFade.scale.set(0.85, 1.0, 0.90);
+            topFade.position.set(0, 0.115, 0.0);
+            headGroup.add(topFade);
+          } else if (hairStyle === 4) {
+            const bun = new THREE.Mesh(sharedHairBunGeo, hairMat);
+            bun.position.set(0, 0.07, -0.145);
+            headGroup.add(bun);
+          }
         }
+        torsoGroup.add(headGroup);
 
-        const leftLeg = buildLeg(-0.18);
-        const rightLeg = buildLeg(0.18);
-
-        // Brazos articulados (Izquierdo y Derecho)
-        function buildArm(offsetX) {
+        // --- BRAZOS MULTI-ARTICULADOS (Hombro -> Codo -> Muñeca -> Mano/Guante) con esferas de unión ---
+        const armSkinMat = isGK ? solidJerseyMat : skinMat;
+        function buildArticulatedArm(sideSign) {
           const armPivot = new THREE.Group();
-          armPivot.position.set(offsetX, 1.62, 0);
+          armPivot.position.set(sideSign * 0.272, 0.478, 0);
+
+          // Esfera de hombro (mismo material que la manga) que rota con el brazo
+          const shoulderJoint = new THREE.Mesh(sharedShoulderCapGeo, solidJerseyMat);
+          shoulderJoint.scale.set(0.86, 0.86, 0.86);
+          shoulderJoint.castShadow = true;
+          armPivot.add(shoulderJoint);
 
           const sleeve = new THREE.Mesh(sharedSleeveGeo, solidJerseyMat);
-          sleeve.position.y = -0.14;
+          sleeve.position.y = -0.11;
           sleeve.castShadow = true;
           armPivot.add(sleeve);
 
-          const forearm = new THREE.Mesh(sharedForearmGeo, isGK ? solidJerseyMat : skinMat);
-          forearm.position.y = -0.40;
+          // Bíceps visible bajo la manga
+          const upperArm = new THREE.Mesh(sharedUpperArmGeo, armSkinMat);
+          upperArm.position.y = -0.225;
+          upperArm.castShadow = true;
+          armPivot.add(upperArm);
+
+          const elbowPivot = new THREE.Group();
+          elbowPivot.position.set(0, -0.255, 0);
+
+          // Esfera de codo (mismo material que antebrazo) que oculta el corte al flexionar
+          const elbowJoint = new THREE.Mesh(sharedElbowCapGeo, armSkinMat);
+          elbowPivot.add(elbowJoint);
+
+          const forearm = new THREE.Mesh(sharedForearmGeo, armSkinMat);
+          forearm.position.y = -0.13;
           forearm.castShadow = true;
-          armPivot.add(forearm);
+          elbowPivot.add(forearm);
 
-          const hand = new THREE.Mesh(sharedHandGeo, gloveMat);
-          hand.position.y = -0.58;
+          const wrist = new THREE.Mesh(sharedWristGeo, isGK ? gloveMat : skinMat);
+          wrist.position.y = -0.262;
+          elbowPivot.add(wrist);
+
+          const hand = new THREE.Mesh(isGK ? sharedGloveGeo : sharedHandGeo, gloveMat);
+          hand.scale.set(0.82, 1.12, 0.62);
+          hand.position.y = -0.302;
           hand.castShadow = true;
-          armPivot.add(hand);
+          elbowPivot.add(hand);
 
-          bodyGroup.add(armPivot);
-          return armPivot;
+          armPivot.add(elbowPivot);
+          torsoGroup.add(armPivot);
+          return { armPivot, elbowPivot };
         }
 
-        const leftArm = buildArm(-0.43);
-        const rightArm = buildArm(0.43);
+        const leftArmRig = buildArticulatedArm(-1);
+        const rightArmRig = buildArticulatedArm(1);
 
-        // Escala global esbelta y visible en cámara de TV
-        bodyGroup.scale.set(1.18, 1.18, 1.18);
+        // --- PELVIS Y PANTALÓN CORTO (LatheGeometry redondeada) ---
+        const pelvis = new THREE.Mesh(sharedPelvisGeo, shortsMat);
+        pelvis.scale.set(1.04, 1.0, 0.76);
+        pelvis.position.set(0, 0.88, 0);
+        pelvis.castShadow = true;
+        bodyGroup.add(pelvis);
+
+        // --- PIERNAS MULTI-ARTICULADAS (Cadera -> Rodilla -> Tobillo -> Bota) con esferas de unión ---
+        function buildArticulatedLeg(offsetX) {
+          const hipPivot = new THREE.Group();
+          hipPivot.position.set(offsetX, 0.84, 0);
+
+          // Esfera de cadera (material del pantalón) para unir pelvis y pernera sin cortes
+          const hipJoint = new THREE.Mesh(sharedHipJointGeo, shortsMat);
+          hipJoint.scale.set(1.0, 0.95, 0.92);
+          hipJoint.castShadow = true;
+          hipPivot.add(hipJoint);
+
+          // Pernera con caída natural que acompaña al muslo
+          const shortLeg = new THREE.Mesh(sharedShortLegGeo, shortsMat);
+          shortLeg.position.y = -0.085;
+          shortLeg.castShadow = true;
+          hipPivot.add(shortLeg);
+
+          // Muslo atlético (cuádriceps)
+          const thigh = new THREE.Mesh(sharedThighGeo, skinMat);
+          thigh.position.y = -0.225;
+          thigh.castShadow = true;
+          hipPivot.add(thigh);
+
+          // Pivote de rodilla (flexión natural al correr y chutar)
+          const kneePivot = new THREE.Group();
+          kneePivot.position.set(0, -0.41, 0);
+
+          // Rótula esférica dentro del pivote: cubre la unión muslo-gemelo en cualquier flexión
+          const kneeCap = new THREE.Mesh(sharedKneeCapGeo, skinMat);
+          kneeCap.scale.set(1.0, 1.0, 1.02);
+          kneeCap.castShadow = true;
+          kneePivot.add(kneeCap);
+
+          // Gemelo con media y franjas
+          const calf = new THREE.Mesh(sharedCalfGeo, socksMat);
+          calf.position.y = -0.195;
+          calf.castShadow = true;
+          kneePivot.add(calf);
+
+          // Tobillo redondeado
+          const ankle = new THREE.Mesh(sharedAnkleGeo, socksMat);
+          ankle.position.y = -0.385;
+          kneePivot.add(ankle);
+
+          // Bota de fútbol redondeada: horma elipsoidal + puntera + talón + suela ovalada
+          const bootGroup = new THREE.Group();
+          bootGroup.position.set(0, -0.40, 0.04);
+
+          const bootUpper = new THREE.Mesh(sharedBootUpperGeo, bootMat);
+          bootUpper.scale.set(0.98, 0.78, 2.05);
+          bootUpper.position.set(0, 0.002, 0.012);
+          bootUpper.castShadow = true;
+          bootGroup.add(bootUpper);
+
+          const bootToe = new THREE.Mesh(sharedBootToeGeo, bootMat);
+          bootToe.scale.set(0.96, 0.66, 1.15);
+          bootToe.position.set(0, -0.014, 0.098);
+          bootToe.castShadow = true;
+          bootGroup.add(bootToe);
+
+          const bootHeel = new THREE.Mesh(sharedBootHeelGeo, bootMat);
+          bootHeel.scale.set(1.0, 0.92, 0.95);
+          bootHeel.position.set(0, 0.004, -0.078);
+          bootGroup.add(bootHeel);
+
+          const bootSole = new THREE.Mesh(sharedBootSoleGeo, soleMat);
+          bootSole.scale.set(1.0, 1.0, 2.35);
+          bootSole.position.set(0, -0.044, 0.012);
+          bootGroup.add(bootSole);
+
+          kneePivot.add(bootGroup);
+          hipPivot.add(kneePivot);
+          bodyGroup.add(hipPivot);
+          return { hipPivot, kneePivot };
+        }
+
+        const leftLegRig = buildArticulatedLeg(-0.112);
+        const rightLegRig = buildArticulatedLeg(0.112);
+
+        // Variación natural de estatura humana (1.76m - 1.88m)
+        const heightScale = 0.96 + ((seed % 7) * 0.014);
+        bodyGroup.scale.set(heightScale, heightScale, heightScale);
 
         // Etiqueta flotante con el nombre (visible solo en portador o receptor del pase)
         const buildNameTagTexture = (rawName, teamSide) => {
@@ -7156,8 +4741,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           depthWrite: false
         }));
         const nameSprite = new THREE.Sprite(nameSpriteMat);
-        nameSprite.position.set(0, 3.05, 0);
-        nameSprite.scale.set(3.4, 0.82, 1);
+        nameSprite.position.set(0, 2.25, 0);
+        nameSprite.scale.set(2.6, 0.62, 1);
         nameSprite.visible = false;
         nameSprite.renderOrder = 20;
         root.add(nameSprite);
@@ -7166,17 +4751,39 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         return {
           root,
           bodyGroup,
-          torso,
-          leftLeg,
-          rightLeg,
-          leftArm,
-          rightArm,
+          torsoGroup,
+          headGroup,
+          leftLeg: leftLegRig.hipPivot,
+          leftKnee: leftLegRig.kneePivot,
+          rightLeg: rightLegRig.hipPivot,
+          rightKnee: rightLegRig.kneePivot,
+          leftArm: leftArmRig.armPivot,
+          leftElbow: leftArmRig.elbowPivot,
+          rightArm: rightArmRig.armPivot,
+          rightElbow: rightArmRig.elbowPivot,
           carrierRing,
           nameSprite,
           nameSpriteMat,
           buildNameTagTexture,
           lastLabelName: pData.player?.name || `#${pData.number}`,
           jerseyMat,
+          solidJerseyMat,
+          shortsMat,
+          socksMat,
+          skinMat,
+          hairMat,
+          bootMat,
+          jerseyHex,
+          shortsHex,
+          socksHex,
+          skinCol,
+          hairCol,
+          bootCol,
+          heightScale,
+          smoothSpeed: 0,
+          kickT: 9,
+          kickActive: false,
+          prevKickPose: false,
           side,
           lastNumber: pData.number,
           isKeeper: isGK,
@@ -7288,6 +4895,9 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
       let prevBallWX = 0;
       let prevBallWZ = 0;
+      let smoothFocusX = 0;
+      let smoothFocusZ = 0;
+      let lastCamRenderTs = performance.now();
 
       function updateAndRender(closestLiveP, minLiveDist) {
         const rect = targetCanvas.getBoundingClientRect();
@@ -7300,7 +4910,10 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           camera.updateProjectionMatrix();
         }
 
-        const nowSec = performance.now() * 0.001;
+        const nowMs = performance.now();
+        const frameDt = Math.min(0.05, Math.max(0.004, (nowMs - lastCamRenderTs) * 0.001));
+        lastCamRenderTs = nowMs;
+        const nowSec = nowMs * 0.001;
 
         // Ondulación suave de banderines de córner y marquesina LED
         cornerFlags.forEach((fl, idx) => {
@@ -7326,10 +4939,8 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         // Posición 3D del balón
         const ballWX = simToWorldX(simulator.ball.x);
         const ballWZ = simToWorldZ(simulator.ball.y);
-        // En simulación continua real, usar la altura física exacta (pases rasos ruedan; cambios/centros levantan vuelo)
-        const distToTarget = Math.hypot((simulator.ball.targetX ?? simulator.ball.x) - simulator.ball.x, (simulator.ball.targetY ?? simulator.ball.y) - simulator.ball.y);
-        const autoArcY = (!simulator.useRealTime && !currentHighlightData && distToTarget > 6.5) ? Math.min(2.6, (distToTarget - 6.5) * 0.14) : 0;
-        const ballWY = ballRadius + Math.max(simToWorldY(simulator.ball.z), autoArcY);
+        // En simulación continua y replayBuffer, usar siempre la altura física real de simulator.ball.z
+        const ballWY = ballRadius + simToWorldY(simulator.ball.z);
 
         const bvx = ballWX - prevBallWX;
         const bvz = ballWZ - prevBallWZ;
@@ -7350,6 +4961,11 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           ? (simulator.ball.carrier || simulator.ball.passTarget || (minLiveDist < 4.5 ? closestLiveP : null))
           : (minLiveDist < 5.8 ? closestLiveP : null);
 
+        // Animación continua de vallas LED perimetrales estilo TV
+        if (adTex) {
+          adTex.offset.x = (nowSec * 0.025) % 1;
+        }
+
         // Actualizar los 22 jugadores 3D (11 Locales + 11 Visitantes)
         const syncTeamModels = (simArr, modelsArr) => {
           simArr.forEach((p, idx) => {
@@ -7363,7 +4979,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               const jerseyHex = m.isKeeper ? (kit.keeper || "#10b981") : (kit.jersey || (m.side === "home" ? homeTeam.primaryColor : awayTeam.primaryColor) || "#ef4444");
               const collarHex = m.isKeeper ? "#ffffff" : (kit.collar || "#ffffff");
               const numHex = m.isKeeper ? "#0f172a" : (kit.number || "#ffffff");
-              m.jerseyMat.map = getJerseyTexture(jerseyHex, collarHex, numHex, p.number, m.isKeeper);
+              m.jerseyMat.map = getJerseyTexture(jerseyHex, collarHex, numHex, p.number, p.player?.name, m.isKeeper);
               m.jerseyMat.needsUpdate = true;
             }
             const curName = p.player?.name || `#${p.number}`;
@@ -7385,7 +5001,7 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
 
             m.root.position.set(wx, wy, wz);
 
-            // Orientación corporal suave (lerp del ángulo): mira hacia donde corre o hacia el balón si está perfilado/esperando
+            // Orientación corporal suave (lerp del ángulo): mira hacia donde corre o hacia el balón
             let targetYaw = m.yaw;
             if (simulator.useRealTime && p.facingX !== undefined && p.facingZ !== undefined) {
               if ((p.speedMps || 0) > 0.45) {
@@ -7410,6 +5026,13 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
             m.yaw += angleDiff * 0.14;
             m.bodyGroup.rotation.y = m.yaw;
 
+            // Seguimiento natural de cabeza hacia el balón
+            if (m.headGroup) {
+              const ballYaw = Math.atan2(ballWX - wx, ballWZ - wz);
+              const headDelta = Math.atan2(Math.sin(ballYaw - m.yaw), Math.cos(ballYaw - m.yaw));
+              m.headGroup.rotation.y = Math.max(-0.65, Math.min(0.65, headDelta * 0.65));
+            }
+
             // Aro indicador y etiqueta flotante solo sobre portador o receptor del pase
             const isFocus = (p === focusPlayer);
             m.carrierRing.visible = isFocus;
@@ -7421,64 +5044,179 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
               m.carrierRing.scale.set(pulse, pulse, 1);
             }
 
-            // Animación biomecánica de piernas, brazos y torso
-            const hlPose = currentHighlightData ? p.hlPose : null;
-            m.bodyGroup.rotation.z = 0;
-            m.bodyGroup.rotation.x = 0;
+            // Animación procedural fluida (independiente de FPS): carrera biomecánica, golpeo en 3 fases y poses especiales
+            const simPose = p.pose;
+            const dtA = Math.max(0.001, Math.min(0.05, frameDt || (1 / 60)));
+            const kJoint = 1 - Math.exp(-14 * dtA);
+            const damp = (cur, target, k) => cur + (target - cur) * (k === undefined ? kJoint : k);
 
-            if (hlPose === "DIVE_LEFT" || hlPose === "DIVE_RIGHT") {
-              const dir = hlPose === "DIVE_LEFT" ? 1 : -1;
-              m.bodyGroup.rotation.z = dir * 1.18;
-              m.leftArm.rotation.x = -2.5;
-              m.rightArm.rotation.x = -2.5;
-              m.leftLeg.rotation.x = 0.25;
-              m.rightLeg.rotation.x = -0.25;
-            } else if (hlPose === "SLIDE_BLOCK") {
-              m.bodyGroup.rotation.x = -0.75;
-              m.leftLeg.rotation.x = -1.1;
-              m.rightLeg.rotation.x = 0.4;
-              m.leftArm.rotation.x = -0.6;
-              m.rightArm.rotation.x = 0.6;
-            } else if (hlPose === "WINDUP_SHOT") {
-              m.bodyGroup.rotation.x = 0.14;
-              m.leftLeg.rotation.x = -0.25;
-              m.rightLeg.rotation.x = 0.95; // Pierna derecha armada atrás para disparar
-              m.leftArm.rotation.x = -0.65;
-              m.rightArm.rotation.x = 0.75;
-            } else if (hlPose === "SHOT_FOLLOW_THROUGH" || hlPose === "PASS_DELIVERY") {
-              m.bodyGroup.rotation.x = -0.12;
-              m.leftLeg.rotation.x = 0.35;
-              m.rightLeg.rotation.x = -1.05; // Pierna de golpeo lanzada adelante
-              m.leftArm.rotation.x = 0.65;
-              m.rightArm.rotation.x = -0.75;
-            } else if (hlPose === "CELEBRATE_JUMP") {
-              m.bodyGroup.position.y = Math.abs(Math.sin(nowSec * 10 + idx)) * 0.35;
-              m.leftArm.rotation.x = -2.6;
-              m.rightArm.rotation.x = -2.6;
-              m.leftLeg.rotation.x = 0.2;
-              m.rightLeg.rotation.x = -0.2;
-            } else {
-              const effectiveSpeed = clamp(speed * 13.5, 0, 1.35);
-              if (effectiveSpeed > 0.08) {
-                m.stridePhase += 0.22 + effectiveSpeed * 0.26;
-                const amp = Math.min(0.88, 0.28 + effectiveSpeed * 0.48);
-                const s = Math.sin(m.stridePhase);
-                const c = Math.cos(m.stridePhase);
-                m.leftLeg.rotation.x = s * amp;
-                m.rightLeg.rotation.x = -s * amp;
-                m.leftArm.rotation.x = -s * amp * 0.75;
-                m.rightArm.rotation.x = s * amp * 0.75;
-                m.bodyGroup.position.y = Math.abs(c) * 0.08;
-                m.bodyGroup.rotation.x = Math.min(0.18, effectiveSpeed * 0.11);
+            // Velocidad real medida en el visor (m/s) suavizada para evitar saltos de ritmo
+            const measuredMps = Math.min(10.5, speed / dtA);
+            m.smoothSpeed = (m.smoothSpeed || 0) + (measuredMps - (m.smoothSpeed || 0)) * (1 - Math.exp(-7 * dtA));
+            const mps = m.smoothSpeed;
+
+            const isKickPose = (simPose === "kick" || simPose === "SHOT_FOLLOW_THROUGH" || simPose === "PASS_DELIVERY" || simPose === "SHOOT" || simPose === "PASS");
+            if (isKickPose && !m.prevKickPose) {
+              m.kickT = 0;
+              m.kickActive = true;
+            }
+            m.prevKickPose = isKickPose;
+            if (m.kickActive) {
+              m.kickT += dtA;
+              if (!isKickPose && m.kickT > 0.62) m.kickActive = false;
+            }
+
+            let tBodyY = 0, tBodyRX = 0, tBodyRZ = 0;
+            let tTorsoRX = 0.02, tTorsoRY = 0, tTorsoRZ = 0;
+            let tLLegX = 0, tRLegX = 0, tLLegZ = 0, tRLegZ = 0, tLKneeX = 0.10, tRKneeX = 0.10;
+            let tLArmX = 0.04, tRArmX = 0.04, tLArmZ = -0.10, tRArmZ = 0.10;
+            let tLElbowX = -0.30, tRElbowX = -0.30;
+            let k = kJoint;
+
+            if (simPose === "dive" || simPose === "DIVE_LEFT" || simPose === "DIVE_RIGHT") {
+              const dir = simPose === "DIVE_RIGHT" ? -1 : (ballWZ >= wz ? -1 : 1);
+              tBodyY = 0.35;
+              tBodyRZ = dir * 1.28;
+              tLArmX = -2.65; tRArmX = -2.65;
+              tLElbowX = -0.15; tRElbowX = -0.15;
+              tLLegX = 0.22; tRLegX = -0.18;
+              tLKneeX = 0.35; tRKneeX = 0.45;
+              k = 1 - Math.exp(-10 * dtA);
+            } else if (simPose === "SLIDE_BLOCK" || simPose === "slide") {
+              tBodyY = -0.35;
+              tBodyRX = -0.92;
+              tLLegX = -1.15; tRLegX = 0.45;
+              tLKneeX = 0.15; tRKneeX = 1.25;
+              tLArmX = -0.5; tRArmX = 0.65;
+              tLElbowX = -0.6; tRElbowX = -0.8;
+              k = 1 - Math.exp(-10 * dtA);
+            } else if (simPose === "jump" || simPose === "HEADER") {
+              tBodyY = 0.48;
+              tTorsoRX = 0.20;
+              tLLegX = -0.22; tRLegX = 0.18;
+              tLKneeX = 0.68; tRKneeX = 0.72;
+              tLArmX = -0.45; tRArmX = -0.45;
+              tLArmZ = -0.55; tRArmZ = 0.55;
+              tLElbowX = -0.75; tRElbowX = -0.75;
+              k = 1 - Math.exp(-10 * dtA);
+            } else if (simPose === "celebrate" || simPose === "CELEBRATE_JUMP") {
+              tBodyY = Math.abs(Math.sin(nowSec * 10 + idx)) * 0.36;
+              tLArmX = -2.55; tRArmX = -2.55;
+              tLArmZ = -0.35; tRArmZ = 0.35;
+              tLElbowX = -0.25; tRElbowX = -0.25;
+              tLLegX = 0.2; tRLegX = -0.2;
+              tLKneeX = 0.45; tRKneeX = 0.45;
+            } else if (m.kickActive) {
+              // GOLPEO EN 3 FASES: armado (pierna atrás, rodilla flexionada) -> impacto (latigazo) -> acompañamiento
+              const t = m.kickT;
+              const ease = (x) => x * x * (3 - 2 * x);
+              let legX, kneeX;
+              if (t < 0.17) {
+                const u = ease(t / 0.17);
+                legX = 0.78 * u;
+                kneeX = 0.15 + 1.25 * u;
+                tTorsoRX = -0.04 - 0.08 * u;
+                tTorsoRY = 0.22 * u;
+              } else if (t < 0.29) {
+                const u = ease((t - 0.17) / 0.12);
+                legX = 0.78 - 1.98 * u;
+                kneeX = 1.40 - 1.25 * u;
+                tTorsoRY = 0.22 - 0.50 * u;
+                tTorsoRX = -0.12 + 0.02 * u;
               } else {
-                // Postura de alerta respirando suavemente
-                m.leftLeg.rotation.x *= 0.8;
-                m.rightLeg.rotation.x *= 0.8;
-                m.leftArm.rotation.x = Math.sin(nowSec * 2.5 + idx) * 0.06;
-                m.rightArm.rotation.x = -Math.sin(nowSec * 2.5 + idx) * 0.06;
-                m.bodyGroup.position.y = 0;
+                const u = ease(Math.min(1, (t - 0.29) / 0.33));
+                legX = -1.20 + 0.75 * u;
+                kneeX = 0.15 + 0.20 * u;
+                tTorsoRY = -0.28 + 0.20 * u;
+                tTorsoRX = -0.10 + 0.08 * u;
+              }
+              tRLegX = legX;
+              tRKneeX = kneeX;
+              tLLegX = 0.16;
+              tLKneeX = 0.32;
+              tBodyY = -0.035;
+              // Brazos de equilibrio: el contrario abierto y adelantado, el del lado del golpeo atrás
+              tLArmX = -0.45; tLArmZ = -0.72; tLElbowX = -0.55;
+              tRArmX = 0.55; tRArmZ = 0.30; tRElbowX = -0.70;
+              tTorsoRZ = 0.06;
+              k = 1 - Math.exp(-26 * dtA);
+            } else {
+              // CARRERA BIOMECÁNICA: cadencia y amplitud dependientes de la velocidad real (trote -> sprint)
+              const gaitW = clamp((mps - 0.25) / 1.4, 0, 1);
+              const strideHz = 0.85 + Math.min(mps, 9) * 0.135;
+              m.stridePhase += Math.PI * 2 * strideHz * dtA * (0.35 + 0.65 * gaitW);
+              const ph = m.stridePhase;
+              const s = Math.sin(ph);
+              const c = Math.cos(ph);
+              const sprintF = clamp((mps - 3.5) / 4.5, 0, 1);
+
+              const hipAmp = (0.22 + Math.min(mps, 9) * 0.075) * gaitW;
+              const kneeAmp = (0.45 + Math.min(mps, 9) * 0.15) * gaitW;
+              const armAmp = (0.16 + Math.min(mps, 9) * 0.085) * gaitW;
+
+              // Caderas en oposición (avance = rotación negativa)
+              tLLegX = -s * hipAmp;
+              tRLegX = s * hipAmp;
+              // Rodilla: flexión máxima en la fase de recobro (pierna pasando bajo el cuerpo hacia delante),
+              // leve amortiguación en el apoyo y talón alto al esprintar
+              const swingL = Math.max(0, c);
+              const swingR = Math.max(0, -c);
+              tLKneeX = 0.10 + kneeAmp * Math.pow(swingL, 1.4) + 0.14 * gaitW * Math.max(0, s) * (1 - swingL);
+              tRKneeX = 0.10 + kneeAmp * Math.pow(swingR, 1.4) + 0.14 * gaitW * Math.max(0, -s) * (1 - swingR);
+
+              // Brazos contrarios a las piernas con codos más cerrados al esprintar
+              tLArmX = s * armAmp + 0.04;
+              tRArmX = -s * armAmp + 0.04;
+              tLArmZ = -0.10 - 0.05 * sprintF;
+              tRArmZ = 0.10 + 0.05 * sprintF;
+              const elbowBase = 0.30 + (0.55 + 0.45 * sprintF) * gaitW;
+              tLElbowX = -elbowBase - 0.22 * gaitW * Math.max(0, -s);
+              tRElbowX = -elbowBase - 0.22 * gaitW * Math.max(0, s);
+
+              // Rebote vertical (2 por zancada), inclinación del tronco hacia delante y contra-rotación de hombros
+              tBodyY = Math.abs(s) * Math.min(0.055, 0.007 * mps) * gaitW - 0.012 * gaitW;
+              tTorsoRX = 0.03 + Math.min(0.30, 0.028 * mps) * gaitW;
+              tTorsoRY = s * (0.05 + 0.06 * sprintF) * gaitW;
+              tBodyRZ = c * 0.025 * gaitW;
+
+              // Inclinación hacia el interior de la curva al cambiar de dirección a velocidad
+              tBodyRZ += clamp(-angleDiff * 0.9 * Math.min(1, mps / 6), -0.18, 0.18);
+
+              if (gaitW < 1) {
+                // Reposo activo: respiración, peso repartido, rodillas ligeramente flexionadas
+                const idleW = 1 - gaitW;
+                const br = Math.sin(nowSec * 2.2 + idx * 0.7);
+                tBodyY += br * 0.006 * idleW;
+                tTorsoRX += br * 0.012 * idleW;
+                tLArmX += br * 0.03 * idleW;
+                tRArmX -= br * 0.03 * idleW;
+                tLKneeX += 0.06 * idleW;
+                tRKneeX += 0.06 * idleW;
+                tLLegZ = -0.03 * idleW;
+                tRLegZ = 0.03 * idleW;
               }
             }
+
+            m.bodyGroup.position.y = damp(m.bodyGroup.position.y, tBodyY, k);
+            m.bodyGroup.rotation.x = damp(m.bodyGroup.rotation.x, tBodyRX, k);
+            m.bodyGroup.rotation.z = damp(m.bodyGroup.rotation.z, tBodyRZ, k);
+            if (m.torsoGroup) {
+              m.torsoGroup.rotation.x = damp(m.torsoGroup.rotation.x, tTorsoRX, k);
+              m.torsoGroup.rotation.y = damp(m.torsoGroup.rotation.y, tTorsoRY, k);
+              m.torsoGroup.rotation.z = damp(m.torsoGroup.rotation.z, tTorsoRZ, k);
+            }
+            m.leftLeg.rotation.x = damp(m.leftLeg.rotation.x, tLLegX, k);
+            m.rightLeg.rotation.x = damp(m.rightLeg.rotation.x, tRLegX, k);
+            m.leftLeg.rotation.z = damp(m.leftLeg.rotation.z, tLLegZ, k);
+            m.rightLeg.rotation.z = damp(m.rightLeg.rotation.z, tRLegZ, k);
+            if (m.leftKnee) m.leftKnee.rotation.x = damp(m.leftKnee.rotation.x, tLKneeX, k);
+            if (m.rightKnee) m.rightKnee.rotation.x = damp(m.rightKnee.rotation.x, tRKneeX, k);
+            m.leftArm.rotation.x = damp(m.leftArm.rotation.x, tLArmX, k);
+            m.rightArm.rotation.x = damp(m.rightArm.rotation.x, tRArmX, k);
+            m.leftArm.rotation.z = damp(m.leftArm.rotation.z, tLArmZ, k);
+            m.rightArm.rotation.z = damp(m.rightArm.rotation.z, tRArmZ, k);
+            if (m.leftElbow) m.leftElbow.rotation.x = damp(m.leftElbow.rotation.x, tLElbowX, k);
+            if (m.rightElbow) m.rightElbow.rotation.x = damp(m.rightElbow.rotation.x, tRElbowX, k);
           });
         };
 
@@ -7500,59 +5238,62 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           posAttr.needsUpdate = true;
         }
 
-        // CÁMARA ESTILO RETRANSMISIÓN TV CON INTERPOLACIÓN SUAVE (LERP) Y ZOOM EN LAS ÁREAS
-        // Posición base lateral largo a media altura: Y: 28, Z: 42 mirando hacia el centro/balón
-        const absBallX = Math.abs(ballWX);
+        // CÁMARA ESTILO RETRANSMISIÓN TV CON DOBLE INTERPOLACIÓN EXPONENCIAL (LERP SIN TIRONES) Y ZOOM EN LAS ÁREAS
+        // Primero filtramos el punto focal del balón para absorber pases rápidos o rebotes bruscos
+        const focusAlpha = 1 - Math.exp(-3.6 * frameDt);
+        smoothFocusX += (ballWX - smoothFocusX) * focusAlpha;
+        smoothFocusZ += (ballWZ - smoothFocusZ) * focusAlpha;
+
+        const absBallX = Math.abs(smoothFocusX);
         const areaProximity = Math.max(0, Math.min(1, (absBallX - 22) / 28)); // 0 en centro, -> 1 al acercarse al área
-        const highlightBoost = currentHighlightData ? 0.55 : 0;
+        const highlightBoost = currentHighlightData ? 0.45 : 0;
         const zoomFactor = Math.min(1, areaProximity + highlightBoost);
 
         let targetCamX, targetCamY, targetCamZ, targetFov;
         let targetLookX, targetLookY, targetLookZ;
 
         if (cameraMode === "tactical") {
-          targetCamX = ballWX * 0.38;
+          targetCamX = smoothFocusX * 0.38;
           targetCamY = 44;
-          targetCamZ = 50 + ballWZ * 0.12;
+          targetCamZ = 50 + smoothFocusZ * 0.12;
           targetFov = 40;
-          targetLookX = ballWX * 0.55;
+          targetLookX = smoothFocusX * 0.55;
           targetLookY = 0.4;
-          targetLookZ = ballWZ * 0.25;
+          targetLookZ = smoothFocusZ * 0.25;
         } else if (cameraMode === "action") {
-          targetCamX = ballWX * 0.82;
+          targetCamX = smoothFocusX * 0.80;
           targetCamY = 20 - zoomFactor * 2.5;
-          targetCamZ = 31 + ballWZ * 0.32 - zoomFactor * 3.5;
+          targetCamZ = 31 + smoothFocusZ * 0.30 - zoomFactor * 3.5;
           targetFov = 33 - zoomFactor * 2.5;
-          targetLookX = ballWX * 0.94;
+          targetLookX = smoothFocusX * 0.92;
           targetLookY = 0.8;
-          targetLookZ = ballWZ * 0.48;
+          targetLookZ = smoothFocusZ * 0.45;
         } else {
-          // "broadcast" (Por defecto): Cámara TV de análisis táctico (plano abierto 12-14+ jugadores)
-          targetCamX = ballWX * (0.68 + zoomFactor * 0.12);
-          targetCamY = 34 - zoomFactor * 4.5;
-          targetCamZ = (52 - zoomFactor * 6.0) + ballWZ * 0.20;
-          targetFov = 42 - zoomFactor * 3.5;
+          // "broadcast" (Por defecto): Cámara TV cercana a la acción (Y=21.5, Z=36.0, FOV=35) con seguimiento suave y ligero zoom al área
+          targetCamX = smoothFocusX * 0.65;
+          targetCamY = 21.5 - zoomFactor * 2.2;
+          targetCamZ = (36.0 - zoomFactor * 3.2) + smoothFocusZ * 0.22;
+          targetFov = 35 - zoomFactor * 2.0;
 
-          // Encuadrar líneas tácticas de defensa y mediocampo
-          const goalFocusX = ballWX >= 0 ? (PITCH_L / 2 - 2.0) : (-PITCH_L / 2 + 2.0);
-          targetLookX = ballWX * (1 - zoomFactor * 0.30) + goalFocusX * (zoomFactor * 0.30);
-          targetLookY = 0.8 + Math.min(1.2, (ballWY - ballRadius) * 0.22);
-          targetLookZ = ballWZ * 0.32 - 2.5 * (1 - zoomFactor * 0.45);
+          targetLookX = smoothFocusX * 0.72;
+          targetLookY = 0.55;
+          targetLookZ = smoothFocusZ * 0.28 - 1.2;
         }
 
-        // Interpolación muy suave (factor 0.04) para evitar tirones en pases rápidos
-        const camLerp = currentHighlightData ? 0.14 : 0.04;
-        camera.position.x += (targetCamX - camera.position.x) * camLerp;
-        camera.position.y += (targetCamY - camera.position.y) * camLerp;
-        camera.position.z += (targetCamZ - camera.position.z) * camLerp;
+        // Interpolación exponencial independiente de FPS (1 - exp(-k * dt)) para eliminar cualquier tirón
+        const camPosLerp = 1 - Math.exp(-3.0 * frameDt);
+        const camLookLerp = 1 - Math.exp(-3.8 * frameDt);
+        camera.position.x += (targetCamX - camera.position.x) * camPosLerp;
+        camera.position.y += (targetCamY - camera.position.y) * camPosLerp;
+        camera.position.z += (targetCamZ - camera.position.z) * camPosLerp;
 
-        camLookCurrent.x += (targetLookX - camLookCurrent.x) * (camLerp * 1.25);
-        camLookCurrent.y += (targetLookY - camLookCurrent.y) * (camLerp * 1.25);
-        camLookCurrent.z += (targetLookZ - camLookCurrent.z) * (camLerp * 1.25);
+        camLookCurrent.x += (targetLookX - camLookCurrent.x) * camLookLerp;
+        camLookCurrent.y += (targetLookY - camLookCurrent.y) * camLookLerp;
+        camLookCurrent.z += (targetLookZ - camLookCurrent.z) * camLookLerp;
         camera.lookAt(camLookCurrent);
 
-        if (Math.abs(camera.fov - targetFov) > 0.05) {
-          camera.fov += (targetFov - camera.fov) * camLerp;
+        if (Math.abs(camera.fov - targetFov) > 0.02) {
+          camera.fov += (targetFov - camera.fov) * camPosLerp;
           camera.updateProjectionMatrix();
         }
 
@@ -7576,40 +5317,63 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
     function drawPitch() {
       if (!canvas) return;
 
+      const nowTs = performance.now();
+      const dtSec = lastRealTimeTs !== null
+        ? Math.min(0.05, Math.max(0.004, (nowTs - lastRealTimeTs) / 1000))
+        : (1 / 60);
+      lastRealTimeTs = nowTs;
+
       // Inicializar motor 3D Three.js si está disponible (para jugadas clave)
       ensureThreeLoadedAndInit();
 
-      // Si hay una jugada clave activa (ataque relevante, ocasión, parada, bloqueo o balón parado), renderizar en 3D
-      const is3DHighlightActive = Boolean(currentHighlightData || simulator.isHighlightRunning || simulator.isSetPieceRunning);
+      // Si hay un highlight o jugada a balón parado activa, avanzar el replayBuffer a 1x (60 FPS interpolados)
+      // sin que ninguna animación legacy sobreescriba curX/curY de home2D y away2D
+      const is3DHighlightActive = Boolean(simulator.activeReplay || simulator.isHighlightRunning || simulator.isSetPieceRunning);
+      if (is3DHighlightActive && typeof simulator.stepReplayPlayback === "function") {
+        simulator.stepReplayPlayback(dtSec);
+      }
 
-      if (is3DHighlightActive && currentHighlightData) {
+      if (is3DHighlightActive) {
         if (threeEngine && canvas3d) {
           canvas3d.style.display = "block";
           canvas.style.display = "none";
-          drawFrontalHighlightScene(null, 800, 450, currentHighlightData, true);
 
-          // Buscar al futbolista poseedor o más cercano al balón en 3D
-          let closestLiveP = null;
-          let minLiveDist = 999;
-          [...simulator.home2D, ...simulator.away2D].forEach(p => {
-            const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
-            if (d < minLiveDist) {
-              minLiveDist = d;
-              closestLiveP = p;
-            }
-          });
+          // Buscar al futbolista poseedor o más cercano al balón en el replay 3D
+          let closestLiveP = simulator.ball.carrier || null;
+          let minLiveDist = closestLiveP ? 0.5 : 999;
+          if (!closestLiveP) {
+            [...simulator.home2D, ...simulator.away2D].forEach(p => {
+              const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+              if (d < minLiveDist) {
+                minLiveDist = d;
+                closestLiveP = p;
+              }
+            });
+          }
           threeEngine.updateAndRender(closestLiveP, minLiveDist);
         } else {
           if (canvas3d) canvas3d.style.display = "none";
           canvas.style.display = "block";
           if (!ctx) ctx = canvas.getContext("2d");
-          resizeCanvas();
-          drawFrontalHighlightScene(ctx, canvas.width, canvas.height, currentHighlightData, false);
-          drawWeatherOverlay(ctx, canvas.width, canvas.height, matchWeather.id);
+          if (ctx) {
+            resizeCanvas();
+            const w = canvas.width;
+            const h = canvas.height;
+            const pDim = drawPitch2D(ctx, w, h);
+            const { padX, padY, pitchW, pitchH, dpr } = pDim;
+            simulator.home2D.forEach(p => {
+              drawPlayerToken2D(ctx, p, "home", (p === simulator.ball.carrier), padX, padY, pitchW, pitchH, dpr);
+            });
+            simulator.away2D.forEach(p => {
+              drawPlayerToken2D(ctx, p, "away", (p === simulator.ball.carrier), padX, padY, pitchW, pitchH, dpr);
+            });
+            drawBallToken2D(ctx, simulator.ball.x, simulator.ball.y, padX, padY, pitchW, pitchH, dpr);
+            drawWeatherOverlay(ctx, w, h, matchWeather.id);
+          }
         }
       } else {
         // MODO FAST_SIM (Tiempo entre jugadas clave):
-        // Mostrar exclusivamente la simulación táctica en 2D con las fichas y dibujo táctico en el césped
+        // Mostrar las posiciones físicas reales curX/curY calculadas por el motor autónomo a 20 Hz sin sobreescribirlas
         if (canvas3d) canvas3d.style.display = "none";
         canvas.style.display = "block";
         if (!ctx) ctx = canvas.getContext("2d");
@@ -7618,28 +5382,18 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
           const w = canvas.width;
           const h = canvas.height;
 
-          // Interpolación suave y orgánica de las fichas 2D hacia sus anclas tácticas
-          simulator.ball.x += ((simulator.ball.targetX ?? simulator.ball.x) - simulator.ball.x) * 0.14;
-          simulator.ball.y += ((simulator.ball.targetY ?? simulator.ball.y) - simulator.ball.y) * 0.14;
-          simulator.home2D.forEach(p => {
-            p.curX += ((p.targetX ?? p.curX) - p.curX) * 0.12;
-            p.curY += ((p.targetY ?? p.curY) - p.curY) * 0.12;
-          });
-          simulator.away2D.forEach(p => {
-            p.curX += ((p.targetX ?? p.curX) - p.curX) * 0.12;
-            p.curY += ((p.targetY ?? p.curY) - p.curY) * 0.12;
-          });
-
           // Buscar jugador poseedor o más cercano al balón en 2D
-          let closestLiveP = null;
-          let minLiveDist = 999;
-          [...simulator.home2D, ...simulator.away2D].forEach(p => {
-            const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
-            if (d < minLiveDist) {
-              minLiveDist = d;
-              closestLiveP = p;
-            }
-          });
+          let closestLiveP = simulator.ball.carrier || null;
+          let minLiveDist = closestLiveP ? 0.5 : 999;
+          if (!closestLiveP) {
+            [...simulator.home2D, ...simulator.away2D].forEach(p => {
+              const d = Math.hypot(p.curX - simulator.ball.x, p.curY - simulator.ball.y);
+              if (d < minLiveDist) {
+                minLiveDist = d;
+                closestLiveP = p;
+              }
+            });
+          }
 
           const pDim = drawPitch2D(ctx, w, h);
           const { padX, padY, pitchW, pitchH, dpr } = pDim;
@@ -8077,6 +5831,25 @@ export function renderMatchView(container, gameState, onMatchFinished, onBackToH
         simulator.showKeyHighlights = userShowHighlights;
         updateHlModeUI();
         showMatchAlert({ text: userShowHighlights ? "🎬 Jugadas clave activadas (Modo visualización)" : "⚡ Jugadas clave en modo rápido (Resolución directa)" });
+      };
+    }
+
+    // Toggle de Pantalla Completa / Vista Panorámica Ampliada 16:9
+    const btnToggleFs = container.querySelector("#btn-toggle-fullscreen");
+    const viewportWrapper = container.querySelector("#match-viewport-wrapper");
+    if (btnToggleFs && viewportWrapper) {
+      btnToggleFs.onclick = () => {
+        if (!document.fullscreenElement) {
+          if (viewportWrapper.requestFullscreen) {
+            viewportWrapper.requestFullscreen().catch(() => {});
+          } else if (viewportWrapper.webkitRequestFullscreen) {
+            viewportWrapper.webkitRequestFullscreen();
+          }
+        } else {
+          if (document.exitFullscreen) {
+            document.exitFullscreen().catch(() => {});
+          }
+        }
       };
     }
 

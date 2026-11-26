@@ -596,6 +596,26 @@ export function renderTacticsView(container, gameState, onSaveTactics, onBackToH
                   }).join('')}
                 </div>
               </div>
+
+              <!-- Anchura Defensiva (Control de Bandas) -->
+              <div>
+                <div class="text-[10px] font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                  <span>Anchura Defensiva (Control de Bandas)</span>
+                  <span class="text-rose-400 font-mono text-[9px]">${TACTICAL_OPTIONS.defenseWidth.find(o => o.id === (tactics.instructions.outOfPossession.defenseWidth || 'balanced'))?.label || 'Equilibrada'}</span>
+                </div>
+                <div class="grid grid-cols-3 gap-1.5">
+                  ${TACTICAL_OPTIONS.defenseWidth.map(opt => {
+                    const isSel = (tactics.instructions.outOfPossession.defenseWidth || 'balanced') === opt.id;
+                    return `
+                      <button class="btn-tactic-opt p-2 rounded-xl border text-center transition flex flex-col items-center justify-center ${isSel ? 'bg-rose-500/25 border-rose-400 text-white shadow-sm ring-1 ring-rose-400' : 'bg-slate-950/70 border-slate-800 text-slate-300 hover:border-slate-700 active:scale-98'}" data-phase="outOfPossession" data-param="defenseWidth" data-val="${opt.id}">
+                        <span class="text-sm mb-0.5">${opt.icon}</span>
+                        <span class="text-[11px] font-bold ${isSel ? 'text-rose-300' : 'text-slate-200'}">${opt.label}</span>
+                        <span class="text-[8px] text-slate-400 leading-tight mt-0.5 line-clamp-1">${opt.desc}</span>
+                      </button>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
             </div>
 
             <!-- Panel de Análisis del Impacto en el Motor -->
